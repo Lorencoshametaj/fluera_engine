@@ -18,10 +18,13 @@ class HandwritingScratchpad extends StatefulWidget {
   });
 
   @override
-  State<HandwritingScratchpad> createState() => _HandwritingScratchpadState();
+  State<HandwritingScratchpad> createState() => HandwritingScratchpadState();
 }
 
-class _HandwritingScratchpadState extends State<HandwritingScratchpad> with TickerProviderStateMixin {
+/// State exposed publicly so callers (e.g. an exam page that needs to flush
+/// the OCR debounce before submitting) can grab a `GlobalKey` and invoke
+/// [flushPendingRecognition] / [hasUnconfirmedStrokes].
+class HandwritingScratchpadState extends State<HandwritingScratchpad> with TickerProviderStateMixin {
   final List<List<ProDrawingPoint>> _strokes = [];
   List<ProDrawingPoint> _currentStroke = [];
   Timer? _debounceTimer;
@@ -159,6 +162,23 @@ class _HandwritingScratchpadState extends State<HandwritingScratchpad> with Tick
     } finally {
       if (mounted) setState(() => _isRecognizing = false);
     }
+  }
+
+  /// True when the user has drawn strokes that have NOT yet been recognized
+  /// (debounce timer pending or recognition in flight). Callers can read this
+  /// to warn before dismissing the page (e.g. PopScope guard).
+  bool get hasUnconfirmedStrokes =>
+      _strokes.isNotEmpty || _isRecognizing || (_debounceTimer?.isActive ?? false);
+
+  /// Force-trigger recognition immediately, bypassing the 1.2s debounce.
+  /// Awaits the OCR call so the parent can synchronously consume the
+  /// recognized text. Use this before submitting an answer to avoid losing
+  /// the last few characters the user just wrote.
+  Future<void> flushPendingRecognition() async {
+    _debounceTimer?.cancel();
+    _countdownController.reset();
+    if (_strokes.isEmpty) return;
+    await _recognizeInk();
   }
 
   void _clear() {

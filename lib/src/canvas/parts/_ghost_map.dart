@@ -92,15 +92,7 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
     );
     final viewportRect = Rect.fromPoints(topLeft, bottomRight);
 
-    final activeLayer = _layerController.layers.firstWhere(
-      (l) => l.id == _layerController.activeLayerId,
-      orElse: () => _layerController.layers.first,
-    );
-
-    final strokeMap = <String, ProStroke>{};
-    for (final s in activeLayer.strokes) {
-      strokeMap[s.id] = s;
-    }
+    final index = _clusterConceptIndex;
 
     final textMap = <String, DigitalTextElement>{};
     for (final t in _digitalTextElements) {
@@ -125,31 +117,29 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
         }
       }
 
-      // Collect stroke data for recognition
-      final strokeSets = <List<ProDrawingPoint>>[];
-      for (final sid in cluster.strokeIds) {
-        final stroke = strokeMap[sid];
-        if (stroke != null && !stroke.isStub && stroke.points.length >= 3) {
-          strokeSets.add(stroke.points);
-        }
+      // 🧠 OCR via ClusterConceptIndex — shared with Semantic / Exam /
+      // Socratic. Ghost Map asks for cleanedOcr + concepts (NER-light)
+      // because the gap analysis benefits from accurate concept tokens.
+      String? recognized;
+      if (cluster.strokeIds.isNotEmpty && index != null) {
+        final concept = await index.resolve(
+          cluster,
+          needsCleanedOcr: true,
+          needsConcepts: true,
+        );
+        recognized = concept.bestPromptSource;
       }
 
-      if (strokeSets.isEmpty && textParts.isEmpty) {
+      if (recognized == null && textParts.isEmpty) {
         _clusterTextCache[cluster.id] = '';
         continue;
       }
 
-      // 🔤 Sequential recognition — force TEXT mode (not auto/math)
-      if (strokeSets.isNotEmpty && inkService.isAvailable) {
-        final recognized = await inkService.engine.recognizeTextMode(strokeSets);
-        final parts = [...textParts];
-        if (recognized != null && recognized.isNotEmpty) {
-          parts.add(recognized);
-        }
-        _clusterTextCache[cluster.id] = parts.join(' ');
-      } else if (textParts.isNotEmpty) {
-        _clusterTextCache[cluster.id] = textParts.join(' ');
+      final parts = [...textParts];
+      if (recognized != null && recognized.isNotEmpty) {
+        parts.add(recognized);
       }
+      _clusterTextCache[cluster.id] = parts.join(' ');
     }
   }
 
@@ -200,10 +190,37 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
       if (text != null && text.trim().isNotEmpty) {
         clusterTexts[cluster.id] = text;
       }
-      // Semantic titles from SemanticMorphController
-      final title = _semanticMorphController?.aiTitles[cluster.id];
+      // Semantic titles — prefer SemanticMorphController (for painter
+      // compat) but fallback to ClusterConceptIndex so titles generated
+      // by Exam / Socratic (without zoom-out) are still surfaced.
+      final title = _semanticMorphController?.aiTitles[cluster.id] ??
+          _clusterConceptIndex?.peek(cluster.id)?.title;
       if (title != null) {
         clusterTitles[cluster.id] = title;
+      }
+    }
+
+    // 🧠 Bulk title generation (no zoom-out path). If Ghost Map runs
+    // before Semantic Titles ever activated, the index has no titles
+    // and the ghost map AI prompt loses the most useful context
+    // signal. Trigger a batch fill before the main Gemini call.
+    if (_clusterConceptIndex != null && clusterTexts.isNotEmpty) {
+      try {
+        final pending = <String, String>{};
+        for (final entry in clusterTexts.entries) {
+          if (clusterTitles.containsKey(entry.key)) continue;
+          pending[entry.key] = entry.value;
+        }
+        if (pending.isNotEmpty) {
+          await _clusterConceptIndex!.bulkGenerateTitles(pending);
+          // Re-pull any titles that were just generated.
+          for (final cid in pending.keys) {
+            final t = _clusterConceptIndex!.peek(cid)?.title;
+            if (t != null) clusterTitles[cid] = t;
+          }
+        }
+      } catch (_) {
+        // Defensive: never block ghost map on a title generation hiccup.
       }
     }
 
@@ -279,6 +296,12 @@ extension FlueraGhostMapExtension on _FlueraCanvasScreenState {
     // 🗺️ Post-process: enrich ghost nodes with Passo 3 data
     if (controller.isActive && controller.result != null) {
       _enrichGhostNodesFromSocratic(controller.result!, socraticData);
+      // 🧠 Cross-feature concept tracking (path 3 of consolidation sprint).
+      // Each ghost node names a concept anchored to a cluster. Pushing the
+      // concept names into the index lets Socratic and Exam see them when
+      // they call `recentQuestionsFor` / `srsFor` — closing the loop on
+      // "Ghost Map flagged X as a gap → Socratic should drill into X".
+      _populateConceptsFromGhostMap(controller.result!);
     }
 
     // Dismiss loading snackbar

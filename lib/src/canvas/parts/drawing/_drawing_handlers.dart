@@ -249,7 +249,6 @@ extension on _FlueraCanvasScreenState {
               _imageRepaintNotifier.value++;
               HapticFeedback.mediumImpact();
               // 🔴 RT: Broadcast rotation reset to collaborators
-              _broadcastImageUpdate(resetImage);
               _lastImageTapTime = 0; // Prevent triple-tap
               _gestureRebuildNotifier.value++; // 🌀 Rebuild gesture layer
               _uiRebuildNotifier.value++;
@@ -436,9 +435,23 @@ extension on _FlueraCanvasScreenState {
       _uiRebuildNotifier.value++;
     }
 
-    // If digital text mode is active and no text was hit, create new inline text
+    // If digital text mode is active and no text was hit, create new inline
+    // text — but DEFER it ~120 ms so a 2-finger pan/zoom (whose 2nd finger
+    // arrives a few ms after the 1st) can abort via `_onDrawCancel` before
+    // the inline editor flashes on screen.
     if (_effectiveIsDigitalText) {
-      _startInlineTextCreation(canvasPosition);
+      _pendingDigitalTextTimer?.cancel();
+      _pendingDigitalTextPosition = canvasPosition;
+      _pendingDigitalTextTimer = Timer(
+        const Duration(milliseconds: 120),
+        () {
+          final pos = _pendingDigitalTextPosition;
+          _pendingDigitalTextPosition = null;
+          _pendingDigitalTextTimer = null;
+          if (!mounted || pos == null) return;
+          _startInlineTextCreation(pos);
+        },
+      );
       return;
     }
 
@@ -455,6 +468,17 @@ extension on _FlueraCanvasScreenState {
 
     // If lasso mode is active (but no selection or tapped outside), start new lasso
     if (_effectiveIsLasso) {
+      // 🤏 PINCH GRACE: If a 2-finger pinch on the selection just ended
+      // (user lifted one of the two fingers), the remaining finger's tap
+      // arrives here. Without this guard `startLasso` would clearSelection
+      // and the user's selection "disappears" — the bug they reported.
+      final sincePinch = DateTime.now().millisecondsSinceEpoch -
+          _lastSelectionPinchEndMs;
+      if (sincePinch < _FlueraCanvasScreenState._kSelectionPinchGraceMs &&
+          _lassoTool.hasSelection) {
+        _uiRebuildNotifier.value++;
+        return;
+      }
       // #1/#3: If lasso was activated via gestural tap+drag, DON'T start a new
       // lasso here — that would call clearSelection() and destroy the previous
       // selection before a second tap+drag can add to it. Just return early.
@@ -911,6 +935,13 @@ extension on _FlueraCanvasScreenState {
     // 🌫️ FOG: Discard pending fog tap — the gesture became a pinch.
     _pendingFogTapPosition = null;
 
+    // 📝 DIGITAL TEXT: Abort the deferred inline-text creation if a 2nd
+    // finger lands within the grace window. Without this, 2-finger
+    // pan/zoom flashes a brief inline editor every time.
+    _pendingDigitalTextTimer?.cancel();
+    _pendingDigitalTextTimer = null;
+    _pendingDigitalTextPosition = null;
+
     // Reset drawing state flag
     _isDrawingNotifier.value = false;
     CanvasPerformanceMonitor.instance.notifyDrawingEnded(); // 🚀 Resume overlay
@@ -1167,7 +1198,6 @@ extension on _FlueraCanvasScreenState {
     if (_imageTool.selectedImage != null) {
       _layerController.updateImage(_imageTool.selectedImage!);
       // 🔴 RT: Broadcast two-finger scale/rotate to collaborators
-      _broadcastImageUpdate(_imageTool.selectedImage!);
       _imageTool.endRotation();
       // 🖼️ Rebuild R-tree + invalidate cache so the standard paint path
       // picks up the new rotation (without this, the old cached picture
@@ -1275,6 +1305,10 @@ extension on _FlueraCanvasScreenState {
 
   void _onSelectionScaleEnd() {
     _isSelectionPinching = false;
+    // 🤏 Grace window: if the user lifted one finger from a 2-finger pinch
+    // and taps again right away, _onDrawStart will skip the new lasso so
+    // the existing selection survives instead of being cleared.
+    _lastSelectionPinchEndMs = DateTime.now().millisecondsSinceEpoch;
     _selectionPrevRotation = 0.0;
     _selectionPrevScale = 1.0;
     _selectionAccumRotation = 0.0;
@@ -2612,33 +2646,75 @@ extension _NativeCoalescedIngestion on _FlueraCanvasScreenState {
     if (_effectiveIsPanMode) return;
     if (_toolController.isPenToolMode) return;
     if (_effectivePenType == ProPenType.technicalPen) return;
-    if (!_drawingHandler.hasStroke) return;
 
     final rb = _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
     if (rb == null) return;
 
-    // Native x/y are in the FlutterViewController.view coordinate space
-    // (logical pixels). The canvas widget is offset by toolbar/chrome, so
-    // subtract the canvas-area global origin before screenToCanvas.
+    // 🚨 Coordinate-space normalisation:
+    //   - iOS (UITouch.locationIn): logical points (already DP-equivalent).
+    //   - Android (MotionEvent.getX/getY in dispatchTouchEvent): RAW PIXELS.
+    //     Flutter's `RenderBox.localToGlobal` returns LOGICAL PIXELS (DP).
+    //     Mixing the two units in the same subtraction misplaces every
+    //     native sample by a factor of `devicePixelRatio` → samples land
+    //     hundreds of canvas-px from the live finger → "retta dritta"
+    //     between the (correct) Flutter ACTION_DOWN sample and the (wrong)
+    //     native ACTION_MOVE samples. Divide native coords by DPR on
+    //     Android to bring them into logical-pixel space before subtracting
+    //     the canvas-area origin.
     final canvasOrigin = rb.localToGlobal(Offset.zero);
+    final nativeCoordScale = Platform.isAndroid
+        ? MediaQuery.of(context).devicePixelRatio
+        : 1.0;
 
-    final canvasPositions = <Offset>[];
-    final pressures = <double>[];
-    final timestamps = <int>[];
+    // 🚀 Append native samples DIRECTLY to the live notifier list.
+    //
+    // Why not `ingestCoalescedBatch` (the original path)?
+    //   The handler's `addPointsBatch` runs each native sample through
+    //   `OneEuroFilter` + `Stabilizer`. Both keep timestamp-based state.
+    //   Native MotionEvent timestamps are SystemClock.uptimeMillis on
+    //   Android (and UITouch.timestamp seconds on iOS), but the Flutter
+    //   `updateStroke` path writes `DateTime.now().millisecondsSinceEpoch`
+    //   (wallclock). Mixing the two clock domains in the same filter
+    //   destroys its dt computation → most intermediate samples get
+    //   collapsed and the committed stroke is just `[firstPoint, lastPoint]`
+    //   → the "retta dritta" Android bug.
+    //
+    // The notifier's `value` is the same List object as
+    // `_drawingHandler._currentStroke` (passed by reference through the
+    // `onPointsUpdated → setStroke` callback at startStroke), so an
+    // in-place append synchronises both buffers without going through the
+    // filter pipeline. `markNativeIngest()` keeps `nativeInputAuthoritative`
+    // true (gates the 60Hz `updateStroke` and the predicted-tail overlay)
+    // and flags `nativeWasUsedThisStroke` for the snap-trim suppression
+    // on commit. This applies in BOTH 60Hz and 120Hz modes.
+    if (!_drawingHandler.hasStroke) return;
+    final liveList = _currentStrokeNotifier.value;
+    if (liveList.isEmpty) return;
+
+    bool appended = false;
     for (final p in points) {
-      final screenPos = Offset(p.x, p.y);
-      final canvasAreaLocal = screenPos - canvasOrigin;
-      final canvasPoint = _canvasController.screenToCanvas(canvasAreaLocal);
-      canvasPositions.add(canvasPoint);
-      pressures.add(p.pressure);
-      timestamps.add(p.timestamp);
+      final logicalScreen =
+          Offset(p.x / nativeCoordScale, p.y / nativeCoordScale);
+      final canvasPos =
+          _canvasController.screenToCanvas(logicalScreen - canvasOrigin);
+      final last = liveList.last;
+      // De-dup: same Flutter event may surface via both paths.
+      if (last.position == canvasPos && last.timestamp == p.timestamp) {
+        continue;
+      }
+      liveList.add(
+        ProDrawingPoint(
+          position: canvasPos,
+          pressure: p.pressure,
+          timestamp: p.timestamp,
+        ),
+      );
+      appended = true;
     }
-
-    _drawingHandler.ingestCoalescedBatch(
-      canvasSpacePositions: canvasPositions,
-      pressures: pressures,
-      timestamps: timestamps,
-    );
+    if (appended) {
+      _drawingHandler.markNativeIngest();
+      _currentStrokeNotifier.forceRepaint();
+    }
     // AdaptiveDebouncerService is notified via onPointsUpdated inside
     // _drawingHandler. Scratch-out real-time partial analysis is not wired
     // to this path: it lives in _onDrawUpdate and runs whenever the Flutter

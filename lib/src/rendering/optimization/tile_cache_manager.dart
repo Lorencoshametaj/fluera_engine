@@ -56,11 +56,14 @@ import 'package:flutter/material.dart';
 class TileCacheManager {
   /// Edge length of each tile in canvas units.
   ///
-  /// 4096 balances per-tile rebuild cost against per-frame draw call count:
-  /// large enough that a 1080p viewport at scale 1.0 fits in ~3×2 tiles,
-  /// small enough that rebuilding one tile at full quality stays under
-  /// the per-frame budget.
-  static const double tileSize = 4096.0;
+  /// 🎚️ D: 2048 (was 4096). Halving the tile dimension means a single
+  /// rebuild touches ~4× fewer strokes (R-tree query smaller, BrushEngine
+  /// stamp count smaller), so the per-tile rebuild fits in ~1 ms instead
+  /// of 3-5 ms. With the 4 ms per-frame budget we now bake ~4 tiles per
+  /// frame instead of 1, so the cache populates 4× faster on first entry
+  /// into a fresh region. Per-tier memory is unchanged: the 4× tile-count
+  /// inflation is offset by 4× smaller Picture command lists.
+  static const double tileSize = 2048.0;
 
   /// Maximum cached tiles per LOD tier (LRU-evicted).
   ///
@@ -84,6 +87,29 @@ class TileCacheManager {
     _numTiers,
     (_) => <TileKey, int>{},
   );
+
+  // 🎚️ A: BITMAP CACHE FOR TIER 2 (thumbnails)
+  // At tier 2 the picture is just colored RRect batches covering the
+  // whole viewport; replaying that command list each frame burns GPU
+  // fillrate redundantly. Bake to a 1024² bitmap (1.7× downscale max
+  // versus the 614 px screen-coverage worst-case at scale=0.30 with
+  // 2048-unit tiles → no perceptible blur) and replay via drawImageRect
+  // (~0.2 ms/tile vs 2-4 ms picture replay). Worst-case heap: 4 MB ×
+  // 48 = 192 MB GPU. The Picture is kept alongside the Image so cross-
+  // tier parent fallback (returning Picture) keeps working unchanged.
+  static const int _bakedThumbSizePx = 1024;
+  final LinkedHashMap<TileKey, _BakedThumb> _bakedThumbsTier2 =
+      LinkedHashMap<TileKey, _BakedThumb>();
+
+  // 🎚️ F1: ASYNC BAKE QUEUE for tier 2.
+  // Synchronous toImageSync(1024×1024) costs 1-3 ms per tile on Adreno
+  // 660. With the 4 ms per-frame budget after D (tile size 2048), 3-4
+  // tiles can be rebuilt per frame, multiplying the bake cost by 3-4×
+  // and producing a 35 ms spike during fast multi-tier zoom. Deferring
+  // the bake to a post-frame callback keeps the rebuild loop fast: the
+  // tile is drawn as Picture for the current frame, then becomes a
+  // baked image from the next frame onward — invisible to the user.
+  final List<MapEntry<TileKey, ui.Picture>> _pendingBakeQueue = [];
 
   /// Frame index at which each tier was last drawn from. Used by
   /// [evictIdleTiers] to drop pictures the user has not visited recently.
@@ -136,6 +162,7 @@ class TileCacheManager {
 
   int _cacheHits = 0;
   int _cacheMisses = 0;
+  int _parentFallbackHits = 0;
 
   /// Cache hit count since last reset. A "hit" means the tile was found at
   /// the requested tier (parent fallback does NOT count as a hit).
@@ -143,6 +170,11 @@ class TileCacheManager {
 
   /// Cache miss count since last reset. Includes parent-fallback fills.
   int get cacheMisses => _cacheMisses;
+
+  /// Misses where another tier's picture was drawn as fallback. Subset of
+  /// [cacheMisses]. High counts during zoom-out indicate the painter is
+  /// rasterizing wrong-tier pictures (often more expensive than the target).
+  int get parentFallbackHits => _parentFallbackHits;
 
   /// Hit rate as a percentage (0–100). Returns 100 when no requests yet.
   double get hitRate {
@@ -154,6 +186,7 @@ class TileCacheManager {
   void resetStats() {
     _cacheHits = 0;
     _cacheMisses = 0;
+    _parentFallbackHits = 0;
   }
 
   // =========================================================================
@@ -294,7 +327,17 @@ class TileCacheManager {
     final missing = <TileKey>[];
     final tier = _tilesByTier[currentTier];
 
+    final bool isTier2 = currentTier == 2;
     for (final key in visibleKeys) {
+      // 🎚️ A: at tier 2, prefer the baked bitmap if present.
+      if (isTier2) {
+        final baked = _bakedThumbsTier2[key];
+        if (baked != null) {
+          _drawBakedThumb(canvas, key, baked);
+          _cacheHits++;
+          continue;
+        }
+      }
       final picture = tier[key];
       if (picture != null) {
         canvas.drawPicture(picture);
@@ -303,12 +346,29 @@ class TileCacheManager {
         final fallback = getParentFallback(currentTier, key);
         if (fallback != null) {
           canvas.drawPicture(fallback);
+          _parentFallbackHits++;
         }
         _cacheMisses++;
         missing.add(key);
       }
     }
     return missing;
+  }
+
+  /// Replay a tier-2 baked thumbnail at [key] onto [canvas] in canvas
+  /// coordinates. Texture sample is O(pixel coverage) without the AA
+  /// edge work of replaying the original RRect batches.
+  static final Paint _bakedThumbPaint = Paint()
+    ..filterQuality = FilterQuality.low
+    ..isAntiAlias = false;
+  void _drawBakedThumb(Canvas canvas, TileKey key, _BakedThumb baked) {
+    final size = baked.image.width.toDouble();
+    canvas.drawImageRect(
+      baked.image,
+      Rect.fromLTWH(0, 0, size, size),
+      tileBounds(key),
+      _bakedThumbPaint,
+    );
   }
 
   /// Collect missing tile keys at [tier] without drawing anything.
@@ -353,6 +413,11 @@ class TileCacheManager {
 
   /// Cache a freshly-rebuilt tile picture for ([tier], [key]). LRU-evicts
   /// the oldest tile of [tier] when the per-tier cap is exceeded.
+  ///
+  /// 🎚️ A: at tier 2 the picture is also baked to a 1024² bitmap and
+  /// stored separately. Subsequent replays use the bitmap (cheap GPU
+  /// texture sample) while the picture stays around for cross-tier
+  /// parent fallback queries.
   void cacheTile(int tier, TileKey key, ui.Picture picture, int sceneVersion) {
     final map = _tilesByTier[tier];
     final versions = _versionsByTier[tier];
@@ -364,7 +429,56 @@ class TileCacheManager {
       final oldest = map.keys.first;
       map.remove(oldest)?.dispose();
       versions.remove(oldest);
+      // Also evict the baked thumb if this tile was at tier 2.
+      _bakedThumbsTier2.remove(oldest)?.dispose();
     }
+
+    // 🎚️ A+F1: enqueue bake for tier 2; the actual toImageSync is
+    // performed by [flushPendingBakes] in a post-frame callback so the
+    // 1-3 ms-per-tile bake cost doesn't pile up inside the rebuild
+    // loop's 4 ms budget. Until the bake lands, drawWithParentFallback
+    // falls back to the Picture command list (already in `_tilesByTier`)
+    // for this key — slightly more expensive than the bitmap, but only
+    // for one or two frames.
+    if (tier == 2) {
+      _pendingBakeQueue.add(MapEntry(key, picture));
+    }
+  }
+
+  /// 🎚️ F1: drain up to [maxBakes] entries from the pending bake queue
+  /// and convert their pictures to baked thumbnails. Call from a post-
+  /// frame callback so the synchronous toImageSync cost is paid AFTER
+  /// the rebuild loop's deadline, never inside it. Returns true if more
+  /// entries remain queued (caller may schedule another flush).
+  bool flushPendingBakes({int maxBakes = 2}) {
+    if (_pendingBakeQueue.isEmpty) return false;
+    final scale = _bakedThumbSizePx / tileSize;
+    int processed = 0;
+    while (_pendingBakeQueue.isNotEmpty && processed < maxBakes) {
+      final entry = _pendingBakeQueue.removeAt(0);
+      final key = entry.key;
+      final picture = entry.value;
+      // Skip stale entries: if the picture was evicted from the tier-2
+      // cache between enqueue and now, don't bake it.
+      if (_tilesByTier[2][key] != picture) {
+        processed++;
+        continue;
+      }
+      final bounds = tileBounds(key);
+      final wrapRec = ui.PictureRecorder();
+      final wrapCanvas = Canvas(wrapRec);
+      wrapCanvas.scale(scale);
+      wrapCanvas.translate(-bounds.left, -bounds.top);
+      wrapCanvas.drawPicture(picture);
+      final bakedPic = wrapRec.endRecording();
+      final image = bakedPic.toImageSync(_bakedThumbSizePx, _bakedThumbSizePx);
+      bakedPic.dispose();
+      _bakedThumbsTier2.remove(key)?.dispose();
+      _bakedThumbsTier2[key] =
+          _BakedThumb(image, _versionsByTier[2][key] ?? -1);
+      processed++;
+    }
+    return _pendingBakeQueue.isNotEmpty;
   }
 
   /// Mark the cache as fully valid for the given counts. Called once per
@@ -391,6 +505,10 @@ class TileCacheManager {
         versions.remove(key);
       }
     }
+    // 🎚️ A: also drop tier-2 baked thumbs for these keys.
+    for (final key in keys) {
+      _bakedThumbsTier2.remove(key)?.dispose();
+    }
   }
 
   /// Invalidate every tile across every tier (e.g. on undo or full
@@ -405,6 +523,11 @@ class TileCacheManager {
     for (final v in _versionsByTier) {
       v.clear();
     }
+    // 🎚️ A: drop all tier-2 baked thumbs.
+    for (final t in _bakedThumbsTier2.values) {
+      t.dispose();
+    }
+    _bakedThumbsTier2.clear();
     _cachedStrokeCount = 0;
     _cachedVersion = -1;
   }
@@ -418,6 +541,13 @@ class TileCacheManager {
     }
     map.clear();
     _versionsByTier[tier].clear();
+    // 🎚️ A: if evicting tier 2, also drop the baked thumbs.
+    if (tier == 2) {
+      for (final t in _bakedThumbsTier2.values) {
+        t.dispose();
+      }
+      _bakedThumbsTier2.clear();
+    }
   }
 
   /// Drop tiles of any tier untouched for more than [evictAfterFrames]
@@ -435,7 +565,7 @@ class TileCacheManager {
     }
   }
 
-  /// Dispose every cached picture across every tier. Call when the canvas
+  /// Dispose every cached tile across every tier. Call when the canvas
   /// is destroyed or the engine is torn down.
   void dispose() {
     for (final map in _tilesByTier) {
@@ -447,6 +577,11 @@ class TileCacheManager {
     for (final v in _versionsByTier) {
       v.clear();
     }
+    // 🎚️ A: dispose tier-2 baked thumbs.
+    for (final t in _bakedThumbsTier2.values) {
+      t.dispose();
+    }
+    _bakedThumbsTier2.clear();
   }
 }
 
@@ -473,4 +608,19 @@ class TileKey {
 
   @override
   String toString() => 'TileKey($tx, $ty)';
+}
+
+// ===========================================================================
+// BAKED THUMB (tier 2 only)
+// ===========================================================================
+
+/// Rasterized 1024×1024 bitmap of a tier-2 tile, plus the scene version
+/// it was baked at. Used by the bake-tier-2 fast path: the Picture is
+/// still kept by the cache for cross-tier parent-fallback, but normal
+/// drawing replays this image instead of the picture command list.
+class _BakedThumb {
+  final ui.Image image;
+  final int sceneVersion;
+  const _BakedThumb(this.image, this.sceneVersion);
+  void dispose() => image.dispose();
 }

@@ -318,5 +318,14 @@ class RadialExpansionPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(RadialExpansionPainter old) => true;
+  bool shouldRepaint(RadialExpansionPainter old) {
+    // 🎚️ E: Skip repaint when nothing is animating. The widget is already
+    // unmounted by the canvas layer in idle phase, but be defensive — if
+    // it ever gets mounted with phase==idle, paint() early-returns and
+    // there's no reason to schedule a repaint each frame.
+    if (controller.phase == RadialExpansionPhase.idle) return false;
+    return animationTime != old.animationTime ||
+        canvasScale != old.canvasScale ||
+        canvasOffset != old.canvasOffset;
+  }
 }

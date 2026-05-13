@@ -450,6 +450,17 @@ class DrawingInputHandler {
   /// be in canvas/document coordinates — callers run screenToCanvas upstream
   /// because this handler is transform-agnostic. [timestamps] are ms on the
   /// uptime clock (as emitted by UITouch).
+  ///
+  /// IMPORTANT: this writes samples into the handler's internal
+  /// `_currentStroke` and triggers `onPointsUpdated` (which the canvas
+  /// screen wires to `_currentStrokeNotifier.setStroke` — a REPLACE).
+  /// Use this from the 60 Hz path (or iOS Pencil-authoritative) where
+  /// the handler buffer IS the source of truth for the live stroke.
+  /// In 120 Hz mode the live stroke lives directly in the notifier and
+  /// the handler buffer never receives Flutter samples; routing native
+  /// batches through this method would `setStroke` a stale list and
+  /// erase every Flutter sample. Use [markNativeIngest] + direct
+  /// append to `_currentStrokeNotifier.value` instead.
   void ingestCoalescedBatch({
     required List<Offset> canvasSpacePositions,
     required List<double> pressures,
@@ -463,6 +474,24 @@ class DrawingInputHandler {
       pressures: pressures,
       timestamps: timestamps,
     );
+  }
+
+  /// Mark that a native coalesced batch was observed at this instant
+  /// WITHOUT writing samples into the handler's internal `_currentStroke`.
+  ///
+  /// Used by the 120 Hz direct-notifier path
+  /// (`_NativeCoalescedIngestion._onNativeCoalescedBatch`) where samples
+  /// are appended directly to `_currentStrokeNotifier.value` to avoid the
+  /// destructive `onPointsUpdated → setStroke` overwrite that would
+  /// otherwise wipe the live stroke list — see [ingestCoalescedBatch]
+  /// for the buffer-routing rationale.
+  ///
+  /// Keeps [nativeInputAuthoritative] true for [_nativeStaleThresholdMs]
+  /// (gates 60 Hz `updateStroke` + the predicted-tail overlay) and flags
+  /// [nativeWasUsedThisStroke] for the snap-trim suppression on commit.
+  void markNativeIngest() {
+    _lastNativeIngestMs = DateTime.now().millisecondsSinceEpoch;
+    _nativeWasUsedThisStroke = true;
   }
 
   /// 🎨 Complete the current stroke

@@ -126,35 +126,29 @@ class _LassoSelectionOverlayState extends State<LassoSelectionOverlay>
       return const SizedBox.shrink();
     }
 
-    return FadeTransition(
-      opacity: _entryAnimation,
-      child: ScaleTransition(
-        scale: Tween<double>(begin: 0.95, end: 1.0).animate(_entryAnimation),
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_pulseAnimation, _flowController]),
-          builder: (context, child) {
-            return Stack(
-              children: [
-                IgnorePointer(
-                  child: CustomPaint(
-                    painter: _SelectionHighlightPainter(
-                      selectedIds: widget.selectedIds,
-                      layerController: widget.layerController,
-                      animationValue: _pulseAnimation.value,
-                      flowValue: _flowController.value,
-                      canvasController: widget.canvasController,
-                      isDragging: widget.isDragging,
-                      featherRadius: widget.featherRadius,
-                      selectionBounds: widget.selectionBounds,
-                    ),
-                    child: const SizedBox.expand(),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+    // 🐛 BISECT: temporarily strip FadeTransition + ScaleTransition that wrap
+    // a fullscreen SizedBox.expand. On Impeller-Vulkan this combo triggers
+    // a fullscreen saveLayer + Transform that washes the canvas grey and
+    // captures all input on Android.
+    return AnimatedBuilder(
+      animation: Listenable.merge([_pulseAnimation, _flowController]),
+      builder: (context, child) {
+        return IgnorePointer(
+          child: CustomPaint(
+            painter: _SelectionHighlightPainter(
+              selectedIds: widget.selectedIds,
+              layerController: widget.layerController,
+              animationValue: _pulseAnimation.value,
+              flowValue: _flowController.value,
+              canvasController: widget.canvasController,
+              isDragging: widget.isDragging,
+              featherRadius: widget.featherRadius,
+              selectionBounds: widget.selectionBounds,
+            ),
+            child: const SizedBox.expand(),
+          ),
+        );
+      },
     );
   }
 
@@ -272,57 +266,12 @@ class _SelectionHighlightPainter extends CustomPainter {
     );
 
     // =========================================================================
-    // Selection Mask Dimming — dim non-selected area (Procreate-style)
-    // =========================================================================
-    if (selectedIds.isNotEmpty && !isDragging) {
-      // Collect screen-space bounding rects for all selected elements
-      final selectedRects = <Rect>[];
-
-      for (final stroke in activeLayer.strokes) {
-        if (!selectedIds.contains(stroke.id)) continue;
-        final bounds = _getStrokeScreenBounds(stroke);
-        if (bounds != null) selectedRects.add(bounds.inflate(4));
-      }
-      for (final shape in activeLayer.shapes) {
-        if (!selectedIds.contains(shape.id)) continue;
-        final startScreen = canvasController.canvasToScreen(shape.startPoint);
-        final endScreen = canvasController.canvasToScreen(shape.endPoint);
-        selectedRects.add(Rect.fromPoints(startScreen, endScreen).inflate(4));
-      }
-      for (final text in activeLayer.texts) {
-        if (!selectedIds.contains(text.id)) continue;
-        final pos = canvasController.canvasToScreen(text.position);
-        final w = text.fontSize * text.text.length * 0.6 * text.scale;
-        final h = text.fontSize * 1.4 * text.scale;
-        selectedRects.add(Rect.fromLTWH(pos.dx, pos.dy, w, h).inflate(4));
-      }
-      for (final image in activeLayer.images) {
-        if (!selectedIds.contains(image.id)) continue;
-        final pos = canvasController.canvasToScreen(image.position);
-        final imgSize = 200.0 * image.scale; // estimated default size
-        selectedRects.add(Rect.fromLTWH(pos.dx, pos.dy, imgSize, imgSize).inflate(4));
-      }
-
-      if (selectedRects.isNotEmpty) {
-        // Build a path that covers the full canvas MINUS the selected areas
-        final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
-        final dimPath = Path()..addRect(fullRect);
-
-        for (final r in selectedRects) {
-          dimPath.addRRect(RRect.fromRectAndRadius(r, const Radius.circular(4)));
-        }
-        dimPath.fillType = PathFillType.evenOdd;
-
-        // #3: Improved dimming — subtle indigo-tinted overlay
-        final dimAlpha = 0.15 + animationValue * 0.03;
-        final dimPaint = Paint()
-          ..color = const Color(0xFF1E1B4B).withValues(alpha: dimAlpha);
-        if (featherRadius > 0) {
-          dimPaint.maskFilter = MaskFilter.blur(BlurStyle.normal, featherRadius * 0.5);
-        }
-        canvas.drawPath(dimPath, dimPaint);
-      }
-    }
+    // Selection Mask Dimming REMOVED.
+    // The previous Procreate-style fullscreen dim (indigo 0xFF1E1B4B at
+    // alpha 0.15-0.18 over `fullRect` minus selected-item bounds) was being
+    // perceived as a grey wash over the canvas as soon as a lasso selection
+    // closed. The per-element highlights below already mark what's selected,
+    // so the screen-wide dim is unnecessary.
 
     // =========================================================================
     // Element Highlights
@@ -673,8 +622,13 @@ class _SelectionHighlightPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // Corner handles (hidden during drag-move)
-    if (!isDragging) _drawCornerHandles(canvas, expandedRect);
+    // Corner handles (hidden during drag-move).
+    // When 2+ items are selected the unified bounding box already shows
+    // 4 corner anchors → drawing per-element handles too means they sit
+    // INSIDE the unified box, overlapping the selected content.
+    if (!isDragging && selectedIds.length == 1) {
+      _drawCornerHandles(canvas, expandedRect);
+    }
   }
 
   void _drawTextHighlight(Canvas canvas, DigitalTextElement text) {
@@ -840,8 +794,10 @@ class _SelectionHighlightPainter extends CustomPainter {
         ..style = PaintingStyle.fill,
     );
 
-    // Corner handles (hidden during drag-move)
-    if (!isDragging) _drawCornerHandles(canvas, expandedRect);
+    // Corner handles — single-selection only (see stroke highlight).
+    if (!isDragging && selectedIds.length == 1) {
+      _drawCornerHandles(canvas, expandedRect);
+    }
   }
 
   /// Draw corner handles on a rect — frosted glass rounded squares.
@@ -851,11 +807,14 @@ class _SelectionHighlightPainter extends CustomPainter {
     Color color = const Color(0xFF818CF8),
   }) {
     const handleSize = 5.0;
-    final corners = [
-      rect.topLeft,
-      rect.topRight,
-      rect.bottomLeft,
-      rect.bottomRight,
+    // Each handle sits ENTIRELY OUTSIDE the bounding box rather than
+    // straddling the corner — otherwise half the square overlaps the
+    // selected content (the "i 4 angoli sopra la selezione" complaint).
+    final corners = <Offset>[
+      Offset(rect.left  - handleSize, rect.top    - handleSize), // top-left
+      Offset(rect.right + handleSize, rect.top    - handleSize), // top-right
+      Offset(rect.left  - handleSize, rect.bottom + handleSize), // bottom-left
+      Offset(rect.right + handleSize, rect.bottom + handleSize), // bottom-right
     ];
 
     for (final corner in corners) {

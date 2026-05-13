@@ -159,7 +159,17 @@ class GhostCursorPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(GhostCursorPainter oldDelegate) {
-    // Always repaint — interpolation drives smooth movement.
-    return true;
+    // 🎚️ E: Repaint only when something user-visible actually changed.
+    // The receiver advances via Ticker callbacks, but a still cursor
+    // (no peer movement) doesn't need a per-frame repaint. The Ticker
+    // already drives the AnimatedBuilder upstream; let it drive paint
+    // only when the interpolated state visibly differs.
+    if (receiver.isStale) return false;
+    return receiver.x != oldDelegate.receiver.x ||
+        receiver.y != oldDelegate.receiver.y ||
+        receiver.isDrawing != oldDelegate.receiver.isDrawing ||
+        peerColor != oldDelegate.peerColor ||
+        canvasScale != oldDelegate.canvasScale ||
+        canvasOffset != oldDelegate.canvasOffset;
   }
 }

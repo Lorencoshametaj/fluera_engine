@@ -92,21 +92,8 @@ extension ShapeRecognitionFeedbackUI on _FlueraCanvasScreenState {
 
   /// Show a recognition toast for the given result.
   void _showShapeRecognitionToast(ShapeRecognitionResult result) {
-    // 🧠 P1-26: No shape recognition popups during Step 1 (notes).
-    if (!_learningStepController.isShapeRecognitionAllowed) return;
-
-    // 🛡️ P1-25: Don't show toast during active writing flow.
-    if (_flowGuard.isFlowProtected) return;
-
-    final data = _ShapeRecognitionToastData.fromResult(result);
-    _shapeRecognitionToast.value = data;
-
-    // Auto-dismiss after 1.2 seconds
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (_shapeRecognitionToast.value == data) {
-        _shapeRecognitionToast.value = null;
-      }
-    });
+    // Disabled: post-stroke recognition popups are off (user request).
+    return;
   }
 
   // ──────────────────────────────────────────────────────────────────
@@ -119,14 +106,8 @@ extension ShapeRecognitionFeedbackUI on _FlueraCanvasScreenState {
     GeometricShape shape,
     ShapeRecognitionResult result,
   ) {
-    _ghostSuggestion.value = _GhostSuggestionData(shape: shape, result: result);
-
-    // Auto-accept after 2s
-    Future.delayed(const Duration(milliseconds: 2000), () {
-      if (_ghostSuggestion.value?.shape.id == shape.id) {
-        _acceptGhostSuggestion();
-      }
-    });
+    // Disabled: ghost suggestion overlays are off (user request).
+    return;
   }
 
   /// Accept the ghost suggestion — commit the shape.

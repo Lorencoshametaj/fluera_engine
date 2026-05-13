@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluera_engine/src/collaboration/fluera_realtime_adapter.dart';
+import 'package:fluera_engine/src/collaboration/scene_graph_crdt.dart';
 
 // =============================================================================
 // Mock implementation
@@ -98,67 +99,9 @@ void main() {
     });
   });
 
-  group('FlueraRealtimeEngine — Event broadcasting', () {
-    test('broadcastStroke creates event with correct type', () async {
-      await engine.connect('canvas_1');
-
-      engine.broadcastStroke({'id': 'stroke_1', 'points': []});
-
-      // Allow async
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(adapter.broadcastedEvents, hasLength(1));
-      expect(
-        adapter.broadcastedEvents.first.type,
-        RealtimeEventType.strokeAdded,
-      );
-      expect(adapter.broadcastedEvents.first.senderId, 'user_local');
-      expect(adapter.broadcastedEvents.first.payload['id'], 'stroke_1');
-    });
-
-    test('broadcastStrokeRemoved creates correct event', () async {
-      await engine.connect('canvas_1');
-
-      engine.broadcastStrokeRemoved('stroke_42');
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(adapter.broadcastedEvents, hasLength(1));
-      expect(
-        adapter.broadcastedEvents.first.type,
-        RealtimeEventType.strokeRemoved,
-      );
-      expect(adapter.broadcastedEvents.first.payload['strokeId'], 'stroke_42');
-    });
-
-    test('broadcastImageUpdate with isNew flag', () async {
-      await engine.connect('canvas_1');
-
-      engine.broadcastImageUpdate({
-        'id': 'img_1',
-        'path': '/test.png',
-      }, isNew: true);
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(adapter.broadcastedEvents, hasLength(1));
-      expect(
-        adapter.broadcastedEvents.first.type,
-        RealtimeEventType.imageAdded,
-      );
-    });
-
-    test('broadcastTextChange creates correct event', () async {
-      await engine.connect('canvas_1');
-
-      engine.broadcastTextChange({'id': 'txt_1', 'text': 'Hello'});
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(adapter.broadcastedEvents, hasLength(1));
-      expect(
-        adapter.broadcastedEvents.first.type,
-        RealtimeEventType.textChanged,
-      );
-    });
-  });
+  // Stroke / image / text broadcasts no longer exist as discrete engine
+  // methods — replaced by [broadcastCRDTOperation] and covered by the
+  // "CRDT operation channel" group below.
 
   group('FlueraRealtimeEngine — Incoming event filtering', () {
     test('filters self-echoes by senderId', () async {
@@ -191,6 +134,76 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 50));
       expect(received, hasLength(1));
       expect(received.first.senderId, 'user_remote');
+    });
+  });
+
+  group('FlueraRealtimeEngine — CRDT operation channel', () {
+    test('broadcastCRDTOperation produces a crdtOperation event', () async {
+      await engine.connect('canvas_1');
+
+      final crdt = CRDTSceneGraph(localPeerId: 'user_local');
+      final op = crdt.addNode(nodeId: 'n1', nodeType: 'stroke');
+      engine.broadcastCRDTOperation(op);
+
+      // broadcastEvent is async — wait for the rate-limit/dispatch tick.
+      await Future.delayed(const Duration(milliseconds: 10));
+
+      expect(adapter.broadcastedEvents, hasLength(1));
+      final wire = adapter.broadcastedEvents.single;
+      expect(wire.type, RealtimeEventType.crdtOperation);
+      expect(wire.senderId, 'user_local');
+      expect(wire.elementId, 'n1');
+      expect(wire.toCRDTOperation()?.opId, op.opId);
+    });
+
+    test('incomingCRDTOperations stream surfaces remote ops', () async {
+      await engine.connect('canvas_1');
+
+      final received = <CRDTOperation>[];
+      engine.incomingCRDTOperations.listen(received.add);
+
+      // The remote peer ships a CRDT op.
+      final remoteCrdt = CRDTSceneGraph(localPeerId: 'user_remote');
+      final remoteOp = remoteCrdt.addNode(
+        nodeId: 'rn1',
+        nodeType: 'stroke',
+      );
+      adapter.simulateRemoteEvent(
+        CanvasRealtimeEvent.fromCRDTOperation(
+          remoteOp,
+          senderId: 'user_remote',
+        ),
+      );
+
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(received, hasLength(1));
+      expect(received.single.opId, remoteOp.opId);
+      expect(received.single.peerId, 'user_remote');
+    });
+
+    test(
+        'crdtOperation events are NOT echoed on the legacy incomingEvents '
+        'stream', () async {
+      await engine.connect('canvas_1');
+
+      final legacy = <CanvasRealtimeEvent>[];
+      final crdtOps = <CRDTOperation>[];
+      engine.incomingEvents.listen(legacy.add);
+      engine.incomingCRDTOperations.listen(crdtOps.add);
+
+      final remoteCrdt = CRDTSceneGraph(localPeerId: 'user_remote');
+      adapter.simulateRemoteEvent(
+        CanvasRealtimeEvent.fromCRDTOperation(
+          remoteCrdt.addNode(nodeId: 'rn2', nodeType: 'stroke'),
+          senderId: 'user_remote',
+        ),
+      );
+
+      await Future.delayed(const Duration(milliseconds: 20));
+      expect(crdtOps, hasLength(1));
+      expect(legacy, isEmpty,
+          reason:
+              'crdtOperation must route exclusively to incomingCRDTOperations');
     });
   });
 
@@ -315,6 +328,50 @@ void main() {
       expect(restored.elementId, event.elementId);
       expect(restored.timestamp, event.timestamp);
       expect(restored.payload['id'], 'stroke_1');
+    });
+
+    test('CRDTOperation wraps into and unwraps from CanvasRealtimeEvent', () {
+      final crdt = CRDTSceneGraph(localPeerId: 'peer_a');
+      final op = crdt.addNode(
+        nodeId: 'n1',
+        nodeType: 'stroke',
+        properties: {'color': '#abcdef'},
+      );
+
+      final event = CanvasRealtimeEvent.fromCRDTOperation(
+        op,
+        senderId: 'peer_a',
+        timestamp: 12345,
+      );
+
+      expect(event.type, RealtimeEventType.crdtOperation);
+      expect(event.senderId, 'peer_a');
+      expect(event.elementId, 'n1');
+      expect(event.timestamp, 12345);
+
+      final unwrapped = event.toCRDTOperation();
+      expect(unwrapped, isNotNull);
+      expect(unwrapped!.opId, op.opId);
+      expect(unwrapped.nodeId, 'n1');
+      expect(unwrapped.type, CRDTOpType.addNode);
+    });
+
+    test('CRDTOperation survives transport JSON roundtrip', () {
+      final crdt = CRDTSceneGraph(localPeerId: 'peer_a');
+      final op = crdt.setProperty('n1', 'name', 'hello');
+      final event = CanvasRealtimeEvent.fromCRDTOperation(
+        op,
+        senderId: 'peer_a',
+      );
+
+      final wireJson = event.toJson();
+      final restored = CanvasRealtimeEvent.fromJson(wireJson);
+      final restoredOp = restored.toCRDTOperation();
+
+      expect(restoredOp, isNotNull);
+      expect(restoredOp!.opId, op.opId);
+      expect(restoredOp.payload['property'], 'name');
+      expect(restoredOp.payload['value'], 'hello');
     });
 
     test('CursorPresenceData roundtrip JSON', () {

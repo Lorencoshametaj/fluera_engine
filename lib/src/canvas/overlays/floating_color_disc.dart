@@ -25,6 +25,16 @@ class FloatingColorDisc extends StatefulWidget {
   final double strokeSize;
   final ValueChanged<double>? onStrokeSizeChanged;
 
+  /// Fired the very first time the user starts a pan gesture on the disc.
+  /// When non-null the in-flight gesture is intercepted (no hue/sat/size
+  /// update) so the parent can show the onboarding tutorial. Set to null
+  /// after the tutorial has been seen.
+  final VoidCallback? onFirstGesture;
+
+  /// Optional notifier published with the disc's current screen-space centre.
+  /// Used by the tutorial overlay to anchor the spotlight cutout.
+  final ValueNotifier<Offset>? centerNotifier;
+
   const FloatingColorDisc({
     super.key,
     required this.color,
@@ -34,6 +44,8 @@ class FloatingColorDisc extends StatefulWidget {
     this.recentColors = const [],
     this.strokeSize = 2.0,
     this.onStrokeSizeChanged,
+    this.onFirstGesture,
+    this.centerNotifier,
   });
 
   @override
@@ -163,6 +175,19 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
 
   @override
   Widget build(BuildContext context) {
+    // Publish the disc's screen-space centre after layout so overlays
+    // (e.g. the first-touch tutorial spotlight) can anchor to it.
+    final notifier = widget.centerNotifier;
+    if (notifier != null) {
+      final screen = MediaQuery.of(context).size;
+      final cx = screen.width - _position.dx - _radius - 12;
+      final cy = screen.height - _position.dy - _radius - 12;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final next = Offset(cx, cy);
+        if (notifier.value != next) notifier.value = next;
+      });
+    }
     return Positioned(
       right: _position.dx - _fixedOffset,
       bottom: _position.dy - _fixedOffset,
@@ -247,6 +272,17 @@ class _FloatingColorDiscState extends State<FloatingColorDisc>
   }
 
   void _onGestureStart(DragStartDetails d) {
+    // First-touch onboarding: intercept the very first pan, abort the gesture
+    // and let the parent show the tutorial overlay. The parent passes null
+    // once the tutorial has been seen so this branch is one-shot.
+    if (widget.onFirstGesture != null) {
+      widget.onFirstGesture!();
+      _gestureDecided = true;
+      _isHueGesture = false;
+      _isSatGesture = false;
+      _isSizeGesture = false;
+      return;
+    }
     _hsv = HSVColor.fromColor(widget.color);
     _liveStrokeSize = widget.strokeSize;
     _gestureDecided = false;

@@ -44,7 +44,7 @@ class _DissolveParticlesPainter extends CustomPainter {
 
 /// 🎯 V6: Heatmap trail — colors trail by touch frequency
 class _HeatmapTrailPainter extends CustomPainter {
-  final List<_EraserTrailPoint> trail;
+  final List<EraserTrailPoint> trail;
   final EraserTool eraserTool;
   final InfiniteCanvasController canvasController;
 

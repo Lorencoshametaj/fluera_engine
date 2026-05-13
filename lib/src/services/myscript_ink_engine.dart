@@ -162,6 +162,19 @@ class MyScriptInkEngine implements InkRecognitionEngine {
     return recognizeText(strokeSets);
   }
 
+  /// Text recognition + per-word JIIX alternatives. Returns the same
+  /// post-processed label as [recognizeTextMode] plus the raw word
+  /// candidate list (one inner list per word, best-first). Empty
+  /// `wordCandidates` when MyScript didn't surface alternatives or
+  /// the platform plugin doesn't yet expose them (iOS stub).
+  ///
+  /// Used by Italian dictionary re-rank (A4 of the quality sprint).
+  Future<({String? label, List<List<String>> wordCandidates})>
+      recognizeTextWithCandidates(
+    List<List<ProDrawingPoint>> strokeSets,
+  ) =>
+      _recognizeWithCandidates(strokeSets, contentType: 'text');
+
   /// Recognize strokes as math formula (returns LaTeX).
   Future<String?> recognizeMath(List<List<ProDrawingPoint>> strokeSets) {
     return _recognize(strokeSets, contentType: 'math');
@@ -175,13 +188,30 @@ class MyScriptInkEngine implements InkRecognitionEngine {
     return _recognize(strokeSets, contentType: 'raw');
   }
 
-  /// Core recognition pipeline.
+  /// Core recognition pipeline (label only — backward-compat).
   Future<String?> _recognize(
     List<List<ProDrawingPoint>> strokeSets, {
     String contentType = 'math',
   }) async {
-    if (!_available) return null;
-    if (strokeSets.isEmpty) return null;
+    final rec = await _recognizeWithCandidates(
+      strokeSets,
+      contentType: contentType,
+    );
+    return rec.label;
+  }
+
+  /// Core recognition pipeline (label + per-word JIIX alternatives).
+  /// Mirrors the Android plugin's `RecognitionResult` shape — empty
+  /// `wordCandidates` is a valid no-op (math editor / iOS stub / no
+  /// candidates from MyScript).
+  Future<({String? label, List<List<String>> wordCandidates})>
+      _recognizeWithCandidates(
+    List<List<ProDrawingPoint>> strokeSets, {
+    String contentType = 'math',
+  }) async {
+    const empty = (label: null, wordCandidates: <List<String>>[]);
+    if (!_available) return empty;
+    if (strokeSets.isEmpty) return empty;
 
     // ── Filter & cap strokes ──────────────────────────────────────────
     // Skip single-point strokes (can't form down→move→up sequence).
@@ -190,7 +220,7 @@ class MyScriptInkEngine implements InkRecognitionEngine {
         .where((s) => s.length >= 2)
         .take(50)
         .toList();
-    if (filtered.isEmpty) return null;
+    if (filtered.isEmpty) return empty;
 
     // ── Normalize coordinates + DPI scaling ───────────────────────────
     // Scale canvas coordinates so stroke dimensions approximate natural
@@ -252,7 +282,7 @@ class MyScriptInkEngine implements InkRecognitionEngine {
       }
     }
 
-    if (strokes.isEmpty) return null;
+    if (strokes.isEmpty) return empty;
 
     final totalPoints = strokes.fold<int>(0, (s, stroke) => s + stroke.length);
     debugPrint('[MyScriptInk] 🖊️ Recognizing ${strokes.length} strokes ($totalPoints pts)');
@@ -263,19 +293,117 @@ class MyScriptInkEngine implements InkRecognitionEngine {
         'contentType': contentType,
       });
 
-      final label = result?['latex'] as String?;
+      final rawLabel = result?['latex'] as String?;
       final detectedType = result?['detectedType'] as String? ?? 'math';
-
-      if (label != null && label.isNotEmpty) {
-        debugPrint('[MyScriptInk] 📝 [$detectedType] $label');
-        return label;
+      // 🔶 A3: parse word-level alternatives. Native side returns
+      // List<List<String>> ('words' key); empty when math editor or
+      // fallback path. Cast through dynamic since MethodChannel maps
+      // come back as List<dynamic>.
+      final wordsRaw = result?['words'];
+      final wordCandidates = <List<String>>[];
+      if (wordsRaw is List) {
+        for (final w in wordsRaw) {
+          if (w is List) {
+            wordCandidates.add(
+              w.whereType<String>().toList(growable: false),
+            );
+          }
+        }
       }
 
-      return null;
+      if (rawLabel != null && rawLabel.isNotEmpty) {
+        // 🔧 Post-process text labels: MyScript's HWR engine sometimes
+        // splits a single word into two tokens because of pen-lift pauses
+        // between letters (e.g. "FISICA" → "FISI CA", "INTRODUZIONE" →
+        // "INTROD UZIONE"). When the result is two adjacent tokens that
+        // are both alphabetic and the trailing one is short, glue them
+        // back. Skips math output (LaTeX has legitimate spaces).
+        var label = detectedType == 'text' ? _mergeSplitWord(rawLabel) : rawLabel;
+        // 🔧 Block-uppercase normalisation. Many users write in print
+        // style (block letters) so MyScript outputs "LE LEGGI DI NEWTON"
+        // even though the user's mental model is sentence-cased prose.
+        // Convert pure-uppercase text labels to sentence case so the
+        // OCR transcript drops into the answer field at human-readable
+        // capitalisation. Math output is left alone (LaTeX is case-
+        // sensitive).
+        if (detectedType == 'text') label = _normaliseAllCaps(label);
+        debugPrint('[MyScriptInk] 📝 [$detectedType] $label'
+            '${wordCandidates.isNotEmpty ? ' (${wordCandidates.length} words w/ candidates)' : ''}');
+        return (label: label, wordCandidates: wordCandidates);
+      }
+
+      return empty;
     } on PlatformException catch (e) {
       debugPrint('[MyScriptInk] ❌ ${e.message}');
-      return null;
+      return empty;
     }
+  }
+
+  /// Glue back a single word that the HWR engine split across a pen-lift.
+  ///
+  /// MyScript decides "this is two words" when there's a wide enough gap
+  /// between strokes — true for sentences, but a false positive when the
+  /// student writes ALLCAPS letters with breathing room (a common habit
+  /// for headings on a tablet). Examples this fixes:
+  ///   "FISI CA"        → "FISICA"
+  ///   "INTROD UZIONE"  → "INTRODUZIONE"
+  ///   "NEW TON"        → "NEWTON"
+  ///
+  /// Heuristic — merge two adjacent tokens iff:
+  ///   • both are pure alphabetic (no digits / punctuation)
+  ///   • the trailing token is at most 4 characters (catches the typical
+  ///     orphan tail; longer trailing tokens are usually real two-word
+  ///     phrases like "LEGGE OHM")
+  ///   • casing is consistent across the boundary (both ALLCAPS, or both
+  ///     lowercase, or both Title-cased) — mixed case implies the engine
+  ///     deliberately segmented two distinct lexical units.
+  ///
+  /// Conservative on purpose — never glues across more than one boundary
+  /// per call, never touches math output.
+  String _mergeSplitWord(String label) {
+    final tokens = label.split(' ').where((t) => t.isNotEmpty).toList();
+    if (tokens.length != 2) return label;
+
+    final first = tokens[0];
+    final second = tokens[1];
+
+    final alpha = RegExp(r'^[A-Za-zÀ-ÿ]+$');
+    if (!alpha.hasMatch(first) || !alpha.hasMatch(second)) return label;
+    if (second.length > 4) return label;
+
+    final bothUpper = first == first.toUpperCase() && second == second.toUpperCase();
+    final bothLower = first == first.toLowerCase() && second == second.toLowerCase();
+    final firstTitle = first[0] == first[0].toUpperCase() &&
+        first.substring(1) == first.substring(1).toLowerCase();
+    final secondTitle = second[0] == second[0].toUpperCase() &&
+        second.substring(1) == second.substring(1).toLowerCase();
+    final bothTitle = firstTitle && secondTitle;
+
+    if (bothUpper || bothLower || bothTitle) {
+      return '$first$second';
+    }
+    return label;
+  }
+
+  /// Convert "I WROTE THIS IN BLOCK CAPS" → "I wrote this in block caps".
+  ///
+  /// Heuristic — kicks in only when the entire label has at least one
+  /// uppercase letter and ZERO lowercase letters. Mixed-case strings are
+  /// left untouched (they reflect the user's intentional capitalisation).
+  /// Trade-off: proper nouns lose their capital ("Newton" → "newton"),
+  /// but for free-form Italian prose handed by elaborazione/answer this
+  /// is far more readable than ALLCAPS, and the user can edit one word
+  /// in the text field if they care about the proper-noun capital.
+  String _normaliseAllCaps(String label) {
+    if (label.length < 3) return label;
+    final hasLower = label.contains(RegExp(r'[a-zà-ÿ]'));
+    if (hasLower) return label; // already mixed-case — preserve.
+    final firstLetterIdx = label.indexOf(RegExp(r'[A-ZÀ-Ÿ]'));
+    if (firstLetterIdx < 0) return label; // no letters at all (digits / punct only).
+    final lower = label.toLowerCase();
+    return lower.substring(0, firstLetterIdx) +
+        lower[firstLetterIdx].toUpperCase() +
+        lower.substring(firstLetterIdx + 1);
   }
 
   // ── Language Management (Math is language-agnostic) ─────────────────────

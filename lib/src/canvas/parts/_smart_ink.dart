@@ -308,37 +308,15 @@ extension FlueraSmartInkExtension on _FlueraCanvasScreenState {
     required ProStroke stroke,
     required String canvasId,
   }) {
-    // Gather nearby strokes for whole-word recognition
-    final nearbyStrokes = _findNearbyStrokes(stroke);
-    _activeSmartInk = SmartInkOverlayData(
-      anchorPosition: screenAnchor,
-      strokes: nearbyStrokes,
-      canvasId: canvasId,
-    );
-    _uiRebuildNotifier.value++;
-    HapticFeedback.lightImpact();
+    // Disabled: SmartInk overlay surfaces a yellow "?" badge that the user
+    // wants gone. No-op until re-introduced behind an explicit opt-in.
+    return;
   }
 
   /// Build the Smart Ink overlay widget (called from _buildImpl).
   Widget? buildSmartInkOverlay(BuildContext context) {
-    final data = _activeSmartInk;
-    if (data == null) return null;
-
-    return SmartInkOverlay(
-      anchorPosition: data.anchorPosition,
-      allStrokeSets: data.strokes.map((s) => s.points).toList(),
-      strokeIds: data.strokes.map((s) => s.id).toList(),
-      canvasId: data.canvasId,
-      writingArea: MediaQuery.sizeOf(context),
-      isDark: Theme.of(context).brightness == Brightness.dark,
-      onResult: (result) {
-        if (result.action == SmartInkAction.convert) {
-          // Convert all grouped strokes to digital text
-          _convertStrokesToText(data.strokes, result.text);
-        }
-        dismissSmartInk();
-      },
-    );
+    // Disabled: see [showSmartInk].
+    return null;
   }
 
   /// Convert grouped handwriting strokes to a DigitalTextElement.

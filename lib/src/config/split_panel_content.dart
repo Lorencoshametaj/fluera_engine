@@ -52,6 +52,15 @@ class SplitPanelContent {
   factory SplitPanelContent.empty() =>
       const SplitPanelContent(type: SplitPanelContentType.empty);
 
+  /// PDF reader embedded inside a multiview panel. The full-feature
+  /// `PdfReaderScreen` (search / bookmarks / annotation) renders as the
+  /// panel body instead of taking the whole screen. Triggered by zoom-
+  /// to-enter on a PDF in another panel.
+  factory SplitPanelContent.pdfReader(String documentId) => SplitPanelContent(
+        type: SplitPanelContentType.pdfReader,
+        selectedId: documentId,
+      );
+
   /// Creates a copy with modified parameters
   SplitPanelContent copyWith({
     SplitPanelContentType? type,
@@ -87,6 +96,7 @@ enum SplitPanelContentType {
   browser(Icons.web_rounded, true),
   textEditor(Icons.text_fields_rounded, true),
   calculator(Icons.calculate_rounded, false),
+  pdfReader(Icons.picture_as_pdf_rounded, true),
   empty(Icons.crop_free_rounded, false);
 
   const SplitPanelContentType(this.icon, this.requiresSelection);
@@ -110,6 +120,8 @@ enum SplitPanelContentType {
         return l10n.splitPanel_textEditor;
       case SplitPanelContentType.calculator:
         return l10n.splitPanel_calculator;
+      case SplitPanelContentType.pdfReader:
+        return 'PDF Reader';
       case SplitPanelContentType.empty:
         return l10n.splitPanel_emptyPanel;
     }
@@ -131,6 +143,8 @@ enum SplitPanelContentType {
         return l10n.splitPanel_textEditorDescription;
       case SplitPanelContentType.calculator:
         return l10n.splitPanel_calculatorDescription;
+      case SplitPanelContentType.pdfReader:
+        return 'PDF reader (search, bookmarks, annotations)';
       case SplitPanelContentType.empty:
         return l10n.splitPanel_emptyDescription;
     }
@@ -151,6 +165,8 @@ enum SplitPanelContentType {
         return Colors.teal;
       case SplitPanelContentType.calculator:
         return Colors.indigo;
+      case SplitPanelContentType.pdfReader:
+        return const Color(0xFFE8A84C);
       case SplitPanelContentType.empty:
         return Colors.grey;
     }

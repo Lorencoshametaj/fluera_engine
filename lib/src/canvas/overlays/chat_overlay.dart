@@ -3,9 +3,12 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../ai/chat_read_tracker.dart';
 import '../ai/chat_session_model.dart';
 import '../ai/chat_session_controller.dart';
 import '../../ai/chat_context_builder.dart';
+import '../../ai/telemetry_recorder.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../widgets/latex_preview_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,11 +30,25 @@ class ChatOverlay extends StatefulWidget {
   final VoidCallback onClose;
   final void Function(String clusterId)? onNavigateToCluster;
 
+  /// When true, show the cost-transparency badge under non-streaming Atlas
+  /// messages once they've been visible for [readBadgeThreshold] seconds.
+  /// Wired by the canvas from [FlueraCanvasConfig.showChatReadCostBadge].
+  final bool showReadCostBadge;
+
+  /// Visibility threshold before the badge appears.
+  final int readBadgeThreshold;
+
+  /// Telemetry sink for badge impressions + tap-to-convert events.
+  final TelemetryRecorder telemetry;
+
   const ChatOverlay({
     super.key,
     required this.controller,
     required this.onClose,
     this.onNavigateToCluster,
+    this.showReadCostBadge = true,
+    this.readBadgeThreshold = 4,
+    this.telemetry = TelemetryRecorder.noop,
   });
 
   @override
@@ -65,6 +82,11 @@ class _ChatOverlayState extends State<ChatOverlay>
   List<String>? _cachedSuggestions;
   String? _cachedSuggestionsForMsgId;
 
+  // Cost-transparency tracking — see chat_read_tracker.dart.
+  final ChatReadTracker _readTracker = ChatReadTracker();
+  Timer? _readBadgeTicker;
+  final Set<String> _badgeShownIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -91,12 +113,23 @@ class _ChatOverlayState extends State<ChatOverlay>
     }
 
     widget.controller.addListener(_onControllerUpdate);
+
+    // 🧠 Cost-transparency badge: tick every second to reveal badges as
+    // their per-message read window crosses the visibility threshold.
+    if (widget.showReadCostBadge) {
+      _readBadgeTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        if (_advanceBadgeReveals()) setState(() {});
+      });
+    }
   }
 
   @override
   void dispose() {
     widget.controller.removeListener(_onControllerUpdate);
     _voiceSub?.cancel();
+    _readBadgeTicker?.cancel();
+    _readTracker.clear();
     _slideController.dispose();
     _glowController.dispose();
     _inputCtrl.dispose();
@@ -110,6 +143,31 @@ class _ChatOverlayState extends State<ChatOverlay>
       setState(() {});
       _scrollToBottom();
     }
+  }
+
+  /// Returns true if any new badge crossed the threshold and the UI needs
+  /// to repaint. Atlas messages start tracking the moment streaming ends.
+  bool _advanceBadgeReveals() {
+    final messages = widget.controller.session?.messages;
+    if (messages == null) return false;
+    var changed = false;
+    for (final msg in messages) {
+      if (msg.role != ChatMessageRole.atlas) continue;
+      if (msg.isStreaming) continue;
+      if (msg.text.isEmpty) continue;
+      _readTracker.markVisible(msg.id);
+      if (_badgeShownIds.contains(msg.id)) continue;
+      if (_readTracker.secondsRead(msg.id) >= widget.readBadgeThreshold) {
+        _badgeShownIds.add(msg.id);
+        widget.telemetry.logEvent('chat_read_cost_shown', properties: {
+          'message_id': msg.id,
+          'words': ChatReadTracker.countWords(msg.text),
+          'seconds': _readTracker.secondsRead(msg.id),
+        });
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   void _scrollToBottom() {
@@ -392,7 +450,8 @@ class _ChatOverlayState extends State<ChatOverlay>
           ),
           const SizedBox(height: 16),
           Text(
-            'Chiedi qualsiasi cosa sui tuoi appunti',
+            FlueraLocalizations.of(context)?.chat_emptyTitle ??
+                'Fluera AI challenges you on your notes',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.5),
@@ -402,7 +461,8 @@ class _ChatOverlayState extends State<ChatOverlay>
           ),
           const SizedBox(height: 8),
           Text(
-            'Conosco le tue note, i PDF e le trascrizioni audio.',
+            FlueraLocalizations.of(context)?.chat_emptySubtitle ??
+                'The more you write first, the better it asks.',
             textAlign: TextAlign.center,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.65),
@@ -445,62 +505,123 @@ class _ChatOverlayState extends State<ChatOverlay>
             ),
           ],
           Flexible(
-            child: GestureDetector(
-              onLongPress: () {
-                Clipboard.setData(ClipboardData(text: message.text));
-                HapticFeedback.mediumImpact();
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isUser ? _bubbleUser : _bubbleAtlas,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: Radius.circular(isUser ? 16 : 4),
-                    bottomRight: Radius.circular(isUser ? 4 : 16),
-                  ),
-                  border: Border.all(
-                    color: isUser
-                        ? _cyan.withValues(alpha: 0.15)
-                        : Colors.white.withValues(alpha: 0.06),
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (message.isStreaming && message.text.isEmpty)
-                      _buildTypingIndicator()
-                    else if (isUser)
-                      SelectableText(
-                        message.text,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontSize: 14,
-                          height: 1.45,
-                        ),
-                      )
-                    else
-                      // Atlas messages get rich formatting
-                      _buildMarkdownContent(message.text),
-                    if (message.isStreaming && message.text.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.5,
-                            valueColor: AlwaysStoppedAnimation(_cyan.withValues(alpha: 0.5)),
-                          ),
-                        ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onLongPress: () {
+                    Clipboard.setData(ClipboardData(text: message.text));
+                    HapticFeedback.mediumImpact();
+                  },
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isUser ? _bubbleUser : _bubbleAtlas,
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(16),
+                        topRight: const Radius.circular(16),
+                        bottomLeft: Radius.circular(isUser ? 16 : 4),
+                        bottomRight: Radius.circular(isUser ? 4 : 16),
                       ),
-                  ],
+                      border: Border.all(
+                        color: isUser
+                            ? _cyan.withValues(alpha: 0.15)
+                            : Colors.white.withValues(alpha: 0.06),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (message.isStreaming && message.text.isEmpty)
+                          _buildTypingIndicator()
+                        else if (isUser)
+                          SelectableText(
+                            message.text,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              fontSize: 14,
+                              height: 1.45,
+                            ),
+                          )
+                        else
+                          // Atlas messages get rich formatting
+                          _buildMarkdownContent(message.text),
+                        if (message.isStreaming && message.text.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.5,
+                                valueColor: AlwaysStoppedAnimation(
+                                    _cyan.withValues(alpha: 0.5)),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                if (isAtlas &&
+                    !message.isStreaming &&
+                    message.text.isNotEmpty &&
+                    _badgeShownIds.contains(message.id))
+                  _buildReadCostBadge(message),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // COST TRANSPARENCY — passive badge under Atlas replies
+  // teoria_cognitiva_apprendimento.md §4 (Hypercorrection), §11 (Illusion of Fluency)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  Widget _buildReadCostBadge(ChatMessage message) {
+    final seconds = _readTracker.secondsRead(message.id);
+    final words = ChatReadTracker.countWords(message.text);
+    final retention =
+        ChatReadTracker.retention7d(readSeconds: seconds, wordCount: words);
+    final label =
+        FlueraLocalizations.of(context)?.chat_costBadge(seconds, retention) ??
+            'Read in ${seconds}s · 7-day recall ~$retention%';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, left: 2),
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          widget.telemetry.logEvent('chat_read_cost_tapped', properties: {
+            'message_id': message.id,
+            'seconds': seconds,
+            'retention': retention,
+          });
+          // Route to Ghost Map — the productive alternative to passive
+          // re-reading. If the canvas didn't wire a handler, surface the
+          // same fallback the chips use.
+          if (!widget.controller.findGaps()) _showRouterUnavailable();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: _cyan.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: _cyan.withValues(alpha: 0.15)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 10.5,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -844,34 +965,66 @@ class _ChatOverlayState extends State<ChatOverlay>
       return const SizedBox.shrink();
     }
 
+    // Quick actions are routers to the cognitive features — never prompt
+    // strings sent to the LLM. See chat_session_controller.dart for the
+    // rationale (teoria_cognitiva_apprendimento.md §3, T4).
+    final l10n = FlueraLocalizations.of(context);
+
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: [
-          _quickChip('📝 Riassumi', _cyan, () {
-            HapticFeedback.selectionClick();
-            widget.controller.summarize();
-          }),
+          _quickChip(
+            l10n?.chat_quickFindGaps ?? '🗺 Find my gaps',
+            _cyan,
+            () {
+              HapticFeedback.selectionClick();
+              if (!widget.controller.findGaps()) _showRouterUnavailable();
+            },
+          ),
           const SizedBox(width: 8),
-          _quickChip('❓ Quiz', _orange, () {
-            HapticFeedback.selectionClick();
-            widget.controller.generateQuizPrompt();
-          }),
+          _quickChip(
+            l10n?.chat_quickStartQuiz ?? '🎯 Quiz me',
+            _orange,
+            () {
+              HapticFeedback.selectionClick();
+              if (!widget.controller.startQuiz()) _showRouterUnavailable();
+            },
+          ),
           const SizedBox(width: 8),
-          _quickChip('🃏 Flashcard', _green, () {
-            HapticFeedback.selectionClick();
-            widget.controller.generateFlashcards();
-          }),
+          _quickChip(
+            l10n?.chat_quickStartSocratic ?? '🤺 Challenge me',
+            _green,
+            () {
+              HapticFeedback.selectionClick();
+              if (!widget.controller.startSocratic()) _showRouterUnavailable();
+            },
+          ),
           const SizedBox(width: 8),
-          _quickChip('🔍 Spiega...', _purple, () {
-            HapticFeedback.selectionClick();
-            _inputCtrl.text = 'Spiegami ';
-            _inputFocus.requestFocus();
-          }),
+          _quickChip(
+            l10n?.chat_quickCompareSource ?? '🔍 Compare with source',
+            _purple,
+            () {
+              HapticFeedback.selectionClick();
+              if (!widget.controller.compareWithSource()) {
+                _showRouterUnavailable();
+              }
+            },
+          ),
         ]),
       ),
     );
+  }
+
+  void _showRouterUnavailable() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Questa azione non è disponibile in questo contesto.'),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Color(0xFF1A1A2E),
+      duration: Duration(seconds: 2),
+    ));
   }
 
   Widget _quickChip(String label, Color color, VoidCallback onTap) {
@@ -964,7 +1117,8 @@ class _ChatOverlayState extends State<ChatOverlay>
                     ? 'Sto ascoltando\u2026'
                     : isStreaming
                         ? 'Elaboro\u2026'
-                        : 'Chiedimi qualcosa\u2026',
+                        : (FlueraLocalizations.of(context)?.chat_inputPlaceholder ??
+                            'What do you want it to ask you?'),
                 hintStyle: TextStyle(
                   color: _isVoiceActive
                       ? Colors.redAccent.withValues(alpha: 0.5)

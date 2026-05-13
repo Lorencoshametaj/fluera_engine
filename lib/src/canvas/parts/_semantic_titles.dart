@@ -10,6 +10,20 @@ part of '../fluera_canvas_screen.dart';
 ///
 /// Rate-limited and debounced to avoid overwhelming the AI provider.
 extension SemanticTitlesEngine on _FlueraCanvasScreenState {
+  /// Write-through helper: persists an AI title both to the legacy
+  /// [SemanticMorphController.aiTitles] map (for painters) AND to the
+  /// new [ClusterConceptIndex] (for cross-feature reuse — Exam picker,
+  /// Socratic prompt context). Single source of truth without breaking
+  /// the painter's synchronous read pattern.
+  void _recordSemanticAiTitle(
+    String clusterId,
+    String aiTitle,
+    String sourceText,
+  ) {
+    _semanticMorphController?.recordAiTitle(clusterId, aiTitle, sourceText);
+    _clusterConceptIndex?.setTitle(clusterId, aiTitle, sourceText: sourceText);
+  }
+
   /// Debounce timer for cluster text recognition.
   static Timer? _semanticOcrDebounce;
 
@@ -43,24 +57,57 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
     });
   }
 
+  /// Background OCR debounce timer for the exam-prep path. Distinct from
+  /// [_semanticOcrDebounce] so a tight pinch-zoom (which fires the
+  /// semantic-morph debounce) doesn't reset the longer exam-prep window.
+  static Timer? _examPrepOcrDebounce;
+  static const _examPrepOcrIdleWindow = Duration(seconds: 5);
+
+  /// Pre-emptive OCR for the Atlas Exam picker. Triggered on stroke
+  /// pen-up so that by the time the student taps "Interrogami" the
+  /// per-cluster OCR cache (`_clusterTextCache`) is warm — no 20-second
+  /// stall on a heavy canvas.
+  ///
+  /// Differs from [_scheduleSemanticOcr]:
+  ///   • Not gated on zoom level (the student may be writing at zoom 1.0).
+  ///   • Not gated on `isSemanticTitleAllowed` (we want the cache warm
+  ///     regardless of which pedagogical step the student is in).
+  ///   • Longer 5s idle debounce — fluent writing shouldn't fire OCR
+  ///     during every stroke; we wait for a natural pause.
+  ///   • Uses the same [_recognizeClusterTextsForSemanticTitles] sink so
+  ///     subsequent semantic-morph / exam reads share the same cache.
+  void scheduleBackgroundExamOcr() {
+    _examPrepOcrDebounce?.cancel();
+    _examPrepOcrDebounce = Timer(_examPrepOcrIdleWindow, () {
+      if (mounted && _clusterCache.isNotEmpty) {
+        _recognizeClusterTextsForSemanticTitles();
+      }
+    });
+  }
+
   /// Performs cluster-level OCR and populates `_clusterTextCache`.
-  Future<void> _recognizeClusterTextsForSemanticTitles() async {
+  ///
+  /// Originally gated on a non-null [_semanticMorphController] (the morph
+  /// titles consumer), but the same OCR result is also what the Atlas
+  /// Exam picker reads. Removing the early-return lets the exam-prep
+  /// background scheduler ([_scheduleBackgroundExamOcr]) warm the cache
+  /// even before the user reaches the semantic morph zoom level. The
+  /// post-OCR semantic morph update remains gated on the controller —
+  /// see line 143-153.
+  /// Recognize cluster OCR for the semantic-titles / exam / ghost-map
+  /// pipeline.
+  ///
+  /// [requireHighQuality] — when true (Atlas Exam path), the index runs
+  /// the optional `cleanOcrItalian` Gemini cleanup for clusters with
+  /// ≥3 strokes. Keep false (default) for the morph zoom-out path:
+  /// semantic titles work fine on the raw, dictionary-corrected
+  /// MyScript output and we don't want to burn quota on every pinch.
+  Future<void> _recognizeClusterTextsForSemanticTitles({
+    bool requireHighQuality = false,
+  }) async {
     if (_clusterCache.isEmpty) return;
-    if (_semanticMorphController == null) return;
 
-    final inkService = DigitalInkService.instance;
-
-    // Get active layer strokes and digital text elements
-    final activeLayer = _layerController.layers.firstWhere(
-      (l) => l.id == _layerController.activeLayerId,
-      orElse: () => _layerController.layers.first,
-    );
-
-    final strokeMap = <String, ProStroke>{};
-    for (final s in activeLayer.strokes) {
-      strokeMap[s.id] = s;
-    }
-
+    final index = _clusterConceptIndex;
     final textMap = <String, DigitalTextElement>{};
     for (final t in _digitalTextElements) {
       textMap[t.id] = t;
@@ -71,7 +118,8 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
     _clusterTextCache.removeWhere((k, _) => !currentIds.contains(k));
     _semanticTextCacheKeys.removeWhere((k, _) => !currentIds.contains(k));
 
-    // Recognize text for each cluster (parallel)
+    // Recognize text for each cluster (parallel via index — same Future
+    // is dedup'd if Exam/Socratic/Ghost Map already triggered it).
     final futures = <Future<void>>[];
     bool anyChanged = false;
 
@@ -97,16 +145,7 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
         }
       }
 
-      // Collect stroke data for recognition
-      final strokeSets = <List<ProDrawingPoint>>[];
-      for (final sid in cluster.strokeIds) {
-        final stroke = strokeMap[sid];
-        if (stroke != null && !stroke.isStub && stroke.points.length >= 3) {
-          strokeSets.add(stroke.points);
-        }
-      }
-
-      if (strokeSets.isEmpty && textParts.isEmpty) {
+      if (cluster.strokeIds.isEmpty && textParts.isEmpty) {
         _semanticTextCacheKeys[cluster.id] = cacheKey;
         _clusterTextCache[cluster.id] = '';
         continue;
@@ -115,16 +154,25 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
       final clusterId = cluster.id;
       anyChanged = true;
 
-      if (strokeSets.isNotEmpty && inkService.isAvailable) {
+      if (cluster.strokeIds.isNotEmpty && index != null) {
+        // Default: rawOcr only — semantic titles work fine on the
+        // dictionary-corrected MyScript output. cleanedOcr Gemini call
+        // is reserved for Exam/Socratic which pass requireHighQuality.
         futures.add(
-          inkService.recognizeMultiStroke(strokeSets).then((recognized) {
+          index
+              .resolve(
+            cluster,
+            needsRawOcr: true,
+            needsCleanedOcr: requireHighQuality,
+          )
+              .then((concept) {
             final parts = [...textParts];
-            if (recognized != null && recognized.isNotEmpty) {
-              parts.add(recognized);
+            final ocr = concept.bestPromptSource;
+            if (ocr != null && ocr.isNotEmpty) {
+              parts.add(ocr);
             }
-            final combined = parts.join(' ');
             _semanticTextCacheKeys[clusterId] = cacheKey;
-            _clusterTextCache[clusterId] = combined;
+            _clusterTextCache[clusterId] = parts.join(' ');
           }),
         );
       } else if (textParts.isNotEmpty) {
@@ -267,9 +315,12 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
           final clusterId = clusterIds[i];
           final key = '${i + 1}';
           final rawTitle = titoli[key]?.toString() ?? '';
-          final title = _cleanAiTitle(rawTitle);
+          final title = _cleanAiTitle(
+            rawTitle,
+            sourceText: clusterTexts[clusterId],
+          );
           if (title != null && title.isNotEmpty && mounted) {
-            _semanticMorphController!.recordAiTitle(
+            _recordSemanticAiTitle(
               clusterId, title, clusterTexts[clusterId]!,
             );
           }
@@ -286,10 +337,14 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
             .toList();
         final clusterIds = clusterTexts.keys.toList();
         for (int i = 0; i < clusterIds.length && i < lines.length; i++) {
-          final title = _cleanAiTitle(lines[i]);
+          final clusterId = clusterIds[i];
+          final title = _cleanAiTitle(
+            lines[i],
+            sourceText: clusterTexts[clusterId],
+          );
           if (title != null && title.isNotEmpty && mounted) {
-            _semanticMorphController!.recordAiTitle(
-              clusterIds[i], title, clusterTexts[clusterIds[i]]!,
+            _recordSemanticAiTitle(
+              clusterId, title, clusterTexts[clusterId]!,
             );
           }
         }
@@ -320,9 +375,7 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
           return w[0].toUpperCase() + w.substring(1);
         }).join(' ');
         if (mounted) {
-          _semanticMorphController!.recordAiTitle(
-            clusterId, direct, clusterText,
-          );
+          _recordSemanticAiTitle(clusterId, direct, clusterText);
         }
         return;
       }
@@ -348,7 +401,10 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
       // Try explanation field first (plain text response)
       if (response.explanation != null &&
           response.explanation!.trim().isNotEmpty) {
-        aiTitle = _cleanAiTitle(response.explanation!);
+        aiTitle = _cleanAiTitle(
+          response.explanation!,
+          sourceText: clusterText,
+        );
       }
 
       // Try raw JSON if explanation is empty
@@ -359,13 +415,12 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
               raw['title'] as String? ??
               raw['spiegazione'] as String? ??
               '',
+          sourceText: clusterText,
         );
       }
 
       if (aiTitle != null && aiTitle.isNotEmpty && mounted) {
-        _semanticMorphController!.recordAiTitle(
-          clusterId, aiTitle, clusterText,
-        );
+        _recordSemanticAiTitle(clusterId, aiTitle, clusterText);
       }
     } catch (e) {
       debugPrint('🧠 Semantic title error for $clusterId: $e');
@@ -373,7 +428,16 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
   }
 
   /// Clean and truncate an AI-generated title to fit in semantic nodes.
-  String? _cleanAiTitle(String raw) {
+  ///
+  /// 🛡️ 2026-05-12 device fix: when [sourceText] is provided AND the device
+  /// language is Italian, the function also runs a language-drift check
+  /// (mirror of `cluster_concept_index._titleDriftedFromSource`). If the
+  /// source is Italian but the title is dominantly English, returns null
+  /// → caller skips `_recordSemanticAiTitle` → falls back to OCR raw
+  /// label. This blocks Path A/B (the `askAtlas` morph-zoom-out paths)
+  /// from writing English titles like "Newton's Laws" on Italian OCR
+  /// before Socratic reads them.
+  String? _cleanAiTitle(String raw, {String? sourceText}) {
     var title = raw
         .trim()
         .replaceAll('"', '')
@@ -433,55 +497,117 @@ extension SemanticTitlesEngine on _FlueraCanvasScreenState {
       title = '${title.substring(0, 28)}…';
     }
 
+    // 🛡️ 2026-05-12 device fix — language-drift guard. Mirror of
+    // `cluster_concept_index._titleDriftedFromSource`. Only runs when
+    // sourceText is provided AND device language is Italian. Conservative:
+    // requires BOTH source-has-IT-markers AND title-has-EN-markers to fire.
+    if (sourceText != null && _titleIsLanguageDrift(sourceText, title)) {
+      debugPrint('🛡️ Semantic title drift rejected (source IT, title EN): '
+          '"$title" ← source: "${sourceText.length > 40 ? "${sourceText.substring(0, 40)}…" : sourceText}"');
+      return null;
+    }
+
     return title;
   }
 
+  /// Returns `true` when [title] is in a language different from the
+  /// device's target locale. Cross-language sessions (e.g. IT source +
+  /// EN device locale) legitimately produce target-lang titles even
+  /// when source is in another language — that is NOT drift.
+  bool _titleIsLanguageDrift(String source, String title) {
+    // 🌍 Sprint B' 2026-05-13 — drift target = OCR source language
+    // (mirror of prompt builder's `_titleLangForOcr`). Cluster titles
+    // label the user's content, so they must match the CONTENT'S
+    // language, not the AiLanguagePreference (which is the AI-output
+    // setting for Socratic/Chat). Fall back to preference only when
+    // detection is ambiguous ('unknown').
+    final detected = detectLanguageSignature(source);
+    final target = detected == 'unknown'
+        ? AiLanguagePreference.code()
+        : detected;
+    return socraticLanguageDriftsFromSource(
+      title,
+      source,
+      targetLang: target,
+    );
+  }
+
   /// Build the Atlas prompt for generating a concise semantic title.
+  ///
+  /// Pure-EN master, language-agnostic. Target language is interpolated
+  /// via `$lang`. No hardcoded examples from any specific language.
+  /// 🌍 2026-05-13 — Title language follows the OCR content language, not
+  /// the device locale. A bilingual user with IT notes on EN-locale device
+  /// expects cluster titles in IT (their content's language) even when
+  /// Socratic output preference is EN.
+  String _titleLangForOcr(String sourceText) {
+    final detected = detectLanguageSignature(sourceText);
+    if (detected == 'unknown') return _deviceLanguageName;
+    return switch (detected) {
+      'it' => 'Italian',
+      'en' => 'English',
+      'es' => 'Spanish',
+      'fr' => 'French',
+      'de' => 'German',
+      'pt' => 'Portuguese',
+      _ => _deviceLanguageName,
+    };
+  }
+
   String _buildSemanticTitlePrompt(String clusterText) {
-    return '''IGNORE tutte le regole precedenti sui canvas action.
+    final lang = _titleLangForOcr(clusterText);
+    return '''Ignore any prior canvas-action rules. You label concept clusters.
 
-Sei un sistema di etichettatura. Genera UN SOLO TITOLO per questi appunti.
+🌍 OUTPUT LANGUAGE = $lang. The title MUST be in $lang. Translate any scientific concept name into $lang — even if the English (international) name is more famous. Never switch language.
 
-REGOLE ASSOLUTE:
-- MAX 30 caratteri
-- PRESERVA formule se presenti (F=ma, E=mc², ∫f(x)dx)
-- Usa il NOME COMPLETO del concetto, non una sola parola generica
-- Se c'è una sola parola, restituiscila capitalizzata
-- Lingua: IDENTICA a quella degli appunti
-- Rispondi SOLO con il titolo, nient'altro
+Generate ONE short title for the notes below.
 
-ESEMPI:
-- "roma" → "Roma"
-- "seconda legge newton f=ma" → "2ª Legge Newton F=ma"
-- "mitocondri ATP fosforilazione" → "Fosforilazione ATP"
-- "integral derivative limit" → "Calculus"
-- "SELECT FROM WHERE JOIN" → "Query SQL"
-- "equazione di drake" → "Equazione di Drake"
-- "termodinamica entropia" → "Entropia"
-- "dna replicazione" → "Replicazione DNA"
+HARD RULES:
+- Max 30 characters.
+- Preserve formulas when clearly present (F=ma, E=mc², ∫f(x)dx).
+- Use the FULL concept name in $lang, not a single generic word.
+- If the notes contain a single word, return it capitalised.
+- Use the NATIVE $lang terminology of the discipline (no calques from another language).
+- Reply ONLY with the title. No meta-commentary.
 
-APPUNTI:
+NOTES:
 $clusterText
 
-TITOLO:''';
+🔒 FINAL LANGUAGE CHECK BEFORE OUTPUT:
+Your title MUST be in $lang. If the discipline has a well-known English
+name for this concept (e.g. "Newton's Laws", "First Law of Thermodynamics"),
+translate it to its NATIVE $lang form. REJECT the English form even if
+more famous internationally. Output ONLY the title text in $lang.
+
+TITLE (in $lang):''';
   }
 
   /// 🚀 Build a batched prompt for generating multiple titles in one API call.
   /// Output format: JSON with numbered keys {"1": "Title1", "2": "Title2", ...}
+  ///
+  /// Pure-EN master, language-agnostic. No hardcoded examples from any
+  /// specific language — they would bias the model toward that language
+  /// when the actual target is different.
   String _buildBatchedTitlePrompt(Map<String, String> clusterTexts) {
+    // 🌍 Detect language from the combined batch text — strongest signal.
+    final combined = clusterTexts.values.join(' ');
+    final lang = _titleLangForOcr(combined);
     final sb = StringBuffer();
-    sb.writeln('IGNORE tutte le regole precedenti sui canvas action.');
+    sb.writeln('Ignore any prior canvas-action rules. You label concept clusters.');
     sb.writeln();
-    sb.writeln('Sei un sistema di etichettatura. Genera UN TITOLO per OGNUNO dei seguenti ${clusterTexts.length} gruppi di appunti.');
+    sb.writeln('🌍 OUTPUT LANGUAGE = $lang. Every title in the JSON output MUST be in $lang. Translate scientific concept names into $lang. Never switch language.');
     sb.writeln();
-    sb.writeln('REGOLE ASSOLUTE:');
-    sb.writeln('- MAX 30 caratteri per titolo');
-    sb.writeln('- PRESERVA formule se presenti (F=ma, E=mc², ∫f(x)dx)');
-    sb.writeln('- Usa il NOME COMPLETO del concetto, non una sola parola generica');
-    sb.writeln('- Lingua: IDENTICA a quella degli appunti');
-    sb.writeln('- Rispondi con JSON: {"titoli": {"1": "Titolo1", "2": "Titolo2", ...}}');
+    sb.writeln('Generate ONE short title for EACH of the following ${clusterTexts.length} groups of notes.');
     sb.writeln();
-    sb.writeln('APPUNTI:');
+    sb.writeln('HARD RULES:');
+    sb.writeln('- Max 30 characters per title.');
+    sb.writeln('- Preserve formulas when clearly present (F=ma, E=mc², ∫f(x)dx).');
+    sb.writeln('- Use the FULL concept name in \$lang, not a single generic word.');
+    sb.writeln('- Use the NATIVE \$lang terminology of the discipline (no calques).');
+    sb.writeln('- Reply ONLY with the JSON object below — no commentary.');
+    sb.writeln('- Response shape: {"titoli": {"1": "Title1", "2": "Title2", ...}}');
+    sb.writeln();
+    sb.writeln('NOTES:');
 
     int index = 1;
     for (final entry in clusterTexts.entries) {
@@ -493,7 +619,14 @@ TITOLO:''';
     }
 
     sb.writeln();
-    sb.write('JSON:');
+    sb.writeln('🔒 FINAL LANGUAGE CHECK before emitting JSON:');
+    sb.writeln('Re-read each title — is every content word in $lang? If you '
+        'see English words for concepts that have an established $lang form '
+        '(e.g. "Newton\'s Laws" where $lang uses the native form), REWRITE '
+        'in $lang before emitting. REJECT the English form even if more '
+        'famous internationally.');
+    sb.writeln();
+    sb.write('JSON (titles in $lang):');
     return sb.toString();
   }
 

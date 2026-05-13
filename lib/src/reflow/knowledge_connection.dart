@@ -187,6 +187,12 @@ class KnowledgeConnection {
   /// Stored for reference and session data. Null for student-discovered bridges.
   String? bridgeSocraticQuestion;
 
+  /// True when the student dismissed this ghost bridge suggestion.
+  /// The connection is kept as a tombstone in the scene so the AI can
+  /// avoid re-suggesting the same source↔target pair on future requests
+  /// (cross-session). Renderers must skip dismissed ghosts.
+  bool bridgeSuggestionDismissed;
+
   /// Golden color for cross-zone bridges (spec P9-05).
   static const Color crossZoneColor = Color(0xFFFFD700);
 
@@ -218,6 +224,7 @@ class KnowledgeConnection {
     this.discoveredBy,
     this.bridgeAnnotationClusterId,
     this.bridgeSocraticQuestion,
+    this.bridgeSuggestionDismissed = false,
     int? createdAt,
   }) : createdAtMs = createdAt ?? DateTime.now().millisecondsSinceEpoch,
        deletedAtMs = 0,
@@ -276,6 +283,7 @@ class KnowledgeConnection {
       'bridgeAnnotationClusterId': bridgeAnnotationClusterId,
     if (bridgeSocraticQuestion != null)
       'bridgeSocraticQuestion': bridgeSocraticQuestion,
+    if (bridgeSuggestionDismissed) 'bridgeSuggestionDismissed': true,
   };
 
   factory KnowledgeConnection.fromJson(Map<String, dynamic> json) {
@@ -300,6 +308,8 @@ class KnowledgeConnection {
       discoveredBy: _parseDiscoveryOrigin(json['discoveredBy'] as String?),
       bridgeAnnotationClusterId: json['bridgeAnnotationClusterId'] as String?,
       bridgeSocraticQuestion: json['bridgeSocraticQuestion'] as String?,
+      bridgeSuggestionDismissed:
+          json['bridgeSuggestionDismissed'] as bool? ?? false,
       createdAt: 0, // No animation on reload
     );
   }

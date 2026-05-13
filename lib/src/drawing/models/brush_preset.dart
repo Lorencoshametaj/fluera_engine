@@ -230,6 +230,24 @@ class BrushPreset {
     ),
   ];
 
+  /// Preset IDs included in the Free plan. Anything else requires
+  /// Plus / Pro. Choice rationale: the 3 essentials of structured
+  /// note-taking — ink (Everyday Pen), graphite (Soft Pencil), and
+  /// highlighter — cover the bedrock workflow without holding the
+  /// product hostage. Calligraphy / Technical / Marker / Fountain etc.
+  /// are productivity affordances that justify the upgrade.
+  ///
+  /// Toolbar UI:
+  ///   • Free user → premium pills render with a 🔒 badge + dimmed
+  ///     accent. Tap fires the host's [onUpgradePrompt] instead of
+  ///     selecting the preset.
+  ///   • Plus / Pro → no gating, all presets selectable.
+  static const Set<String> freePresetIds = {
+    'builtin_everyday_pen',
+    'builtin_soft_pencil',
+    'builtin_highlighter',
+  };
+
   /// GPU pen types hidden in V1 — re-enable post-launch.
   static const _hiddenV1PenTypes = {
     ProPenType.watercolor,

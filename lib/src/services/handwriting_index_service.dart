@@ -75,6 +75,11 @@ class HandwritingIndexService {
   HandwritingIndexService._();
   static final HandwritingIndexService instance = HandwritingIndexService._();
 
+  /// Toggle for live auto-indexing on every stroke commit.
+  /// When false, [enqueueStroke] is a no-op — callers must use
+  /// [bulkEnqueueStrokes] on-demand (e.g. when opening Echo Search).
+  static bool autoIndexOnStroke = false;
+
   Database? _db;
   bool _initialized = false;
   bool _isProcessing = false;
@@ -234,7 +239,9 @@ class HandwritingIndexService {
     List<ProDrawingPoint> points,
     ui.Rect bounds, {
     ui.Size? writingArea,
+    bool force = false,
   }) {
+    if (!autoIndexOnStroke && !force) return;
     if (!_initialized || points.length < 5) return;
 
     // 🚀 v2: Fast in-memory dedup (skip DB query entirely)
@@ -254,6 +261,29 @@ class HandwritingIndexService {
     // Reset debounce timer
     _batchTimer?.cancel();
     _batchTimer = Timer(_batchDebounce, _processBatch);
+  }
+
+  /// Bulk-enqueue all strokes of a canvas for indexing on-demand.
+  ///
+  /// Bypasses [autoIndexOnStroke] gate. Use when opening features that need
+  /// the index (Echo Search, Atlas semantic search, handwriting search).
+  /// Already-indexed strokes are skipped via in-memory dedup.
+  void bulkEnqueueStrokes(
+    String canvasId,
+    Iterable<({String id, List<ProDrawingPoint> points, ui.Rect bounds})> strokes, {
+    ui.Size? writingArea,
+  }) {
+    if (!_initialized) return;
+    for (final s in strokes) {
+      enqueueStroke(
+        canvasId,
+        s.id,
+        s.points,
+        s.bounds,
+        writingArea: writingArea,
+        force: true,
+      );
+    }
   }
 
   /// Force-process any pending items immediately (e.g., before app close).

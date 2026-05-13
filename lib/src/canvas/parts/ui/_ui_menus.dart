@@ -334,7 +334,6 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
                                 _rebuildImageSpatialIndex();
                               });
                               _layerController.updateImage(updated);
-                              _broadcastImageUpdate(updated);
                               _autoSaveCanvas();
                             }
                           }
@@ -363,7 +362,6 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
                               _rebuildImageSpatialIndex();
                             });
                             _layerController.updateImage(updated);
-                            _broadcastImageUpdate(updated);
                             _autoSaveCanvas();
                           }
                         },
@@ -382,7 +380,6 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
                               _rebuildImageSpatialIndex();
                             });
                             _layerController.updateImage(updated);
-                            _broadcastImageUpdate(updated);
                             _autoSaveCanvas();
                           }
                         },
@@ -400,7 +397,6 @@ extension FlueraCanvasMenusUI on _FlueraCanvasScreenState {
                             _rebuildImageSpatialIndex();
                           });
                           _layerController.addImage(newImage);
-                          _broadcastImageUpdate(newImage, isNew: true);
                           _autoSaveCanvas();
                           HapticFeedback.mediumImpact();
                         },

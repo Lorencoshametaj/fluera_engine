@@ -1167,15 +1167,20 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
 
   /// Called continuously during canvas transform changes.
   /// Only checks zoom-to-enter when canvas is actively being scaled.
-  void _onPdfZoomCheck() {
+  ///
+  /// In multiview each panel owns its own [InfiniteCanvasController]; the
+  /// active-panel `FlueraCanvasView` invokes this with its controller so
+  /// the zoom-to-enter UX works from any panel, not just the main canvas.
+  void _onPdfZoomCheck([InfiniteCanvasController? controller]) {
     if (!mounted) return;
     if (_pdfZoomEnterCooldown) return;
     // 🚀 THROTTLE: Skip if called too recently (zoom fires 60fps)
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastZoomCheckTime < 200) return;
+    final ctrl = controller ?? _canvasController;
     // Only check during active zooming (scale > 1.2)
-    if (_canvasController.scale > 1.2) {
-      _checkPdfZoomToEnter();
+    if (ctrl.scale > 1.2) {
+      _checkPdfZoomToEnter(ctrl);
     }
   }
 
@@ -1184,7 +1189,7 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   ///
   /// Called both on gesture end AND continuously during zoom (throttled).
   /// Two-phase entry: auto-center snap → then cinematic transition.
-  void _checkPdfZoomToEnter() {
+  void _checkPdfZoomToEnter([InfiniteCanvasController? controller]) {
     if (_pdfZoomEnterCooldown) return;
 
     // Throttle: max once per 100ms during continuous zoom
@@ -1192,8 +1197,9 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
     if (now - _lastZoomCheckTime < 100) return;
     _lastZoomCheckTime = now;
 
+    final ctrl = controller ?? _canvasController;
     final viewportSize = MediaQuery.of(context).size;
-    final scale = _canvasController.scale;
+    final scale = ctrl.scale;
 
     if (scale < 1.2) return;
 
@@ -1205,8 +1211,8 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         if (child is! PdfPreviewCardNode) continue;
 
         final worldBounds = child.worldBounds;
-        final screenTopLeft = _canvasController.canvasToScreen(worldBounds.topLeft);
-        final screenBottomRight = _canvasController.canvasToScreen(worldBounds.bottomRight);
+        final screenTopLeft = ctrl.canvasToScreen(worldBounds.topLeft);
+        final screenBottomRight = ctrl.canvasToScreen(worldBounds.bottomRight);
         final screenRect = Rect.fromPoints(screenTopLeft, screenBottomRight);
 
         final viewportRect = Rect.fromLTWH(0, 0, viewportSize.width, viewportSize.height);
@@ -1240,22 +1246,49 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         screenCenter.dx - worldCenter.dx * scale,
         screenCenter.dy - worldCenter.dy * scale,
       );
-      _canvasController.stopAnimation();
-      _canvasController.setOffset(targetOffset);
+      ctrl.stopAnimation();
+      ctrl.setOffset(targetOffset);
 
       // Launch cinematic transition immediately (canvas is now stable)
-      _enterPdfReaderWithZoomAnimation(bestCard);
+      _enterPdfReaderWithZoomAnimation(bestCard, ctrl);
     }
   }
 
 
   /// Open the PDF reader with a cinematic Wormhole Dive animation.
   ///
+  /// When [sourceController] belongs to a multiview panel (≠ the main
+  /// `_canvasController`), the route is bypassed: the orchestrator swaps
+  /// the panel's content to an embedded `PdfReaderScreen` instead. This
+  /// preserves the split layout — the other panels keep their canvas
+  /// content while the PDF reader takes over just the active panel.
+  ///
   /// Uses [transitionsBuilder] with child always in the tree from frame 0.
-  void _enterPdfReaderWithZoomAnimation(PdfPreviewCardNode cardNode) {
+  void _enterPdfReaderWithZoomAnimation(
+    PdfPreviewCardNode cardNode, [
+    InfiniteCanvasController? sourceController,
+  ]) {
     final docId = cardNode.documentId;
     final provider = _pdfProviders[docId];
     if (provider == null) return;
+
+    // 🪟 Multiview in-panel path — preserve the split layout.
+    final ctrl = sourceController ?? _canvasController;
+    if (ctrl != _canvasController) {
+      final panelIndex =
+          _multiviewKey.currentState?.panelIndexFor(ctrl);
+      if (panelIndex != null) {
+        _pdfZoomEnterCooldown = true;
+        _multiviewKey.currentState!
+            .convertPanelToPdfReader(panelIndex, docId);
+        // Release the cooldown shortly after — the swap is synchronous;
+        // re-enabling the gesture lets the user enter another PDF later.
+        Future<void>.delayed(const Duration(milliseconds: 400), () {
+          if (mounted) _pdfZoomEnterCooldown = false;
+        });
+        return;
+      }
+    }
 
     _pdfZoomEnterCooldown = true;
 
@@ -1432,6 +1465,38 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
         }
       }
     });
+  }
+
+  /// Build an embedded [PdfReaderScreen] for the multiview orchestrator
+  /// when a panel's content type is `pdfReader`. The reader keeps its
+  /// full feature set (search / bookmarks / annotation) while sitting
+  /// inside the panel rect — the split layout stays intact.
+  ///
+  /// [onClose] is the orchestrator-supplied callback that swaps the
+  /// panel back to canvas; we wire it as the reader's `onClose`.
+  Widget _buildEmbeddedPdfReader(
+    BuildContext context,
+    String documentId,
+    VoidCallback onClose,
+  ) {
+    final node = _findPdfDocumentNode(documentId);
+    final provider = _pdfProviders[documentId];
+    if (node is! PdfPreviewCardNode || provider == null) {
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: const Center(child: Text('PDF non disponibile')),
+      );
+    }
+    return PdfReaderScreen(
+      documentModel: node.documentModel,
+      provider: provider,
+      documentId: documentId,
+      onClose: (updatedModel) {
+        node.documentModel = updatedModel;
+        _refreshPreviewCardThumbnail(node);
+        onClose();
+      },
+    );
   }
 
   /// Find a PDF node (preview card or legacy document) by its document ID across all layers.

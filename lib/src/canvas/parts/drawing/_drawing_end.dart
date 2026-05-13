@@ -509,7 +509,6 @@ extension on _FlueraCanvasScreenState {
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
         // 🔴 RT: Broadcast image rotation to collaborators
-        _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       _uiRebuildNotifier.value++;
       _autoSaveCanvas(); // 💾 Persist handle rotation to disk
@@ -525,7 +524,6 @@ extension on _FlueraCanvasScreenState {
       _rebuildImageSpatialIndex();
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       _uiRebuildNotifier.value++;
       _autoSaveCanvas();
@@ -539,7 +537,6 @@ extension on _FlueraCanvasScreenState {
       _rebuildImageSpatialIndex();
       if (_imageTool.selectedImage != null) {
         _layerController.updateImage(_imageTool.selectedImage!);
-        _broadcastImageUpdate(_imageTool.selectedImage!);
       }
       _uiRebuildNotifier.value++;
       _autoSaveCanvas();
@@ -1087,7 +1084,7 @@ extension on _FlueraCanvasScreenState {
           SystemSound.play(SystemSoundType.click);
 
           // 💥 PARTICLE DISSOLVE: Generate particles (max 80 total)
-          final particles = <_ScratchOutParticle>[];
+          final particles = <ScratchOutParticle>[];
           final rng = math.Random();
           const maxParticles = 80;
           final perStroke = (maxParticles / deletedStrokesCopy.length)
@@ -1100,7 +1097,7 @@ extension on _FlueraCanvasScreenState {
               final x = bounds.left + rng.nextDouble() * bounds.width;
               final y = bounds.top + rng.nextDouble() * bounds.height;
               particles.add(
-                _ScratchOutParticle(
+                ScratchOutParticle(
                   position: Offset(x, y),
                   velocity: Offset(
                     (rng.nextDouble() - 0.5) * 200,
@@ -1238,94 +1235,139 @@ extension on _FlueraCanvasScreenState {
     // The SNAP FIX (trim to renderedCount above) prevents elongation
     // from unrendered tail points.
 
-    // 🖼️ IMAGE STROKE ROUTING: If stroke started on an image, clip it to
-    // the image boundary. Segments inside → image.drawingStrokes,
-    // segments outside → regular canvas layer.
+    // 🖼️ IMAGE STROKE ROUTING — done in image-local space.
+    //
+    // Hit-test and split run in the image's local coordinate frame against
+    // an axis-aligned rect at origin. This matches the actual rotated image
+    // footprint exactly. Testing against a world-space AABB (the previous
+    // behaviour) misclassified strokes near the corners of rotated images:
+    // points inside the AABB but outside the rotated image were stored in
+    // `drawingStrokes` and then clipped invisible by the renderer's
+    // clipRect → "zombie strokes" persisted but never visible. Points
+    // outside the AABB but inside the rotated image were misrouted to the
+    // canvas layer and didn't follow the image when moved.
     ImageElement? targetImage;
-    Rect? targetImageRect;
+    List<Offset>? localPositions; // points pre-transformed into image-local
+    Rect? localRect; // axis-aligned image bounds at origin (local space)
+    double cosF = 1.0, sinF = 0.0; // local → world rotation
     if (stroke.points.isNotEmpty) {
       final firstPoint = stroke.points.first.position;
       for (int i = 0; i < _imageElements.length; i++) {
         final img = _imageElements[i];
         final loadedImg = _loadedImages[img.imagePath];
         if (loadedImg == null) continue;
-        final w = loadedImg.width.toDouble();
-        final h = loadedImg.height.toDouble();
-        final halfW = w * img.scale / 2;
-        final halfH = h * img.scale / 2;
-        // position is CENTER of the image (matches ImagePainter)
-        final imageRect = Rect.fromCenter(
-          center: img.position,
-          width: halfW * 2,
-          height: halfH * 2,
+        final w = loadedImg.width.toDouble() * img.scale;
+        final h = loadedImg.height.toDouble() * img.scale;
+        final cR = math.cos(-img.rotation);
+        final sR = math.sin(-img.rotation);
+
+        // Transform the first point to local space (world → image-local).
+        final fdx = firstPoint.dx - img.position.dx;
+        final fdy = firstPoint.dy - img.position.dy;
+        final flp = Offset(fdx * cR - fdy * sR, fdx * sR + fdy * cR);
+        final lr = Rect.fromCenter(
+          center: Offset.zero,
+          width: w,
+          height: h,
         );
-        if (imageRect.contains(firstPoint)) {
+
+        if (lr.contains(flp)) {
           targetImage = img;
-          targetImageRect = imageRect;
+          localRect = lr;
+          cosF = math.cos(img.rotation);
+          sinF = math.sin(img.rotation);
+          // Pre-transform every point of the stroke once. Reused by the
+          // split loop below for hit-tests and edge-crossing interpolation.
+          localPositions =
+              stroke.points.map((p) {
+                final dx = p.position.dx - img.position.dx;
+                final dy = p.position.dy - img.position.dy;
+                return Offset(dx * cR - dy * sR, dx * sR + dy * cR);
+              }).toList(growable: false);
           break;
         }
       }
     }
 
-    if (targetImage != null && targetImageRect != null) {
-      // 🖼️ Split stroke at image boundary crossings
+    debugPrint(
+      '🖼️ [STROKE-DEBUG] routing: targetImage=${targetImage?.id} '
+      'imageElements=${_imageElements.length} '
+      'loadedImages=${_loadedImages.keys.length} '
+      'firstPoint=${stroke.points.isNotEmpty ? stroke.points.first.position : null}',
+    );
+
+    if (targetImage != null &&
+        localRect != null &&
+        localPositions != null) {
+      // 🖼️ Split stroke at image boundary crossings (in local space).
       final idx = _imageElements.indexWhere((e) => e.id == targetImage!.id);
       if (idx != -1) {
         final img = _imageElements[idx];
-        final cosR = math.cos(-img.rotation);
-        final sinR = math.sin(-img.rotation);
 
-        // Walk the stroke and split into inside/outside segments
+        // Local-to-world helper: inverse of the routing transform.
+        Offset localToWorld(Offset l) => Offset(
+          l.dx * cosF - l.dy * sinF + img.position.dx,
+          l.dx * sinF + l.dy * cosF + img.position.dy,
+        );
+
+        // Inside segments hold local-space points (ready for drawingStrokes).
+        // Outside segments hold world-space points (for the canvas layer).
         final insideSegments = <List<ProDrawingPoint>>[];
         final outsideSegments = <List<ProDrawingPoint>>[];
 
         var currentInside = <ProDrawingPoint>[];
         var currentOutside = <ProDrawingPoint>[];
-        bool wasInside = true; // starts inside (first point confirmed)
+        bool wasInside = true; // first point confirmed inside (routing test)
 
         for (int pi = 0; pi < stroke.points.length; pi++) {
           final pt = stroke.points[pi];
-          final isInside = targetImageRect.contains(pt.position);
+          final lp = localPositions[pi];
+          final isInside = localRect.contains(lp);
 
           if (isInside) {
             if (!wasInside && currentOutside.isNotEmpty) {
-              // Crossed back inside — finalize outside segment
-              // Interpolate the crossing point
+              // Crossed back inside — finalize outside segment.
+              // Interpolate the crossing in LOCAL space, then mirror it
+              // into world space for the outside segment that ends here.
               if (pi > 0) {
-                final edgePt = _interpolateEdgeCrossing(
-                  stroke.points[pi - 1].position,
-                  pt.position,
-                  targetImageRect,
+                final edgeLocal = _interpolateEdgeCrossing(
+                  localPositions[pi - 1],
+                  lp,
+                  localRect,
                 );
-                if (edgePt != null) {
-                  final crossPt = pt.copyWith(position: edgePt);
-                  currentOutside.add(crossPt);
-                  currentInside.add(crossPt);
+                if (edgeLocal != null) {
+                  currentOutside.add(
+                    pt.copyWith(position: localToWorld(edgeLocal)),
+                  );
+                  currentInside.add(pt.copyWith(position: edgeLocal));
                 }
               }
               outsideSegments.add(currentOutside);
               currentOutside = <ProDrawingPoint>[];
             }
-            currentInside.add(pt);
+            // Store the local-space copy for the image.
+            currentInside.add(pt.copyWith(position: lp));
             wasInside = true;
           } else {
             if (wasInside && currentInside.isNotEmpty) {
-              // Crossed outside — finalize inside segment
+              // Crossed outside — finalize inside segment.
               if (pi > 0) {
-                final edgePt = _interpolateEdgeCrossing(
-                  stroke.points[pi - 1].position,
-                  pt.position,
-                  targetImageRect,
+                final edgeLocal = _interpolateEdgeCrossing(
+                  localPositions[pi - 1],
+                  lp,
+                  localRect,
                 );
-                if (edgePt != null) {
-                  final crossPt = pt.copyWith(position: edgePt);
-                  currentInside.add(crossPt);
-                  currentOutside.add(crossPt);
+                if (edgeLocal != null) {
+                  currentInside.add(pt.copyWith(position: edgeLocal));
+                  currentOutside.add(
+                    pt.copyWith(position: localToWorld(edgeLocal)),
+                  );
                 }
               }
               insideSegments.add(currentInside);
               currentInside = <ProDrawingPoint>[];
             }
+            // Outside keeps the original world-space point.
             currentOutside.add(pt);
             wasInside = false;
           }
@@ -1334,24 +1376,14 @@ extension on _FlueraCanvasScreenState {
         if (currentInside.isNotEmpty) insideSegments.add(currentInside);
         if (currentOutside.isNotEmpty) outsideSegments.add(currentOutside);
 
-        // ── Add inside segments to image ──
+        // ── Add inside segments to image (points already in local space) ──
         final newDrawingStrokes = [..._imageElements[idx].drawingStrokes];
         for (final seg in insideSegments) {
           if (seg.length < 2) continue;
-          // Transform: canvas → image-local
-          final localPoints =
-              seg.map((p) {
-                final dx = p.position.dx - img.position.dx;
-                final dy = p.position.dy - img.position.dy;
-                final rx = dx * cosR - dy * sinR;
-                final ry = dx * sinR + dy * cosR;
-                return p.copyWith(position: Offset(rx, ry));
-              }).toList();
-
           newDrawingStrokes.add(
             stroke.copyWith(
               id: insideSegments.length == 1 ? stroke.id : generateUid(),
-              points: localPoints,
+              points: seg,
               baseWidth: stroke.baseWidth,
               referenceScale: img.scale,
             ),
@@ -1365,7 +1397,6 @@ extension on _FlueraCanvasScreenState {
         _imageVersion++;
         _rebuildImageSpatialIndex();
         _imageRepaintNotifier.value++;
-        _broadcastImageUpdate(updated);
 
         // 🔥 FIX: Add outside segments to regular canvas layer
         // (previously discarded — strokes going outside the image were lost)
@@ -1373,7 +1404,6 @@ extension on _FlueraCanvasScreenState {
           if (seg.length < 2) continue;
           final outsideStroke = stroke.copyWith(id: generateUid(), points: seg);
           _layerController.addStroke(outsideStroke);
-          _broadcastStrokeAdded(outsideStroke);
         }
 
         // 🔥 FIX: Clear live stroke and invalidate tiles immediately
@@ -1401,20 +1431,32 @@ extension on _FlueraCanvasScreenState {
       }
       _layerController.addStroke(stroke);
       DrawingPainter.triggerRepaint();
-      _broadcastStrokeAdded(stroke);
 
-      // 🔍 Auto-index stroke for handwriting search
-      if (stroke.points.length >= 5) {
-        // ✨ Pass canvas viewport size for ML Kit case disambiguation
-        final viewportSize = MediaQuery.sizeOf(context);
-        HandwritingIndexService.instance.enqueueStroke(
-          _canvasId,
-          stroke.id,
-          stroke.points,
-          stroke.bounds,
-          writingArea: viewportSize,
+      // 🎚️ J: defer non-essential work to the post-frame callback so
+      // the pen-up frame budget is spent only on the critical path
+      // (addStroke + triggerRepaint). Broadcast, ML indexing, style
+      // learning and PDF link are all OK with a 1-frame delay.
+      final viewportSizeForIndex =
+          stroke.points.length >= 5 ? MediaQuery.sizeOf(context) : null;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (viewportSizeForIndex != null) {
+          HandwritingIndexService.instance.enqueueStroke(
+            _canvasId,
+            stroke.id,
+            stroke.points,
+            stroke.bounds,
+            writingArea: viewportSizeForIndex,
+          );
+        }
+        EngineScope.current.styleCoherenceEngine.recordStyleUsage(
+          _consciousToolName(),
+          color: stroke.color,
+          strokeWidth: stroke.baseWidth,
+          opacity: _effectiveOpacity,
         );
-      }
+        _linkStrokeToPdfPage(stroke);
+      });
     }
 
     _currentStrokeNotifier.clear();
@@ -1425,52 +1467,52 @@ extension on _FlueraCanvasScreenState {
     // 343-line _buildImpl() widget tree rebuild (~80ms) for zero visual benefit.
     // Removing this single line fixes the P90=82ms UI thread spike.
 
-    // 🎨 Style Coherence: learn freehand stroke style
-    EngineScope.current.styleCoherenceEngine.recordStyleUsage(
-      _consciousToolName(),
-      color: stroke.color,
-      strokeWidth: stroke.baseWidth,
-      opacity: _effectiveOpacity,
-    );
-
-    // 📄 PDF Annotation Linking: if stroke overlaps a PDF page, link it
-    _linkStrokeToPdfPage(stroke);
-
     // ✂️ Clear PDF clip rect now that the stroke is finalized
     _activePdfClipRect = null;
 
-    // 🌊 REFLOW: Incrementally update cluster cache with new stroke
+    // 🎚️ J: REFLOW + THUMBNAIL also deferred to post-frame.
+    // Cluster recompute can be O(N) on stroke count, and thumbnail
+    // generation does an offscreen render per stale cluster. Neither
+    // affects the live tile cache (drawWithParentFallback already drew
+    // the new stroke via tile rebuild) so a 1-frame delay is invisible.
     if (_clusterDetector != null) {
-      final activeLayer = _layerController.layers.firstWhere(
-        (l) => l.id == _layerController.activeLayerId,
-        orElse: () => _layerController.layers.first,
-      );
-      _clusterCache = _clusterDetector!.addStroke(
-        _clusterCache,
-        stroke,
-        activeLayer.strokes,
-      );
-      _lassoTool.reflowController?.updateClusters(_clusterCache);
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final activeLayer = _layerController.layers.firstWhere(
+          (l) => l.id == _layerController.activeLayerId,
+          orElse: () => _layerController.layers.first,
+        );
+        _clusterCache = _clusterDetector!.addStroke(
+          _clusterCache,
+          stroke,
+          activeLayer.strokes,
+        );
+        _lassoTool.reflowController?.updateClusters(_clusterCache);
+        // 🚀 Pre-emptive OCR: 5s after the user stops writing, recognize
+        // text for any new/changed cluster in the background. Warms the
+        // [_clusterTextCache] so "Interrogami" is instant on heavy canvases.
+        scheduleBackgroundExamOcr();
 
-      // 🖼️ THUMBNAIL: Generate/update thumbnails for changed clusters
-      if (_thumbnailCache != null) {
-        final strokes = activeLayer.strokes;
-        for (final cluster in _clusterCache) {
-          if (cluster.elementCount < 1) continue;
-          if (!_thumbnailCache!.isStale(cluster.id, cluster.bounds)) continue;
+        // 🖼️ THUMBNAIL: Generate/update thumbnails for changed clusters
+        if (_thumbnailCache != null) {
+          final strokes = activeLayer.strokes;
+          for (final cluster in _clusterCache) {
+            if (cluster.elementCount < 1) continue;
+            if (!_thumbnailCache!.isStale(cluster.id, cluster.bounds)) continue;
 
-          // Collect strokes for this cluster
-          final clusterStrokes = <ProStroke>[];
-          for (final sid in cluster.strokeIds) {
-            final s = strokes.where((s) => s.id == sid);
-            if (s.isNotEmpty) clusterStrokes.add(s.first);
-          }
+            // Collect strokes for this cluster
+            final clusterStrokes = <ProStroke>[];
+            for (final sid in cluster.strokeIds) {
+              final s = strokes.where((s) => s.id == sid);
+              if (s.isNotEmpty) clusterStrokes.add(s.first);
+            }
 
-          if (clusterStrokes.isNotEmpty) {
-            _thumbnailCache!.generateThumbnail(cluster, clusterStrokes);
+            if (clusterStrokes.isNotEmpty) {
+              _thumbnailCache!.generateThumbnail(cluster, clusterStrokes);
+            }
           }
         }
-      }
+      });
     }
 
     // 🪞 Phase 5: Symmetry mode — mirror/kaleidoscope stroke

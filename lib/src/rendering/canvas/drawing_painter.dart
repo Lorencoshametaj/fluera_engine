@@ -223,9 +223,31 @@ class DrawingPainter extends CustomPainter {
   /// Used to detect scale changes after gesture ends.
   static double _lastPaintedScale = 1.0;
 
+  // 🎚️ R2: SCALE-VELOCITY GATE
+  // When the user is zooming fast (e.g. flicking a pinch), there's no
+  // point producing tiles for tier-N when the next frame will already
+  // be at tier-N±1 — they'll be evicted/superseded immediately. Detect
+  // velocity from frame-to-frame scale delta, and if above the gate,
+  // skip ALL rebuilds: drawWithParentFallback is enough, the pyramid
+  // serves whichever tier is closest. Once velocity drops below gate,
+  // the next paint resumes normal rebuild and populates the cache.
+  static int _lastScaleStampMs = 0;
+  static double _scaleVelocity = 0.0;
+  /// |Δscale| / second above which we skip every rebuild and only do
+  /// pyramid replay. 1.5 = scale doubles in 0.5 s — clearly a flick.
+  static const double kFastZoomVelocityGate = 1.5;
+
   /// 🧩 Tile cache for regional invalidation.
   /// Shared across DrawingPainter instances via EngineScope or static fallback.
   static final TileCacheManager _tileCache = TileCacheManager();
+
+  // 🎚️ C: SMOOTH TIER TRANSITION
+  // Old strokeCache picture, kept around for [kFadeoutFrames] frames after
+  // a tier commit so the cost of building the new tier is amortized via
+  // visual cross-fade instead of paid in a single 15 ms hitch.
+  static const int kFadeoutFrames = 4;
+  static ui.Picture? _fadeoutPicture;
+  static int _fadeoutFramesRemaining = 0;
 
   /// 🏎️ Last paint() duration in microseconds (for debug overlay).
   static int _lastPaintDurationUs = 0;
@@ -256,9 +278,33 @@ class DrawingPainter extends CustomPainter {
   static int _profProgressive = 0;
   static int _profGracePeriod = 0;
   static int _profDirectFallback = 0;
+  static int _profPerLayer = 0;
   static int _profOther = 0;
+  static int _profTilesRebuilt = 0;
+  static int _profBudgetExceeded = 0;
   static int _profWindowStartMs = 0;
   static final List<int> _profFrameTimesUs = <int>[];
+
+  // Per-frame counters reset by paint(), incremented by tile rebuild loop.
+  static int _frameTilesRebuilt = 0;
+  static bool _frameBudgetExceeded = false;
+
+  // Window aggregates of why the tile rebuild path didn't run / was aborted.
+  static int _profSkipDirect = 0;     // hit `forceDirectRender` early-out
+  static int _profSkipFewStrokes = 0; // <5 strokes branch
+  static int _profSkipEraser = 0;     // eraser preview branch
+  static int _profStrokeReplayCalls = 0;
+  static int _profStrokeReplayUs = 0;
+
+  // Track scene version churn during the window to expose pathological
+  // invalidation loops during zoom-out.
+  static int _profWindowStartSceneVersion = -1;
+  static int _profLastSceneVersion = -1;
+  static int _profInvalidateAllCount = 0;
+  static int _profInvalAllNoTiles = 0;     // invAll because hasCachedTiles=false
+  static int _profInvalAllUndoLike = 0;    // invAll because totalStrokes <= cached
+  static int _profMarkValidReached = 0;
+  static int _profTileNoMissing = 0;       // entered tile path with 0 missing tiles
 
   static void _recordPaintForProfiler(int durationUs) {
     if (!profilerEnabled) return;
@@ -282,9 +328,14 @@ class DrawingPainter extends CustomPainter {
       case 'direct':
         _profDirectFallback++;
         break;
+      case 'perLayer':
+        _profPerLayer++;
+        break;
       default:
         _profOther++;
     }
+    _profTilesRebuilt += _frameTilesRebuilt;
+    if (_frameBudgetExceeded) _profBudgetExceeded++;
     if (nowMs - _profWindowStartMs >= 1000) {
       final n = _profFrameTimesUs.length;
       if (n == 0) {
@@ -297,13 +348,35 @@ class DrawingPainter extends CustomPainter {
       final p99 = _profFrameTimesUs[p99Index];
       final maxUs = _profFrameTimesUs.last;
       final rasterMetrics = CanvasPerformanceMonitor.instance.getMetrics();
+      final hits = _tileCache.cacheHits;
+      final misses = _tileCache.cacheMisses;
+      final fallback = _tileCache.parentFallbackHits;
+      final hitRate = (hits + misses) > 0
+          ? (hits / (hits + misses) * 100)
+          : 100.0;
+      final replayAvgUs = _profStrokeReplayCalls > 0
+          ? _profStrokeReplayUs ~/ _profStrokeReplayCalls
+          : 0;
+      final sceneDelta = _profWindowStartSceneVersion >= 0
+          ? _profLastSceneVersion - _profWindowStartSceneVersion
+          : 0;
       // ignore: avoid_print
       debugPrint('🔬 LOD-PROF tier=$_cachedLodTier '
           'scale=${_lastPaintedScale.toStringAsFixed(3)} | '
           'paints/s=$_profPaintCalls '
           '(fast=$_profFastPath tile=$_profTileFull '
           'prog=$_profProgressive grace=$_profGracePeriod '
-          'direct=$_profDirectFallback other=$_profOther) | '
+          'direct=$_profDirectFallback perLayer=$_profPerLayer '
+          'other=$_profOther) | '
+          'skip(direct=$_profSkipDirect few=$_profSkipFewStrokes '
+          'eraser=$_profSkipEraser) | '
+          'tiles built=$_profTilesRebuilt budgetOver=$_profBudgetExceeded | '
+          'tileCache hit=${hitRate.toStringAsFixed(0)}% '
+          '(h=$hits m=$misses fallback=$fallback) | '
+          'replay calls=$_profStrokeReplayCalls avg=${replayAvgUs}us | '
+          'sceneΔ=$sceneDelta invAll=$_profInvalidateAllCount '
+          '(noTiles=$_profInvalAllNoTiles undo=$_profInvalAllUndoLike) '
+          'mark=$_profMarkValidReached gestSkip=$_profTileNoMissing | '
           'CPU paint p50=${(p50 / 1000).toStringAsFixed(2)}ms '
           'p99=${(p99 / 1000).toStringAsFixed(2)}ms '
           'max=${(maxUs / 1000).toStringAsFixed(2)}ms | '
@@ -314,7 +387,22 @@ class DrawingPainter extends CustomPainter {
       _profProgressive = 0;
       _profGracePeriod = 0;
       _profDirectFallback = 0;
+      _profPerLayer = 0;
       _profOther = 0;
+      _profTilesRebuilt = 0;
+      _profBudgetExceeded = 0;
+      _profSkipDirect = 0;
+      _profSkipFewStrokes = 0;
+      _profSkipEraser = 0;
+      _profStrokeReplayCalls = 0;
+      _profStrokeReplayUs = 0;
+      _profInvalidateAllCount = 0;
+      _profInvalAllNoTiles = 0;
+      _profInvalAllUndoLike = 0;
+      _profMarkValidReached = 0;
+      _profTileNoMissing = 0;
+      _profWindowStartSceneVersion = _profLastSceneVersion;
+      _tileCache.resetStats();
       _profFrameTimesUs.clear();
       _profWindowStartMs = nowMs;
     }
@@ -771,6 +859,8 @@ class DrawingPainter extends CustomPainter {
     _paintStopwatch.reset();
     _paintStopwatch.start();
     _lastPaintPath = 'unknown';
+    _frameTilesRebuilt = 0;
+    _frameBudgetExceeded = false;
 
     // 🏎️ PERFORMANCE MONITORING: measure frame time
     CanvasPerformanceMonitor.instance.startFrame();
@@ -835,7 +925,19 @@ class DrawingPainter extends CustomPainter {
     final effectiveViewportSize = isViewportLevel ? size : viewportSize;
     if (isViewportLevel) {
       _lastPaintSize = size;
-      _lastPaintedScale = canvasScale;
+      // 🎚️ R2: track scale velocity for the fast-zoom rebuild gate.
+      // EMA-smoothed |Δscale|/sec, decays naturally when zoom is steady.
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final scale = controller?.scale ?? canvasScale;
+      if (_lastScaleStampMs > 0) {
+        final dt = (nowMs - _lastScaleStampMs) / 1000.0;
+        if (dt > 0.001 && dt < 1.0) {
+          final instantVel = (scale - _lastPaintedScale).abs() / dt;
+          _scaleVelocity = _scaleVelocity * 0.6 + instantVel * 0.4;
+        }
+      }
+      _lastScaleStampMs = nowMs;
+      _lastPaintedScale = scale;
     }
 
     if (!isViewportLevel) {
@@ -1156,6 +1258,7 @@ class DrawingPainter extends CustomPainter {
 
     if (hasLayerCompositing) {
       _paintPerLayer(canvas, viewport);
+      _lastPaintPath = 'perLayer';
       return;
     }
 
@@ -1186,8 +1289,15 @@ class DrawingPainter extends CustomPainter {
       if (totalStrokes == _strokeCache.cachedStrokeCount) {
         _strokeCache.invalidateCache();
         _tileCache.invalidateAll();
+        if (profilerEnabled) _profInvalidateAllCount++;
       }
       _cachedSceneVersion = sceneGraph.version;
+    }
+    if (profilerEnabled) {
+      _profLastSceneVersion = sceneGraph.version;
+      if (_profWindowStartSceneVersion < 0) {
+        _profWindowStartSceneVersion = sceneGraph.version;
+      }
     }
 
     // 🧠 Cache invalidation: recall mode hidden set changed
@@ -1195,6 +1305,7 @@ class DrawingPainter extends CustomPainter {
       _cachedRecallHiddenCount = recallHiddenIds.length;
       _strokeCache.invalidateCache();
       _tileCache.invalidateAll();
+      if (profilerEnabled) _profInvalidateAllCount++;
       invalidateLayerCaches();
     }
 
@@ -1260,15 +1371,29 @@ class DrawingPainter extends CustomPainter {
         _lodGraceFrames = 1;
       }
 
-      if (_lodGraceFrames >= 2) {
+      // 🎚️ G3: ASYMMETRIC GRACE PERIOD.
+      // - Downgrade (toward cheaper tier, e.g. 0→1, 1→2): commit on
+      //   frame 1. The user is zooming OUT; the new tier renders less
+      //   detail and is cheaper to bake — no point sticking with the
+      //   expensive old tier any longer than needed.
+      // - Upgrade (toward costlier tier, e.g. 2→1, 1→0): wait 4 frames.
+      //   Avoids upgrading mid-gesture during fast scroll-wheel zoom
+      //   that flies through several boundaries; we'd otherwise commit
+      //   to a tier the user passes through.
+      final bool isDowngrade = currentTier > _cachedLodTier;
+      final int requiredGrace = isDowngrade ? 1 : 4;
+      if (_lodGraceFrames >= requiredGrace) {
         // 🗺️ TILE PYRAMID COMMIT (Google Maps-style)
         // The tile cache keeps the previous tier's tiles around as parent
-        // fallback — see TileCacheManager.drawWithParentFallback. There is
-        // nothing to invalidate, snapshot, or cross-fade: the painter just
-        // starts asking for tiles at the new tier from this frame on, and
-        // the cache transparently replays old-tier tiles where the new
-        // ones haven't been built yet.
-        _strokeCache.invalidateCache();
+        // fallback — see TileCacheManager.drawWithParentFallback.
+        // 🎚️ C: instead of dropping the old strokeCache outright, steal
+        // the previous tier's picture and use it as a fade-out overlay
+        // for [kFadeoutFrames] frames. This spreads the cost of the new
+        // tier rebuild across multiple frames instead of paying it in a
+        // single hitch when the user crosses a boundary.
+        _fadeoutPicture?.dispose();
+        _fadeoutPicture = _strokeCache.stealPicture();
+        _fadeoutFramesRemaining = _fadeoutPicture != null ? kFadeoutFrames : 0;
         _cachedLodTier = currentTier;
         _cachedSceneVersion = sceneGraph.version;
         _lodPendingTier = -1;
@@ -1309,7 +1434,12 @@ class DrawingPainter extends CustomPainter {
     if (!hasEraserPreview && _strokeCache.isCacheValid(totalStrokes)) {
       // ✅ Perfect cache hit: replay all strokes in O(1)
       _traceBegin('LOD/strokeCacheReplay');
+      final replaySw = profilerEnabled ? (Stopwatch()..start()) : null;
       _strokeCache.drawCached(canvas);
+      if (replaySw != null) {
+        _profStrokeReplayUs += replaySw.elapsedMicroseconds;
+        _profStrokeReplayCalls++;
+      }
       _traceEnd();
       _lastPaintPath = 'fast';
       return;
@@ -1353,6 +1483,15 @@ class DrawingPainter extends CustomPainter {
         isDirtyClipped ||
         forceDirectRender ||
         _effectiveStrokes.length < 5) {
+      if (profilerEnabled) {
+        if (hasEraserPreviewActive) {
+          _profSkipEraser++;
+        } else if (forceDirectRender || isDirtyClipped) {
+          _profSkipDirect++;
+        } else {
+          _profSkipFewStrokes++;
+        }
+      }
       // Fallback: direct render without caching
       _traceBegin('LOD/directRender');
       final cacheViewport = viewport.inflate(viewport.longestSide * 1.5);
@@ -1383,14 +1522,47 @@ class DrawingPainter extends CustomPainter {
           final stroke = _effectiveStrokes[i];
           _tileCache.invalidateForBounds(stroke.bounds);
         }
-      } else {
-        // Undo/delete/major change: invalidate all
+      } else if (_tileCache.hasCachedTiles) {
+        // Undo/delete/major change with real cached content: flush.
+        if (profilerEnabled) {
+          _profInvalidateAllCount++;
+          _profInvalAllUndoLike++;
+        }
         _tileCache.invalidateAll();
       }
+      // else: cache already empty (e.g. just initialized or just nuked
+      // by a previous invalidateAll). Nothing to invalidate. The pyramid
+      // will fill in missing tiles progressively within this frame's
+      // budget. Don't re-call invalidateAll() — that resets
+      // _cachedStrokeCount to 0 and creates a feedback loop where every
+      // subsequent paint re-enters this branch.
     }
 
     // 🌲 Ensure R-Tree is up to date for O(log N) tile queries
     _ensureRenderIndex();
+
+    // 🎚️ G4: VIEWPORT CAP at extreme zoom-out.
+    // At scale<0.15 the viewport spans >9000 canvas units → too many
+    // tiles to bake/draw in a single frame, even with bitmap caching.
+    // After fix D (tileSize halved to 2048), a 5×5 grid centered on
+    // viewport ≈ 10240×10240 canvas units — same effective coverage as
+    // the prior 3×3 with the old 4096-tile size. Strokes outside this
+    // grid won't render at this zoom; acceptable trade-off because users
+    // zoom this far only to "see everything", and a slight crop is far
+    // less noticeable than a 30 ms raster spike.
+    final _vpScaleForCap = controller?.scale ?? canvasScale;
+    Rect renderViewport = viewport;
+    if (_vpScaleForCap < 0.15) {
+      final centerKey = TileCacheManager.tileKeyForPoint(
+        viewport.center.dx, viewport.center.dy,
+      );
+      renderViewport = Rect.fromLTWH(
+        (centerKey.tx - 2) * TileCacheManager.tileSize,
+        (centerKey.ty - 2) * TileCacheManager.tileSize,
+        5 * TileCacheManager.tileSize,
+        5 * TileCacheManager.tileSize,
+      );
+    }
 
     // 🗺️ Draw the active tier; for any tile not yet built at that tier,
     // the cache transparently falls back to the closest available picture
@@ -1400,14 +1572,28 @@ class DrawingPainter extends CustomPainter {
     _traceBegin('LOD/drawPyramid');
     final missingTiles = _tileCache.drawWithParentFallback(
       canvas,
-      viewport,
+      renderViewport,
       _cachedLodTier,
     );
     _traceEnd();
 
+    // 🎚️ C ROLLBACK: smooth fade overlay disabled. saveLayer offscreen
+    // costs viewport-pixel-sized GPU memory (~8 MB on 1080p) plus blend
+    // composite per frame; multiplied by 4 fade frames it overruns the
+    // 8.3 ms 120 Hz budget on its own. Without fade, tier transitions
+    // pop visually in 1 frame — acceptable since the pyramid's parent-
+    // fallback already serves stale tiles smoothly during the boundary
+    // crossing. Fadeout picture is disposed immediately at commit time
+    // (see tier-commit block above; we keep that branch but never draw).
+    if (_fadeoutPicture != null) {
+      _fadeoutPicture!.dispose();
+      _fadeoutPicture = null;
+      _fadeoutFramesRemaining = 0;
+    }
+
     // 🎯 CENTER-FIRST: rebuild tiles closest to viewport center first
     if (missingTiles.length > 1) {
-      TileCacheManager.sortByDistanceToCenter(missingTiles, viewport);
+      TileCacheManager.sortByDistanceToCenter(missingTiles, renderViewport);
     }
 
     // 🗺️ GOOGLE MAPS-STYLE DEFER: during an active pinch/pan gesture we do
@@ -1421,14 +1607,51 @@ class DrawingPainter extends CustomPainter {
     // When the gesture ends the next paint re-enters this path with
     // isPanning=false and rebuilds cleanly at the settled tier.
     final isCurrentGesture = controller?.isPanning ?? false;
-    if (isCurrentGesture) {
-      _triggerPagingIfNeeded(viewport);
-      _lastPaintPath = 'tile';
-      return;
+    // 🎚️ R2: FAST-ZOOM GATE.
+    // If the user is flicking through scale rapidly (>1.5/sec), skip
+    // every rebuild path — even orphan recovery — and let the pyramid
+    // serve whatever it has. Tiles built mid-flick will be evicted by
+    // the next tier transition anyway; the only thing the user can
+    // perceive at that velocity is the pan/zoom itself, not stroke
+    // detail. Once velocity drops below the gate the next paint
+    // resumes normal rebuild.
+    final bool fastZoom = _scaleVelocity > kFastZoomVelocityGate;
+    if (isCurrentGesture || fastZoom) {
+      // 🗺️ DEFER REBUILD only when the pyramid CAN serve every visible
+      // tile via parent fallback. If even one tile has no picture in any
+      // tier and we're NOT in a fast-zoom flick, fall through to the
+      // tight-budget rebuild so strokes don't vanish.
+      bool hasOrphan = false;
+      for (final key in missingTiles) {
+        if (_tileCache.getParentFallback(_cachedLodTier, key) == null) {
+          hasOrphan = true;
+          break;
+        }
+      }
+      // During a flick (fastZoom=true), accept orphan tiles → user sees
+      // empty regions for ≤200 ms while the flick lands. That's the
+      // price of 120 fps. Once velocity drops, normal rebuild resumes.
+      if (!hasOrphan || fastZoom) {
+        if (profilerEnabled) _profTileNoMissing++;
+        _tileCache.markValid(totalStrokes, sceneGraph.version);
+        if (profilerEnabled) _profMarkValidReached++;
+        _triggerPagingIfNeeded(viewport);
+        _lastPaintPath = 'tile';
+        return;
+      }
+      // Fall through: at least one viewport tile has no fallback AND
+      // we're in a slow gesture. Build it (and only it) within the
+      // tight gesture budget below.
     }
 
     // 🚀 PROGRESSIVE FIRST LOAD: budget-cap tile rebuilds.
-    final normalBudgetUs = 4000;
+    // During an active gesture we only got here because at least one
+    // viewport tile had no fallback in the pyramid. Tighten the budget
+    // so we build ~1 thumbnail tile per frame (renderScale forced to
+    // 0.1 below) — enough to fill the holes progressively without
+    // paying the multi-tier 20–30 ms cost the gesture deferral guarded
+    // against.
+    final normalBudgetUs = isCurrentGesture ? 1500 : 4000;
     final Stopwatch? normalSw =
         missingTiles.length > 2 ? (Stopwatch()..start()) : null;
 
@@ -1449,6 +1672,7 @@ class DrawingPainter extends CustomPainter {
       if (normalSw != null &&
           normalTilesRebuilt > 0 &&
           normalSw.elapsedMicroseconds > normalBudgetUs) {
+        _frameBudgetExceeded = true;
         break;
       }
       final tileBounds = TileCacheManager.tileBounds(tileKey);
@@ -1495,8 +1719,10 @@ class DrawingPainter extends CustomPainter {
           if (node is StrokeNode) {
             if (node.stroke.isStub || node.stroke.isFill) continue;
             final b = node.stroke.bounds;
-            // Aggressive cull: skip strokes < 3px on screen
-            if (b.isEmpty || b.longestSide * renderScale < 3.0) continue;
+            // Aggressive cull: skip strokes < 6px on screen at this LOD.
+            // At renderScale < 0.2 a 6px stroke is already a smudge —
+            // emitting RRect for it is GPU fillrate burned for nothing.
+            if (b.isEmpty || b.longestSide * renderScale < 6.0) continue;
             final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
             final colorKey = node.stroke.color.toARGB32();
             final path = thumbBatches.putIfAbsent(colorKey, () => ui.Path());
@@ -1516,35 +1742,6 @@ class DrawingPainter extends CustomPainter {
           _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
           recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
         }
-        // 🏷️ CLUSTER LABEL: stroke count per tile at extreme zoom-out
-        final strokeCount = visibleNodes.whereType<StrokeNode>().length;
-        if (strokeCount >= 3) {
-          final labelSize = 12.0 / effectiveScale;
-          final center = tileBounds.center;
-          // Background pill
-          final pillRect = RRect.fromRectAndRadius(
-            Rect.fromCenter(center: center, width: labelSize * 3, height: labelSize * 1.6),
-            Radius.circular(labelSize * 0.4),
-          );
-          _lodThumbFillPaint.color = const Color(0x80000000);
-          recCanvas.drawRRect(pillRect, _lodThumbFillPaint);
-          // Count text
-          final builder = ui.ParagraphBuilder(
-            ui.ParagraphStyle(
-              textAlign: TextAlign.center,
-              fontSize: labelSize * 0.8,
-              maxLines: 1,
-            ),
-          );
-          builder.pushStyle(ui.TextStyle(color: const Color(0xDDFFFFFF)));
-          builder.addText('$strokeCount');
-          final paragraph = builder.build();
-          paragraph.layout(ui.ParagraphConstraints(width: labelSize * 3));
-          recCanvas.drawParagraph(
-            paragraph,
-            Offset(center.dx - labelSize * 1.5, center.dy - paragraph.height / 2),
-          );
-        }
       } else if (renderScale < 0.5) {
         // 🎨 TIER 2: Color-batched simplified polylines
         // Smooth fade near the 0.2 boundary (0.2–0.3 = transition zone)
@@ -1562,7 +1759,11 @@ class DrawingPainter extends CustomPainter {
                 : 1.0;
 
         final batches = <int, _ColorBatch>{};
-        final step = (1.0 / effectiveScale).ceil().clamp(3, 10);
+        // 🎚️ G2: more aggressive decimation at low zoom. Step grows from
+        // 4 (at scale=0.5) to 16 (at scale=0.06) — drops 75%–94% of
+        // points before path tessellation, which is the dominant cost
+        // at this tier when the path covers the whole viewport.
+        final step = (1.0 / effectiveScale).ceil().clamp(4, 16);
 
         for (final node in visibleNodes) {
           if (node is! StrokeNode) continue;
@@ -1572,9 +1773,9 @@ class DrawingPainter extends CustomPainter {
           final points = stroke.points;
           if (points.isEmpty) continue;
 
-          // Skip tiny strokes
+          // Skip tiny strokes (< 6px on screen — sub-perceptual)
           final screenSize = stroke.bounds.longestSide * effectiveScale;
-          if (screenSize < 4.0) continue;
+          if (screenSize < 6.0) continue;
 
           final colorKey = stroke.color.toARGB32();
           final batch = batches.putIfAbsent(
@@ -1636,6 +1837,7 @@ class DrawingPainter extends CustomPainter {
       if (isGesturing)
         _gestureBuiltTiles = true; // Only when tile ACTUALLY rebuilt
       normalTilesRebuilt++;
+      _frameTilesRebuilt++;
     }
     _traceEnd(); // LOD/tileRebuild
 
@@ -1647,11 +1849,23 @@ class DrawingPainter extends CustomPainter {
     // and calls invalidateAll(), destroying all partially-built tiles.
     // This caused an infinite loop: build some → invalidate all → repeat.
     _tileCache.markValid(totalStrokes, sceneGraph.version);
+    if (profilerEnabled) _profMarkValidReached++;
     // 🗑️ Drop tier caches the user hasn't visited recently. Active tier is
     // never evicted. Cheap walk over 3 integers; only allocates work when
     // some non-active tier has actually been idle past the threshold.
     _tileCache.evictIdleTiers();
     _lastPaintPath = 'tile';
+
+    // 🎚️ R3: post-frame deferred bake of tier-2 thumbnails. The rebuild
+    // loop above only ENQUEUES the bake (no toImageSync inline); we
+    // drain up to 2 entries per post-frame callback, paying the 1-3 ms
+    // toImageSync cost AFTER the frame deadline so it never extends
+    // the on-frame budget. Stale entries (whose Picture was already
+    // evicted) are dropped silently inside flushPendingBakes.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      final more = _tileCache.flushPendingBakes(maxBakes: 2);
+      if (more) _lodRepaintNotifier.value++;
+    });
 
     // 🚀 FIX: Update global stroke cache WITHOUT re-rendering all tiles.
     // Record the tiles we already drew into one Picture.
@@ -1726,6 +1940,90 @@ class DrawingPainter extends CustomPainter {
         // This prevents infinite repaint loops with LRU eviction.
       }
       _traceEnd(); // LOD/preWarm
+
+      // 🎚️ B+R4: AGGRESSIVE CROSS-TIER PRE-WARM during true idle.
+      // When the user has been still for long enough (scale velocity
+      // near zero) and there's budget headroom, pre-bake up to 8 tier-2
+      // thumbnails per frame for a 5-ring around the viewport. This
+      // populates the pyramid BEFORE the user starts a fast zoom, so
+      // R2's fast-zoom gate sees a fully-stocked cache and never has
+      // to choose between "lag now" or "drop strokes".
+      // Cap stays bounded by the rebuild budget; the work is enqueued
+      // (R3) so toImageSync runs post-frame.
+      final bool trulyIdle = !isCurrentGesture && _scaleVelocity < 0.05;
+      final int crossTierCap = trulyIdle ? 8 : 3;
+      if (!isCurrentGesture &&
+          _cachedLodTier != 2 &&
+          normalSw.elapsedMicroseconds < normalBudgetUs - 1500) {
+        final preWarmRect = trulyIdle
+            ? viewport.inflate(TileCacheManager.tileSize * 2)
+            : viewport;
+        final tier2Missing = _tileCache.collectMissing(2, preWarmRect);
+        if (tier2Missing.isNotEmpty) {
+          _traceBegin('LOD/preWarmTier2');
+          int crossBuilt = 0;
+          for (final tileKey in tier2Missing) {
+            if (crossBuilt >= crossTierCap) break;
+            if (normalSw.elapsedMicroseconds > normalBudgetUs) break;
+            final tileBounds = TileCacheManager.tileBounds(tileKey);
+            final visibleNodes = _renderIndex.queryRange(tileBounds);
+
+            // Empty tile fast-path
+            if (visibleNodes.isEmpty) {
+              final emptyRec = ui.PictureRecorder();
+              Canvas(emptyRec);
+              _tileCache.cacheTile(
+                2, tileKey, emptyRec.endRecording(), sceneGraph.version,
+              );
+              crossBuilt++;
+              continue;
+            }
+
+            // Inline tier 2 thumbnail rendering — same logic as the
+            // main rebuild loop's `renderScale < 0.2` branch, but
+            // forced to render at tier 2 quality regardless of the
+            // currently active tier. We replicate (not refactor) to
+            // avoid touching the hot path of the main loop.
+            final recorder = ui.PictureRecorder();
+            final recCanvas = Canvas(recorder);
+            // Z-order: sections first
+            for (final node in visibleNodes) {
+              if (node is! SectionNode) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
+            final thumbBatches = <int, ui.Path>{};
+            for (final node in visibleNodes) {
+              if (node is StrokeNode) {
+                if (node.stroke.isStub || node.stroke.isFill) continue;
+                final b = node.stroke.bounds;
+                // 0.10 = midpoint of tier 2 active range; matches main
+                // loop's 6 px screen-size cull at this scale.
+                if (b.isEmpty || b.longestSide * 0.10 < 6.0) continue;
+                final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
+                final colorKey = node.stroke.color.toARGB32();
+                final path = thumbBatches.putIfAbsent(colorKey, () => ui.Path());
+                path.addRRect(RRect.fromRectAndRadius(b, Radius.circular(r)));
+                continue;
+              }
+              if (node is SectionNode) continue;
+              if (node is PdfDocumentNode || node is PdfPageNode || node is FunctionGraphNode) continue;
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            }
+            for (final entry in thumbBatches.entries) {
+              final color = Color(entry.key);
+              _lodThumbFillPaint.color = color.withValues(alpha: 0.15);
+              recCanvas.drawPath(entry.value, _lodThumbFillPaint);
+              _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
+              recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
+            }
+            _tileCache.cacheTile(
+              2, tileKey, recorder.endRecording(), sceneGraph.version,
+            );
+            crossBuilt++;
+          }
+          _traceEnd(); // LOD/preWarmTier2
+        }
+      }
     }
 
     // Draw eraser previews on top

@@ -444,6 +444,25 @@ extension _TopRowBuilder on _ProfessionalCanvasToolbarState {
 
         const SizedBox(width: 4),
 
+        // 📌 Bookmarks — opens the bookmark list sheet. Hidden when there
+        // are no bookmarks (keeps the toolbar uncluttered before the user
+        // has actually saved anything).
+        if (widget.onBookmarksPressed != null && widget.bookmarkCount > 0)
+          _BookmarkToolbarButton(
+            count: widget.bookmarkCount,
+            isDark: isDark,
+            onTap: widget.onBookmarksPressed!,
+          ),
+
+        // 🔄 Wheel mode toggle — switches the canvas to radial wheel UI.
+        if (widget.onWheelModeToggle != null)
+          _TopBarIconButton(
+            icon: Icons.radio_button_unchecked_rounded,
+            tooltip: 'Wheel mode',
+            isDark: isDark,
+            onTap: widget.onWheelModeToggle!,
+          ),
+
         // Collapse toggle — animated chevron
         _AnimatedCollapseButton(
           isExpanded: _isToolsExpanded,
@@ -1680,6 +1699,88 @@ class _AnimatedCollapseButton extends StatelessWidget {
                   color: isDark ? Colors.white70 : Colors.black87,
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 📌 Bookmark button for the toolbar's right zone — icon + numeric badge.
+/// Visually mirrors the previous floating FAB (mustard accent + count
+/// pill) so users keep their muscle memory.
+class _BookmarkToolbarButton extends StatelessWidget {
+  final int count;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _BookmarkToolbarButton({
+    required this.count,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const accent = Color(0xFFC9A878);
+    return Tooltip(
+      message: 'Bookmarks',
+      waitDuration: ToolbarTokens.tooltipDelay,
+      child: SizedBox(
+        width: 36,
+        height: 36,
+        child: Material(
+          color: accent.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(ToolbarTokens.radius),
+          child: InkWell(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              onTap();
+            },
+            borderRadius: BorderRadius.circular(ToolbarTokens.radius),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Center(
+                  child: Icon(
+                    Icons.bookmarks_rounded,
+                    size: 20,
+                    color: accent,
+                  ),
+                ),
+                Positioned(
+                  right: -2,
+                  top: -2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.black : Colors.black87,
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        width: 1,
+                      ),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 14,
+                      minHeight: 12,
+                    ),
+                    child: Text(
+                      count > 99 ? '99+' : '$count',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

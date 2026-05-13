@@ -15,6 +15,14 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
   static bool _boundsUpdatePending = false;
 
   void _onLayerChanged() {
+    // Listener can outlive the State if the LayerController is owned higher
+    // up (or if a notifyListeners is dispatched during teardown before our
+    // removeListener executes). Bail out cleanly on a disposed State —
+    // touching `_undoRedoVersion` (or any other ValueNotifier owned by the
+    // State) after dispose throws "ValueNotifier was used after being
+    // disposed".
+    if (!mounted) return;
+
     // 🚀 P99 FIX: During active drawing, skip ALL heavy operations.
     // The in-progress stroke is in CurrentStrokePainter (not the layer),
     // so bounds/clusters/lists don't change until stroke end.
@@ -52,8 +60,28 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
       });
     }
 
-    // Auto-save only if not loading
-    if (!_isLoading) {
+    // Auto-save only if not loading.
+    // 🛡️ Also skip while a remote (cloud) snapshot is being applied:
+    // _applyCanvasData → clearAllAndLoadLayers → notifyListeners fires
+    // here even though the user did nothing. Without this guard the
+    // resulting save runs with empty dirtyLayerIds (full rewrite) and
+    // commits the remote snapshot back to disk, destroying any newer
+    // local edits that were just loaded. Pair: _isApplyingRemote set
+    // around _applyCanvasData(cloudData) in _lifecycle.dart.
+    //
+    // 🛡️ Also gate on dirty layers: notifyListeners fires for many
+    // non-edit reasons (post-load explicit notify, cache invalidation,
+    // selectLayer, idempotent addLayer replay, etc.). Real edits always
+    // mark a layer dirty via `_dirtyLayerIds.add(layer.id)` in
+    // layer_element_operations.dart. Without this gate every spurious
+    // notify schedules a save that runs with empty dirtyLayerIds,
+    // triggering a full rewrite of every layer (the worst kind of save:
+    // wasteful, and the wire format that makes data-loss races
+    // possible). Non-layer mutations (title, background color, etc.)
+    // call `_autoSaveCanvas()` explicitly and bypass this listener.
+    if (!_isLoading &&
+        !_isApplyingRemote &&
+        _layerController.dirtyLayerIds.isNotEmpty) {
       _autoSaveCanvas();
     }
 
@@ -675,109 +703,4 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
   // 🌿 CREATIVE BRANCHING LIFECYCLE → see _lifecycle_branching.dart
   // ============================================================================
 
-  // ============================================================================
-  // ✂️ SPACE-SPLIT GESTURE HANDLERS
-  // ============================================================================
-
-  /// Called when a two-finger spread gesture begins.
-  void _onSpaceSplitStart(double splitLinePosition, {bool isHorizontal = false}) {
-    _spaceSplitController.clusters = _clusterCache;
-    _spaceSplitController.startSplit(
-      splitLinePosition,
-      axis: isHorizontal ? SplitAxis.horizontal : SplitAxis.vertical,
-    );
-
-    // 📸 Snapshot stroke positions for undo
-    _preSplitStrokeSnapshot = {};
-    for (final layer in _layerController.layers) {
-      for (final strokeNode in layer.node.strokeNodes) {
-        _preSplitStrokeSnapshot![strokeNode.stroke.id] =
-            List.unmodifiable(strokeNode.stroke.points);
-      }
-    }
-  }
-
-  /// Called every frame during the two-finger vertical spread.
-  void _onSpaceSplitUpdate(double splitLineY, double spreadDistance) {
-    _spaceSplitController.updateSplit(spreadDistance);
-    // Trigger repaint so the painter can render ghost displacements + split line
-    _canvasController.markNeedsPaint();
-  }
-
-  /// Called when the two-finger vertical spread gesture ends.
-  void _onSpaceSplitEnd() {
-    final result = _spaceSplitController.endSplit();
-    if (result.isEmpty) {
-      _preSplitStrokeSnapshot = null;
-      return;
-    }
-
-    final layerNode = _layerController.activeLayer?.node;
-    if (layerNode == null) {
-      _preSplitStrokeSnapshot = null;
-      return;
-    }
-
-    // 🔄 UNDO: Use paired remove+add deltas per affected stroke.
-    // Before applying: record strokeRemoved (captures pre-move state).
-    // After applying: record strokeAdded (captures post-move state).
-    // On undo: applyInverse reverses both, restoring original positions.
-    final snapshot = _preSplitStrokeSnapshot;
-    _preSplitStrokeSnapshot = null;
-    final activeLayerId = _layerController.activeLayerId ?? '';
-    final deltaTracker = CanvasDeltaTracker.instance;
-
-    if (snapshot != null && snapshot.isNotEmpty) {
-      // Begin batch so entire split = 1 undo step
-      EngineScope.current.undoRedoManager.beginBatch();
-
-      // Record pre-move state for each affected stroke
-      for (final strokeId in result.elementDisplacements.keys) {
-        deltaTracker.recordStrokeRemoved(activeLayerId, strokeId);
-      }
-    }
-
-    // Apply displacements
-    _applyReflowDeltas(result.elementDisplacements);
-
-    if (snapshot != null && snapshot.isNotEmpty) {
-      // Record post-move state for each affected stroke
-      for (final strokeId in result.elementDisplacements.keys) {
-        ProStroke? newStroke;
-        for (final layer in _layerController.layers) {
-          for (final sn in layer.node.strokeNodes) {
-            if (sn.stroke.id == strokeId) {
-              newStroke = sn.stroke;
-              break;
-            }
-          }
-          if (newStroke != null) break;
-        }
-        if (newStroke != null) {
-          deltaTracker.recordStrokeAdded(activeLayerId, newStroke);
-        }
-      }
-      EngineScope.current.undoRedoManager.endBatch();
-    }
-
-    // Update cluster cache bounds
-    for (final entry in result.clusterDisplacements.entries) {
-      final displacement = entry.value;
-      if (displacement == Offset.zero) continue;
-      for (final cluster in _clusterCache) {
-        if (cluster.id == entry.key) {
-          cluster.bounds = cluster.bounds.shift(displacement);
-          cluster.centroid = cluster.centroid + displacement;
-          cluster.resetDisplacement();
-          break;
-        }
-      }
-    }
-
-    // Invalidate tiles and save
-    DrawingPainter.invalidateAllTiles();
-    _layerController.sceneGraph.bumpVersion();
-    _autoSaveCanvas();
-    _canvasController.markNeedsPaint();
-  }
 }

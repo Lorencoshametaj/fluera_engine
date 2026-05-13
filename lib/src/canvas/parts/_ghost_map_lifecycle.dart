@@ -534,6 +534,32 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
     _ghostMapController.notifyListeners();
   }
 
+  /// 🧠 Push the concept names surfaced by Ghost Map into the index so
+  /// Socratic and Exam can read them when deciding what to ask next.
+  /// Each ghost node has `relatedClusterId` + `concept` — we group by
+  /// cluster and merge into the existing concept entry (preserving any
+  /// concepts already populated by the OCR NER-light pass).
+  void _populateConceptsFromGhostMap(GhostMapResult result) {
+    final index = _clusterConceptIndex;
+    if (index == null) return;
+    final byCluster = <String, Set<String>>{};
+    for (final node in result.nodes) {
+      final cid = node.relatedClusterId;
+      if (cid == null) continue;
+      final c = node.concept.trim();
+      if (c.isEmpty || c.length < 4) continue; // mirror NER threshold
+      byCluster.putIfAbsent(cid, () => <String>{}).add(c);
+    }
+    for (final entry in byCluster.entries) {
+      final existing = index.peek(entry.key);
+      final merged = <String>{
+        if (existing != null) ...existing.concepts,
+        ...entry.value,
+      };
+      index.upsertConcepts(entry.key, merged.toList(growable: false));
+    }
+  }
+
   // ── OVERLAYS ─────────────────────────────────────────────────────────────
 
   /// 🗺️ Build Ghost Map UI overlays (navigation bar + progress).

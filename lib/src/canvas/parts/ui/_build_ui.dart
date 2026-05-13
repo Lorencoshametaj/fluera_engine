@@ -169,7 +169,6 @@ extension on _FlueraCanvasScreenState {
         backgroundColor: Colors.white,
         body: SafeArea(
           child: CanvasScope(
-            canvasController: _canvasController,
             layerController: _layerController,
             toolController: _toolController,
             learningStepController: _learningStepController,
@@ -178,6 +177,141 @@ extension on _FlueraCanvasScreenState {
             fogOfWarController: _fogOfWarController,
             ghostMapController: _ghostMapController,
             tierGateController: _tierGateController,
+            srsReviewSession: _srsReviewSession,
+            crossZoneBridgeController: _crossZoneBridgeController,
+            examSessionController: _surgicalExamController,
+            knowledgeFlowController: _knowledgeFlowController,
+            lassoTool: _lassoTool,
+            imageTool: _imageTool,
+            rulerGuideSystem: _rulerGuideSystem,
+            echoSearchController: _echoSearchController,
+            legacyState: CanvasLegacyState(
+              atlasIsLoading: _atlasIsLoading,
+              zeigarnikIncompleteBounds: _zeigarnikIncompleteNodeBounds,
+              zeigarnikAnimation: _zeigarnikAnimController,
+              goldenShimmerBounds: _goldenShimmerNodeBounds,
+              goldenShimmerAnimation: _goldenShimmerAnimController,
+              goldenShimmerEnabled: _goldenShimmerEnabled,
+              selectionRepaint: _uiRebuildNotifier,
+              imageRepaint: _imageRepaintNotifier,
+              eraserPreviewIds: _eraserPreviewIds,
+              scratchOutPreviewIds: _scratchOutPreviewIds,
+              scratchOutDissolveMap: _scratchOutDissolveMap,
+              recallReconstructionZone: _recallReconstructionZone,
+              recallShowingOriginals: _recallShowingOriginals,
+              recallHiddenStrokeIds: _recallOriginalStrokeIds,
+              imageElements: _imageElements,
+              loadedImages: _loadedImages,
+              imageVersion: _imageVersion,
+              imageSpatialIndex: _imageSpatialIndex,
+              imageMemoryManager: _imageMemoryManager,
+              eraserTrail: _eraserTrail,
+              eraserParticles: _eraserParticles,
+              eraserCursorPosition: _eraserCursorPosition,
+              eraserLassoMode: _eraserLassoMode,
+              eraserLassoPoints: _eraserLassoPoints,
+              eraserLassoAnimating: _eraserLassoAnimating,
+              eraserProtectedRegions: _eraserTool.protectedRegions,
+              eraserMagneticSnapTarget: _eraserTool.lastMagneticSnapTarget,
+              eraserMagneticSnapEnabled: _eraserTool.magneticSnap,
+              scratchOutAnimating: _scratchOutAnimating,
+              scratchOutBounds: _scratchOutBounds ?? Rect.zero,
+              scratchOutParticles: _scratchOutParticles,
+              externalPlaybackController: widget.externalPlaybackController,
+              playbackPageIndex: widget.playbackPageIndex,
+              recordedPlaybackController: _playbackController,
+              onStopRecordedPlayback: _stopSyncedPlayback,
+              onPlaybackAutoFollow: (canvasPos) {
+                final viewSize = MediaQuery.of(context).size;
+                final s = _canvasController.scale;
+                final targetOffset = Offset(
+                  -canvasPos.dx * s + viewSize.width / 2,
+                  -canvasPos.dy * s + viewSize.height / 2,
+                );
+                _canvasController.animateToTransform(
+                  targetOffset: targetOffset,
+                  targetScale: s,
+                );
+              },
+              isPlayingSyncedRecording: _isPlayingSyncedRecording,
+              isRecordingAudio: _isRecordingAudio,
+              liveTranscriptionEnabled:
+                  VoiceRecordingExtension.liveTranscriptionEnabled,
+              liveTranscriptionText:
+                  VoiceRecordingExtension.liveTranscriptionTextNotifier,
+              inlineTextEditing: (_isInlineEditing &&
+                      _inlineEditingElement != null)
+                  ? InlineTextEditingSnapshot(
+                      element: _inlineEditingElement!,
+                      color: _inlineTextColor,
+                      fontSize: _inlineTextFontSize,
+                      fontWeight: _inlineTextFontWeight,
+                      fontStyle: _inlineTextFontStyle,
+                      fontFamily: _inlineTextFontFamily,
+                      shadow: _inlineTextShadow,
+                      backgroundColor: _inlineTextBackgroundColor,
+                      outlineColor: _inlineTextOutlineColor,
+                      outlineWidth: _inlineTextOutlineWidth,
+                      gradientColors: _inlineTextGradientColors,
+                      opacity: _inlineTextOpacity,
+                      letterSpacing: _inlineTextLetterSpacing,
+                      textDecoration: _inlineTextDecoration,
+                      onSubmit: _finishInlineText,
+                      onCancel: _cancelInlineText,
+                      onSelectionChanged: (selection) {
+                        _inlineTextSelection = selection;
+                      },
+                    )
+                  : null,
+              remoteLiveStrokes: CollaborationExtension.remoteLiveStrokes,
+              remoteLiveStrokeColors:
+                  CollaborationExtension.remoteLiveStrokeColors,
+              remoteLiveStrokeWidths:
+                  CollaborationExtension.remoteLiveStrokeWidths,
+              pdfLoadingPlaceholders: CollaborationExtension
+                  .pdfLoadingPlaceholders.values
+                  .toList(),
+              lassoRippleCenter: _lassoRippleCenter,
+              lassoRippleAnimation: _lassoRippleController,
+              onSelectionTransformComplete: () {
+                _uiRebuildNotifier.value++;
+                _autoSaveCanvas();
+              },
+              activeSmartGuides: _activeSmartGuides,
+              sectionStartPoint:
+                  _isSectionActive ? _sectionStartPoint : null,
+              sectionEndPoint:
+                  _isSectionActive ? _sectionCurrentEndPoint : null,
+              fogZoneStartPoint: _fogZoneStartPoint,
+              fogZoneEndPoint: _fogZoneCurrentEndPoint,
+              pendingFogLevel: _pendingFogLevel,
+              showRulers: _showRulers,
+              isEchoSearchMode: _isEchoSearchMode,
+              predictionAnchorScreen: _activePredictionBubble?.anchor,
+              predictionLabel: _activePredictionBubble?.prediction.label,
+              dismissedSocraticIds: _dismissedSocraticIds,
+              onShowSocraticSummary: _showSocraticSummary,
+              paperType: _paperType,
+              paperBackgroundColor: _canvasBackgroundColor,
+              pdfPainters: _pdfPainters,
+              onPdfRepaint: () {
+                if (mounted) {
+                  _pdfLayoutVersion++;
+                  setState(() {});
+                }
+              },
+              pdfSearchController: _pdfSearchController,
+              pdfLayoutVersion: _pdfLayoutVersion,
+              showPdfPageNumbers: _showPdfPageNumbers,
+              currentShapeNotifier: _currentShapeNotifier,
+              isImageEditFromInfiniteCanvas:
+                  _isImageEditFromInfiniteCanvas,
+              dynamicCanvasSize: _canvasSize,
+              renderingConfig: _renderingConfig,
+              activeSurface: _activeSurface,
+              microThumbnails: _imageStubManager.microThumbnails,
+              onPanelZoomCheck: _onPdfZoomCheck,
+            ),
             clusterCache: _clusterCache,
             l10n: _l10n,
             canvasId: _canvasId,
@@ -352,72 +486,11 @@ extension on _FlueraCanvasScreenState {
                           ),
                         ),
 
-                        // 📌 Bookmark FAB (top-right) — opens the list sheet.
-                        // Hidden when no bookmarks exist (keep canvas clean
-                        // before the student has actually saved anything).
-                        // Anchored top-right so it doesn't fight the minimap
-                        // (bottom-right) for space.
-                        AnimatedBuilder(
-                          animation: _bookmarkController,
-                          builder: (context, _) {
-                            final count = _bookmarkController.bookmarks.length;
-                            if (count == 0) return const SizedBox.shrink();
-                            return Positioned(
-                              top: 12,
-                              right: 12,
-                              child: Material(
-                                color: Colors.transparent,
-                                child: Tooltip(
-                                  message: 'Bookmarks',
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      FloatingActionButton.small(
-                                        heroTag: 'bookmark_fab',
-                                        backgroundColor:
-                                            const Color(0xFFFF9800),
-                                        foregroundColor: Colors.white,
-                                        onPressed: _openBookmarkSheet,
-                                        child: const Icon(Icons.bookmarks),
-                                      ),
-                                      Positioned(
-                                        right: -2,
-                                        top: -2,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 5, vertical: 1,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black,
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            border: Border.all(
-                                              color: Colors.white,
-                                              width: 1,
-                                            ),
-                                          ),
-                                          constraints: const BoxConstraints(
-                                            minWidth: 16,
-                                            minHeight: 14,
-                                          ),
-                                          child: Text(
-                                            '$count',
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                        // 📌 Bookmark button no longer floats over the canvas.
+                        // Toolbar mode → lives in the toolbar right zone
+                        //   (see _BookmarkToolbarButton).
+                        // Wheel  mode → lives in the top-left system dock
+                        //   (see the dock Column further down).
 
                         // 🔍 Handwriting Search Overlay (inside canvas stack = below toolbar)
                         if (_showHandwritingSearch)
@@ -1180,77 +1253,147 @@ extension on _FlueraCanvasScreenState {
                 ),
 
 
-              // 🔄 Wheel/Toolbar toggle pill (auto-hides after 4s)
+              // 🔄 Wheel-mode SYSTEM DOCK — floating top-left vertical strip
+              // that consolidates all "outside-the-canvas" buttons (toolbar
+              // toggle + bookmark button) so they don't get scattered over
+              // the canvas. Auto-hides after 4 s; small dot reopens it.
+              if (_useRadialWheel)
               Positioned(
-                top: _useRadialWheel ? 16 : null,
-                bottom: _useRadialWheel ? null : 80,
-                right: 16,
+                top: 16,
+                left: 16,
                 child: AnimatedOpacity(
                   opacity: _wheelPillVisible ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 400),
                   curve: Curves.easeOut,
                   child: IgnorePointer(
                     ignoring: !_wheelPillVisible,
-                    child: GestureDetector(
-                      onTap: _toggleWheelMode,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 350),
-                        curve: Curves.easeOutCubic,
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _useRadialWheel
-                              ? const Color(0xFF1E88E5).withValues(alpha: 0.92)
-                              : Colors.black.withValues(alpha: 0.65),
-                          borderRadius: BorderRadius.circular(24),
-                          border: Border.all(
-                            color: _useRadialWheel
-                                ? Colors.white.withValues(alpha: 0.3)
-                                : Colors.white.withValues(alpha: 0.15),
-                            width: 1,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Toolbar toggle pill
+                        GestureDetector(
+                          onTap: _toggleWheelMode,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 350),
+                            curve: Curves.easeOutCubic,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E88E5)
+                                  .withValues(alpha: 0.92),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.3),
+                                width: 1,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF1E88E5)
+                                      .withValues(alpha: 0.35),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(end: 1.0),
+                                  duration: const Duration(milliseconds: 400),
+                                  curve: Curves.easeOutBack,
+                                  builder: (_, val, child) => Transform.rotate(
+                                    angle: val * 3.14159,
+                                    child: child,
+                                  ),
+                                  child: const Icon(
+                                    Icons.dashboard_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                const Text(
+                                  'Toolbar',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: (_useRadialWheel
-                                  ? const Color(0xFF1E88E5)
-                                  : Colors.black).withValues(alpha: 0.35),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Animated icon rotation
-                            TweenAnimationBuilder<double>(
-                              tween: Tween(end: _useRadialWheel ? 1.0 : 0.0),
-                              duration: const Duration(milliseconds: 400),
-                              curve: Curves.easeOutBack,
-                              builder: (_, val, child) => Transform.rotate(
-                                angle: val * 3.14159,
-                                child: child,
+
+                        // 📌 Bookmark FAB inside the dock — only when there's
+                        // at least one bookmark, so the dock stays compact.
+                        AnimatedBuilder(
+                          animation: _bookmarkController,
+                          builder: (context, _) {
+                            final count = _bookmarkController.bookmarks.length;
+                            if (count == 0) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: Tooltip(
+                                  message: 'Bookmarks',
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      FloatingActionButton.small(
+                                        heroTag: 'bookmark_fab_dock',
+                                        backgroundColor:
+                                            const Color(0xFFC9A878),
+                                        foregroundColor: Colors.white,
+                                        onPressed: () {
+                                          _showWheelPill();
+                                          _openBookmarkSheet();
+                                        },
+                                        child: const Icon(Icons.bookmarks),
+                                      ),
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5, vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 1,
+                                            ),
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 16,
+                                            minHeight: 14,
+                                          ),
+                                          child: Text(
+                                            '$count',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                              child: Icon(
-                                _useRadialWheel
-                                    ? Icons.dashboard_rounded
-                                    : Icons.radio_button_unchecked_rounded,
-                                color: Colors.white,
-                                size: 18,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              _useRadialWheel ? 'Toolbar' : 'Wheel',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
+                            );
+                          },
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
@@ -1319,19 +1462,103 @@ extension on _FlueraCanvasScreenState {
                       ),
                     ),
                   ),
-                )
-              else if (!_wheelPillVisible)
-                // ⚙️ Non-wheel mode: standard small dot to re-show the pill
+                ),
+
+              // 🔘 Top-left re-show tab — appears when the pill has faded out.
+              // Tap to bring the pill back (which then auto-hides again after 4s).
+              // Hit-target is 44×44 (Material min-touch) but visually only the
+              // small inner dot is rendered — keeps canvas clean while the
+              // button still reliably activates.
+              if (_useRadialWheel && !_wheelPillVisible)
                 Positioned(
-                  bottom: 88,
-                  right: 22,
+                  top: 8,
+                  left: 8,
                   child: GestureDetector(
-                    onTap: _showWheelPill,
-                    child: Container(
-                      width: 10, height: 10,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        shape: BoxShape.circle,
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      _wheelHintTimer?.cancel();
+                      setState(() => _wheelHintVisible = false);
+                      _showWheelPill();
+                    },
+                    child: SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(
+                        child: Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.45),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              width: 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.25),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 💡 Onboarding coachmark — fades in next to the dot the first
+              // time the pill auto-hides, then fades out after 4s.
+              if (_useRadialWheel && !_wheelPillVisible)
+                Positioned(
+                  top: 22,
+                  left: 56,
+                  child: IgnorePointer(
+                    child: AnimatedOpacity(
+                      opacity: _wheelHintVisible ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOut,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.78),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(
+                              Icons.arrow_back_rounded,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              'Tap to show toolbar',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1347,7 +1574,7 @@ extension on _FlueraCanvasScreenState {
                   right: 44,
                   child: _WheelPenPickerOverlay(
                     key: _penPickerKey,
-                    presets: _brushPresetManager.allPresets,
+                    presets: _wheelModeBrushPresets,
                     selectedPresetId: _selectedPresetId,
                     currentColor: _effectiveSelectedColor,
                     // Reset auto-dismiss when user scrolls/browses the picker
@@ -1435,6 +1662,28 @@ extension on _FlueraCanvasScreenState {
                 ),
 
 
+
+              // 🎨 Color-wheel first-touch tutorial (one-shot, persisted).
+              // Anchors a spotlight to the FloatingColorDisc's screen-space
+              // centre published via `_colorDiscCenterNotifier`.
+              if (_showColorWheelTutorial)
+                Positioned.fill(
+                  child: ValueListenableBuilder<Offset>(
+                    valueListenable: _colorDiscCenterNotifier,
+                    builder: (context, center, _) {
+                      // Fallback to bottom-right area if the notifier hasn't
+                      // received its first publish yet (rare race).
+                      final size = MediaQuery.of(context).size;
+                      final c = center == Offset.zero
+                          ? Offset(size.width - 54, size.height - 174)
+                          : center;
+                      return ColorWheelTutorialOverlay(
+                        discCenter: c,
+                        onDismiss: _dismissColorWheelTutorial,
+                      );
+                    },
+                  ),
+                ),
 
               // 🎬 Loading overlay (splash screen during initialization)
               _buildLoadingOverlay(),

@@ -105,7 +105,6 @@ extension on _FlueraCanvasScreenState {
         );
       } else {
         // No cloud — just broadcast locally with no storageUrl
-        _broadcastImageUpdate(newImage, isNew: true);
       }
     } catch (e) {
       if (mounted) {
@@ -243,7 +242,6 @@ extension on _FlueraCanvasScreenState {
       _layerController.updateImage(updated);
 
       // 🔴 RT: Broadcast to collaborators WITH storageUrl
-      _broadcastImageUpdate(updated, isNew: true);
 
       // 💾 Re-save with storageUrl
       _autoSaveCanvas();
@@ -339,7 +337,6 @@ extension on _FlueraCanvasScreenState {
                 _layerController.updateImage(updated);
 
                 // 🔴 RT: Broadcast image changes to collaborators
-                _broadcastImageUpdate(updated);
 
                 // 💾 Auto-save after image modification
                 _autoSaveCanvas();
@@ -397,7 +394,6 @@ extension on _FlueraCanvasScreenState {
 
     // 🔴 RT: Broadcast removal to collaborators
     if (broadcast) {
-      _broadcastImageRemoved(imageId);
     }
 
     // 💾 Auto-save

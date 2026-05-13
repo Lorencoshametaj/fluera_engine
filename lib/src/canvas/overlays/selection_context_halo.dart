@@ -192,20 +192,13 @@ class _SelectionContextHaloState extends State<SelectionContextHalo>
 
     return Stack(
       children: [
-        // ── 1. Selection frame ring (sober bounding box) ──
-        Positioned.fill(
-          child: FadeTransition(
-            opacity: _entryController,
-            child: IgnorePointer(
-              child: CustomPaint(
-                painter: _SelectionFramePainter(
-                  bounds: bounds,
-                  color: _accent.withValues(alpha: 0.35),
-                ),
-              ),
-            ),
-          ),
-        ),
+        // ── 1. Selection frame ring REMOVED.
+        // The lasso's own unified bounding box (drawn by _SelectionHighlight-
+        // Painter in lasso_selection_overlay.dart) already shows the
+        // selection bounds. Drawing a second rect here at a different
+        // inflation (`bounds.inflate(3)` vs the lasso's 20px canvas-space
+        // padding) caused two boxes that didn't align — the "quadrato non
+        // centrato" the user reported.
 
         // ── 2. Action buttons on a gentle arc (no orbital line, no connector) ──
         ...List.generate(count, (i) {
@@ -228,33 +221,10 @@ class _SelectionContextHaloState extends State<SelectionContextHalo>
           );
         }),
 
-        // ── 3. Count badge (only when multi-selection) ──
-        if (widget.selectionCount > 1)
-          Positioned(
-            left: arcOrigin.dx - 16,
-            top: arcOrigin.dy - 12,
-            child: FadeTransition(
-              opacity: _entryController,
-              child: IgnorePointer(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _panelBg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '${widget.selectionCount}',
-                    style: TextStyle(
-                      color: _accent.withValues(alpha: 0.75),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        // ── 3. Count badge REMOVED — duplicate of the gradient pill drawn
+        // by _SelectionHighlightPainter at the bottom-right corner of the
+        // unified bounding box (lasso_selection_overlay.dart). Showing it
+        // twice (top arc + bottom corner) was the "numero 2 doppio" issue.
 
         // ── 4. Expanded panel ──
         if (_isExpanded)
@@ -546,50 +516,9 @@ class _SelectionFramePainter extends CustomPainter {
     final rrect = RRect.fromRectAndRadius(inflated, const Radius.circular(4));
     canvas.drawRRect(rrect, paint);
 
-    // Corner accents — small L-shaped marks at each corner (JARVIS detail)
-    final cornerLen = 8.0;
-    final accentPaint = Paint()
-      ..color = color.withValues(alpha: 1.0) // Slightly brighter than frame
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    // Top-left
-    canvas.drawLine(
-        Offset(inflated.left, inflated.top + cornerLen),
-        inflated.topLeft,
-        accentPaint);
-    canvas.drawLine(
-        inflated.topLeft,
-        Offset(inflated.left + cornerLen, inflated.top),
-        accentPaint);
-    // Top-right
-    canvas.drawLine(
-        Offset(inflated.right, inflated.top + cornerLen),
-        inflated.topRight,
-        accentPaint);
-    canvas.drawLine(
-        inflated.topRight,
-        Offset(inflated.right - cornerLen, inflated.top),
-        accentPaint);
-    // Bottom-left
-    canvas.drawLine(
-        Offset(inflated.left, inflated.bottom - cornerLen),
-        inflated.bottomLeft,
-        accentPaint);
-    canvas.drawLine(
-        inflated.bottomLeft,
-        Offset(inflated.left + cornerLen, inflated.bottom),
-        accentPaint);
-    // Bottom-right
-    canvas.drawLine(
-        Offset(inflated.right, inflated.bottom - cornerLen),
-        inflated.bottomRight,
-        accentPaint);
-    canvas.drawLine(
-        inflated.bottomRight,
-        Offset(inflated.right - cornerLen, inflated.bottom),
-        accentPaint);
+    // Corner accents removed — the L-shaped JARVIS brackets cluttered the
+    // selection regardless of inset. The thin rrect frame above is enough
+    // to communicate the selection bounds.
   }
 
   @override

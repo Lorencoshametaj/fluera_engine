@@ -20,17 +20,17 @@ import '../../config/v1_feature_gate.dart';
 // =============================================================================
 
 enum RadialMenuItem {
-  brush('Brush', Icons.brush_rounded, Color(0xFF64B5F6)),
-  text('Text', Icons.text_fields_rounded, Color(0xFFA87FDB)),
-  insert('Insert', Icons.add_circle_outline_rounded, Color(0xFFE8A84C)),
-  shape('Shape', Icons.hexagon_rounded, Color(0xFF6BCB7F)),
-  undo('Undo', Icons.undo_rounded, Color(0xFFEF9A9A)),
-  tools('Tools', Icons.build_rounded, Color(0xFF80CBC4)),
-  knowledgeMap('Map', Icons.hub_rounded, Color(0xFF7EC8E3)),
-  atlas('Chiedi', Icons.auto_awesome_rounded, Color(0xFF00E5FF)),
-  // 📌 §1972-1977 — student-placed spatial anchor at the long-press position.
-  // Orange palette to match the bookmark color used on the minimap.
-  bookmark('Bookmark', Icons.bookmark_add_outlined, Color(0xFFFF9800));
+  // 🎨 Harmonised muted palette — desaturated tones, similar lightness/sat,
+  // so each sector has its own colour identity without screaming for attention.
+  brush('Brush', Icons.brush_rounded, Color(0xFF8FB4C9)),          // dusty blue
+  text('Text', Icons.text_fields_rounded, Color(0xFFA89BC4)),       // soft lavender
+  insert('Insert', Icons.add_circle_outline_rounded, Color(0xFFD2B48C)), // warm sand
+  shape('Shape', Icons.hexagon_rounded, Color(0xFF9DB89D)),         // sage
+  undo('Undo', Icons.undo_rounded, Color(0xFFC9A0A0)),              // dusty rose
+  tools('Tools', Icons.build_rounded, Color(0xFF8FBDB7)),           // dusty teal
+  knowledgeMap('Map', Icons.hub_rounded, Color(0xFF9AAEC2)),        // slate blue
+  atlas('Chiedi', Icons.auto_awesome_rounded, Color(0xFFB39DC7)),   // mauve
+  bookmark('Bookmark', Icons.bookmark_add_outlined, Color(0xFFC9A878)); // mustard
 
   const RadialMenuItem(this.label, this.icon, this.accent);
   final String label;
@@ -67,18 +67,17 @@ enum RadialMenuItem {
 enum HapticType { light, medium, heavy }
 
 enum RadialBrushItem {
-  pen('Pen', Icons.edit_rounded),
-  pencil('Pencil', Icons.create_rounded),
-  marker('Marker', Icons.format_paint_rounded),
-  highlighter('Highlighter', Icons.highlight_rounded),
-  charcoal('Charcoal', Icons.texture_rounded),
-  watercolor('Watercolor', Icons.water_drop_rounded),
-  airbrush('Airbrush', Icons.blur_circular_rounded),
-  oil('Oil', Icons.brush_rounded);
+  everydayPen('Everyday Pen', Icons.edit_rounded, 'builtin_everyday_pen'),
+  finePen('Fine Pen', Icons.create_rounded, 'builtin_fine_pen'),
+  thickMarker('Thick Marker', Icons.format_paint_rounded, 'builtin_thick_marker'),
+  softPencil('Soft Pencil', Icons.draw_rounded, 'builtin_soft_pencil'),
+  calligraphyNib('Calligraphy Nib', Icons.brush_rounded, 'builtin_calligraphy'),
+  highlighter('Highlighter', Icons.highlight_rounded, 'builtin_highlighter');
 
-  const RadialBrushItem(this.label, this.icon);
+  const RadialBrushItem(this.label, this.icon, this.presetId);
   final String label;
   final IconData icon;
+  final String presetId;
 }
 
 enum RadialInsertItem {
@@ -115,19 +114,9 @@ enum RadialToolItem {
 // =============================================================================
 
 /// Brushes visible in the radial wheel for v1.
-final List<RadialBrushItem> _v1BrushItems = RadialBrushItem.values.where((b) {
-  if (!V1FeatureGate.advancedBrushes) {
-    // Hide GPU shader brushes in v1
-    const deferred = {
-      RadialBrushItem.charcoal,
-      RadialBrushItem.watercolor,
-      RadialBrushItem.airbrush,
-      RadialBrushItem.oil,
-    };
-    return !deferred.contains(b);
-  }
-  return true;
-}).toList(growable: false);
+/// Curated 6-preset list — same as the toolbar / pen-picker / swipe-cycle.
+final List<RadialBrushItem> _v1BrushItems =
+    List<RadialBrushItem>.unmodifiable(RadialBrushItem.values);
 
 /// Insert items visible in the radial wheel for v1.
 final List<RadialInsertItem> _v1InsertItems = RadialInsertItem.values.where((i) {
@@ -1089,11 +1078,23 @@ class _PainterV4Opt extends CustomPainter {
         ..style = PaintingStyle.stroke..strokeWidth = 2.0;
       c.drawPath(path, _p);
     } else {
-      _p..color = Color.fromARGB(sa ~/ 3, 18, 18, 35)..style = PaintingStyle.fill;
+      // 1) Dark base for contrast against any canvas background.
+      _p..color = Color.fromARGB(sa ~/ 3, 18, 18, 35)..style = PaintingStyle.fill
+        ..maskFilter = null;
       c.drawPath(path, _p);
-      _p..color = isActive ? item.accent.withValues(alpha: 0.3 * st)
-          : Color.fromARGB(sa ~/ 6, 130, 200, 255)
-        ..style = PaintingStyle.stroke..strokeWidth = isActive ? 1.5 : 0.6;
+      // 2) Subtle per-sector accent tint — gives each slice its own colour
+      // identity at rest, without becoming visually loud.
+      _p..color = item.accent.withValues(alpha: 0.13 * st)
+        ..style = PaintingStyle.fill;
+      c.drawPath(path, _p);
+      // 3) Outline — accent for the active sector, faint accent for the rest
+      // (instead of a uniform blueish stroke, so the colour identity carries
+      // into the border too).
+      _p..color = isActive
+              ? item.accent.withValues(alpha: 0.45 * st)
+              : item.accent.withValues(alpha: 0.18 * st)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isActive ? 1.5 : 0.6;
       c.drawPath(path, _p);
     }
 

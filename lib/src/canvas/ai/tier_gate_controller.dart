@@ -291,7 +291,7 @@ class TierGateController extends ChangeNotifier {
         'Hai già completato il ripasso guidato per questa zona. '
             'Con Pro, puoi ripetere senza limiti.',
       GatedFeature.ghostMapComparison =>
-        'Hai già usato l\'analisi delle lacune questa settimana. '
+        'Hai già usato il Confronto Centauro questa settimana. '
             'Con Pro, confronti illimitati ogni volta che vuoi.',
       GatedFeature.crossDomainInteractive =>
         'I collegamenti avanzati tra materie sono solo in visualizzazione nel piano Free. '

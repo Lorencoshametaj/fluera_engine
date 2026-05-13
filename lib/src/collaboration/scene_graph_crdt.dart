@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 
+import 'crdt_telemetry.dart';
+
 // =============================================================================
 // 🔄 SCENE GRAPH CRDT — Conflict-free Replicated Data Types for scene graphs
 //
@@ -694,14 +696,33 @@ class CRDTSceneGraph {
   /// Applied operation IDs (deduplication).
   final Set<String> _appliedOps = {};
 
+  /// Orphan ops buffered until their target node's addNode arrives.
+  ///
+  /// Indexed by nodeId. When an addNode for that node is applied, the
+  /// buffered ops are drained in arrival order (LWW makes order safe).
+  /// Necessary because production transports may interleave a reconnect
+  /// backlog with newly-generated ops, breaking strict per-sender FIFO.
+  final Map<String, List<CRDTOperation>> _orphanOps = {};
+
+  /// Tracks orphan opIds already buffered to keep redelivery idempotent.
+  final Set<String> _orphanOpIds = {};
+
   /// Operation counter for generating unique op IDs.
   int _opCounter = 0;
 
   /// Callback for when a merge produces changes.
   final List<void Function(List<CRDTChange>)> _changeListeners = [];
 
-  CRDTSceneGraph({required this.localPeerId, int Function()? wallClock})
-    : _clock = HybridLogicalClock(localPeerId, wallClock: wallClock);
+  /// Optional instrumentation hook fired on every lifecycle transition.
+  /// Defaults to [CRDTTelemetry.noop] (zero-allocation, zero-branch).
+  final CRDTTelemetry telemetry;
+
+  CRDTSceneGraph({
+    required this.localPeerId,
+    int Function()? wallClock,
+    CRDTTelemetry? telemetry,
+  })  : telemetry = telemetry ?? CRDTTelemetry.noop,
+        _clock = HybridLogicalClock(localPeerId, wallClock: wallClock);
 
   /// Listen for changes produced by applying operations.
   void addChangeListener(void Function(List<CRDTChange>) listener) {
@@ -715,6 +736,17 @@ class CRDTSceneGraph {
 
   /// Generate a unique operation ID.
   String _nextOpId() => '${localPeerId}_${_opCounter++}';
+
+  /// Ensure [_opCounter] is at least [next], so subsequent [_nextOpId]
+  /// calls cannot collide with opIds already produced in a previous
+  /// process. Required after rehydrating from the persisted op-log:
+  /// `localPeerId` is stable across restarts (device id), but the
+  /// in-memory counter resets to 0 — without this, the first op of a
+  /// fresh session reuses opId "{peer}_0" and remote peers silently
+  /// dedup it via [_appliedOps].
+  void advanceOpCounterTo(int next) {
+    if (next > _opCounter) _opCounter = next;
+  }
 
   // ─── Local operations (generate + apply) ──────────────────────────
 
@@ -738,6 +770,7 @@ class CRDTSceneGraph {
       properties: properties,
     );
     apply(op);
+    telemetry.onLocalOp(op);
     return op;
   }
 
@@ -751,6 +784,7 @@ class CRDTSceneGraph {
       peerId: localPeerId,
     );
     apply(op);
+    telemetry.onLocalOp(op);
     return op;
   }
 
@@ -766,6 +800,7 @@ class CRDTSceneGraph {
       peerId: localPeerId,
     );
     apply(op);
+    telemetry.onLocalOp(op);
     return op;
   }
 
@@ -785,6 +820,7 @@ class CRDTSceneGraph {
       peerId: localPeerId,
     );
     apply(op);
+    telemetry.onLocalOp(op);
     return op;
   }
 
@@ -794,15 +830,61 @@ class CRDTSceneGraph {
   ///
   /// Returns the list of changes that were applied to the state.
   List<CRDTChange> apply(CRDTOperation op) {
-    // Deduplication
-    if (_appliedOps.contains(op.opId)) return const [];
-    _appliedOps.add(op.opId);
+    // Deduplication: already applied OR already buffered as orphan.
+    if (_appliedOps.contains(op.opId) || _orphanOpIds.contains(op.opId)) {
+      telemetry.onDuplicateOp(op);
+      return const [];
+    }
 
-    // Update HLC from remote
-    if (op.peerId != localPeerId) {
+    // Update HLC from remote — even orphan ops carry a real timestamp.
+    final isRemote = op.peerId != localPeerId;
+    if (isRemote) {
       _clock.receive(op.timestamp);
     }
 
+    // Buffer setProperty / moveNode that arrive before their target's
+    // addNode. Drained on addNode for the same nodeId. removeNode is left
+    // pass-through because LWWElementSet.remove records a tombstone even
+    // for never-added elements, which is the correct LWW semantics.
+    if ((op.type == CRDTOpType.setProperty ||
+            op.type == CRDTOpType.moveNode) &&
+        _nodeStates[op.nodeId] == null) {
+      (_orphanOps[op.nodeId] ??= <CRDTOperation>[]).add(op);
+      _orphanOpIds.add(op.opId);
+      telemetry.onOrphanBuffered(op);
+      return const [];
+    }
+
+    _appliedOps.add(op.opId);
+    final changes = _dispatch(op);
+    if (isRemote) {
+      telemetry.onRemoteOp(op);
+    }
+
+    // If we just added a node, drain any orphan ops queued for it.
+    if (op.type == CRDTOpType.addNode && _orphanOps.containsKey(op.nodeId)) {
+      final pending = _orphanOps.remove(op.nodeId)!;
+      telemetry.onOrphanReplayed(op.nodeId, pending.length);
+      for (final orphan in pending) {
+        _orphanOpIds.remove(orphan.opId);
+        _appliedOps.add(orphan.opId);
+        changes.addAll(_dispatch(orphan));
+      }
+    }
+
+    if (changes.isNotEmpty) {
+      for (final listener in _changeListeners) {
+        listener(changes);
+      }
+    }
+
+    return changes;
+  }
+
+  /// Internal dispatch — assumes dedup + orphan-buffering already handled
+  /// by [apply]. Applies the op directly to state and returns changes.
+  /// Listeners are NOT notified here; the caller is responsible.
+  List<CRDTChange> _dispatch(CRDTOperation op) {
     final changes = <CRDTChange>[];
 
     switch (op.type) {
@@ -871,14 +953,17 @@ class CRDTSceneGraph {
         }
     }
 
-    if (changes.isNotEmpty) {
-      for (final listener in _changeListeners) {
-        listener(changes);
-      }
-    }
-
     return changes;
   }
+
+  /// Number of ops currently buffered awaiting their parent addNode.
+  /// Exposed for diagnostics & tests; in steady state should be 0.
+  int get pendingOrphanOpCount => _orphanOpIds.length;
+
+  /// Read-only snapshot of the local HLC. Useful for taking a coherent
+  /// snapshot of the graph alongside the timestamp at which it was taken
+  /// (so the snapshot can later be paired with `opsSinceHlc`).
+  HLCTimestamp get localClock => _clock.current;
 
   // ─── State queries ─────────────────────────────────────────────────
 

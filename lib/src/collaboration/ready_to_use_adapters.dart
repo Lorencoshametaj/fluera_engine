@@ -72,6 +72,48 @@ class InMemoryRealtimeAdapter implements FlueraRealtimeAdapter {
   /// Unique ID for the simulated remote user.
   static const _simulatedUserId = '_simulated_remote_user';
 
+  /// Peer adapters that should mirror every broadcast bidirectionally.
+  ///
+  /// Used by integration tests to wire two engine pipelines together
+  /// without a real network: `a.linkTo(b)` makes `a.broadcast(...)` show
+  /// up on `b`'s subscribe stream and vice versa. The link respects the
+  /// engine's self-echo filter (events carry the broadcaster's `senderId`
+  /// → the receiving engine drops anything matching its own `_localUserId`).
+  final Set<InMemoryRealtimeAdapter> _linkedPeers = {};
+
+  /// Whether deliveries to linked peers are currently active. Set false to
+  /// simulate a network partition; broadcasts are silently dropped on the
+  /// wire while still being persisted/queued by the producing engine
+  /// (mirrors Supabase Broadcast: no buffering, no ack).
+  bool _linkActive = true;
+
+  /// Connect this adapter bidirectionally to [other]. Idempotent.
+  void linkTo(InMemoryRealtimeAdapter other) {
+    if (identical(this, other)) return;
+    _linkedPeers.add(other);
+    other._linkedPeers.add(this);
+  }
+
+  /// Disconnect from [other] (or all peers if `null`). Used in tests to
+  /// simulate a partition; calls to [broadcast] / [broadcastCursor] still
+  /// succeed for local subscribers but no longer reach unlinked peers.
+  void unlink([InMemoryRealtimeAdapter? other]) {
+    if (other == null) {
+      for (final p in _linkedPeers) p._linkedPeers.remove(this);
+      _linkedPeers.clear();
+    } else {
+      _linkedPeers.remove(other);
+      other._linkedPeers.remove(this);
+    }
+  }
+
+  /// Suspend / resume cross-peer delivery without changing the link
+  /// topology. While `false`, broadcasts that would have crossed to a
+  /// linked peer are dropped on the wire — the same wire-loss model as
+  /// real Supabase Broadcast under transient network failure.
+  set linkActive(bool active) => _linkActive = active;
+  bool get linkActive => _linkActive;
+
   @override
   Stream<CanvasRealtimeEvent> subscribe(String canvasId) {
     _activeCanvasId = canvasId;
@@ -89,6 +131,14 @@ class InMemoryRealtimeAdapter implements FlueraRealtimeAdapter {
 
     // Re-broadcast through the stream (engine filters self-echoes)
     _eventController.add(event);
+
+    // Mirror to every linked peer (test-only multi-engine wiring).
+    if (_linkActive) {
+      for (final peer in _linkedPeers) {
+        if (peer._eventController.isClosed) continue;
+        peer._eventController.add(event);
+      }
+    }
 
     // Simulate a remote user mirroring the stroke with offset
     if (simulateRemoteUser) {
@@ -268,6 +318,9 @@ class InMemoryPermissionProvider implements FlueraPermissionProvider {
 
   @override
   String get currentUserRole => role;
+
+  @override
+  Stream<bool>? canEditChanges(String canvasId) => null;
 }
 
 // ─── In-Memory Presence Provider ────────────────────────────────────────────

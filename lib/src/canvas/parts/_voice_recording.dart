@@ -37,6 +37,13 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   static final ValueNotifier<String> _liveTranscriptionText = ValueNotifier<String>('');
   static StreamSubscription<String>? _liveTranscriptionSub;
 
+  /// 🏗️ God Object Decomposition — public read-only accessors so
+  /// `FlueraCanvasView` (outside the screen library) can subscribe to
+  /// the same live-transcription state for the bottom overlay.
+  static bool get liveTranscriptionEnabled => _liveTranscriptionEnabled;
+  static ValueNotifier<String> get liveTranscriptionTextNotifier =>
+      _liveTranscriptionText;
+
   /// Returns the configured provider or a built-in default.
   FlueraVoiceRecordingProvider get _voiceRecordingProvider {
     final custom = _config.voiceRecording;

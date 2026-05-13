@@ -25,11 +25,20 @@ extension LassoVisual on LassoTool {
   void _startMarquee(Offset position) {
     _marqueeStart = position;
     _marqueeEnd = position;
+    // Match `startLasso` behavior: tapping an empty point clears any prior
+    // selection. Without this, marquee mode "doesn't deselect" when the
+    // user taps on empty canvas.
+    if (!_additiveMode && !_subtractiveMode) clearSelection();
+    // Bump the same notifier the freehand lasso uses so LassoPathPainter
+    // re-renders. Without this the marquee rect never appears live.
+    lassoPathNotifier.value++;
   }
 
   /// Update the marquee rectangle as the user drags.
   void _updateMarquee(Offset position) {
     _marqueeEnd = position;
+    // Live rect feedback during drag.
+    lassoPathNotifier.value++;
   }
 
   /// Complete the marquee selection — uses SelectionManager.marqueeSelect.
@@ -70,11 +79,14 @@ extension LassoVisual on LassoTool {
   void _startEllipse(Offset position) {
     _marqueeStart = position;
     _marqueeEnd = position;
+    if (!_additiveMode && !_subtractiveMode) clearSelection();
+    lassoPathNotifier.value++;
   }
 
   /// Update the ellipse bounding rect as the user drags.
   void _updateEllipse(Offset position) {
     _marqueeEnd = position;
+    lassoPathNotifier.value++;
   }
 
   /// Complete ellipse selection — builds an elliptical Path and hit-tests.

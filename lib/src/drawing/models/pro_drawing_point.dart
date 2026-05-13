@@ -320,8 +320,13 @@ class ProStroke {
       if (point.position.dy > maxY) maxY = point.position.dy;
     }
 
-    // Add padding for the stroke width
-    final padding = baseWidth * 2;
+    // 🎚️ K: tight padding. Old value was `baseWidth * 2` — 4× the
+    // minimum needed (half-width + AA margin). Loose bounds make
+    // strokes cross tile boundaries unnecessarily, so on commit
+    // _tileCache.invalidateForBounds invalidates 4× more tiles than
+    // are actually touched. Conservative: half-width + 1 px AA + small
+    // safety margin (0.1× width) for brushes that emit slight halo.
+    final padding = baseWidth * 0.6 + 1.0;
 
     return Rect.fromLTRB(
       minX - padding,

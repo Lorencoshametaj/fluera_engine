@@ -503,6 +503,7 @@ extension on _FlueraCanvasScreenState {
   Future<void> _loadCanvasData() async {
     _isLoading = true; // 🔄 Disable auto-save during loading
     bool loadedFromLocal = false;
+    int? localUpdatedAtFromDisk;
 
     try {
       Map<String, dynamic>? data;
@@ -556,6 +557,13 @@ extension on _FlueraCanvasScreenState {
 
       if (data != null) {
         loadedFromLocal = true;
+        // 🛡️ Capture the document's persisted updatedAt from the local
+        // payload. This is the durable timestamp of the on-disk state, used
+        // by background cloud sync to decide if cloud is genuinely newer.
+        // Must come from disk, not from `_lastLocalSaveTimestamp` (which is
+        // in-memory and null on a freshly opened canvas).
+        final raw = data['updatedAt'];
+        if (raw is int) localUpdatedAtFromDisk = raw;
       }
 
       if (data != null && mounted) {
@@ -565,6 +573,17 @@ extension on _FlueraCanvasScreenState {
         // fast enough for normal canvases (< 10K strokes). The lazy-load
         // optimization can be re-enabled once the stub lifecycle is robust.
         await _applyCanvasData(data, skipStrokes: false);
+
+        // 🛡️ Invariant recovery: layers must never be empty.
+        // Older canvases created before the create-canvas layer-seed fix
+        // (sqlite_storage_adapter.createCanvas) may reach this point with
+        // zero layers, which crashes downstream readers that follow the
+        // `firstWhere(orElse: layers.first)` pattern (cluster rebuild,
+        // content bounds tracker, ghost map, etc.) with `Bad state: No
+        // element`. Self-heal by creating a default layer.
+        if (_layerController.layers.isEmpty) {
+          _layerController.addLayer(name: 'Layer 1');
+        }
 
         // 🔍 v2.1: Background delta reindex — index any un-indexed strokes
         // that were restored from storage. Fire-and-forget (non-blocking).
@@ -685,7 +704,7 @@ extension on _FlueraCanvasScreenState {
     // 🔄 3. BACKGROUND SYNC: If loaded from local, sync Firebase in background
     // per recuperare eventuali modifiche remote da collaboratori
     if (loadedFromLocal && mounted) {
-      _syncFirebaseInBackground();
+      _syncFirebaseInBackground(localUpdatedAtFromDisk);
     }
   }
 
@@ -695,20 +714,22 @@ extension on _FlueraCanvasScreenState {
   /// Does not block the UI — the user can already draw.
   /// 🐛 FIX C: Reentrancy guard prevents double-apply on rapid reconnect.
   static bool _isSyncingFirebase = false;
-  Future<void> _syncFirebaseInBackground() async {
+  Future<void> _syncFirebaseInBackground([int? localUpdatedAtOverride]) async {
     // 🐛 FIX C: Prevent concurrent sync (rapid reconnect → double apply)
     if (_isSyncingFirebase) {
       return;
     }
     _isSyncingFirebase = true;
     try {
-      await _syncFirebaseInBackgroundImpl();
+      await _syncFirebaseInBackgroundImpl(localUpdatedAtOverride);
     } finally {
       _isSyncingFirebase = false;
     }
   }
 
-  Future<void> _syncFirebaseInBackgroundImpl() async {
+  Future<void> _syncFirebaseInBackgroundImpl([
+    int? localUpdatedAtOverride,
+  ]) async {
     // 💎 TIER GATE: Only Plus/Pro users sync canvas from the cloud
     if (!_hasCloudSync) return;
     if (_syncEngine == null) return;
@@ -726,13 +747,18 @@ extension on _FlueraCanvasScreenState {
               : (rawUpdatedAt != null
                   ? (rawUpdatedAt as dynamic).millisecondsSinceEpoch as int?
                   : null);
-      final localUpdatedAt = _lastLocalSaveTimestamp;
+      // 🛡️ Prefer the persisted updatedAt of the just-loaded local payload
+      // (durable, sourced from disk) over `_lastLocalSaveTimestamp` (in-memory,
+      // null on a freshly opened canvas — the bug that caused stale cloud
+      // snapshots to clobber fresh local state on reopen).
+      final localUpdatedAt = localUpdatedAtOverride ?? _lastLocalSaveTimestamp;
 
-      if (cloudUpdatedAt != null && localUpdatedAt != null) {
-        if (cloudUpdatedAt <= localUpdatedAt) {
-          return; // Local is newer or same — nothing to do
-        }
-      }
+      // 🛡️ STRICT: when timestamps cannot be compared confidently, ABSTAIN.
+      // Previous logic ("apply if either is null") was the data-loss bug:
+      // on reopen, _lastLocalSaveTimestamp was null and the cloud snapshot —
+      // even when older — would always be applied, wiping fresh local edits.
+      if (cloudUpdatedAt == null || localUpdatedAt == null) return;
+      if (cloudUpdatedAt <= localUpdatedAt) return;
 
       // Cloud data is newer — apply it
       if (mounted) {
@@ -754,7 +780,17 @@ extension on _FlueraCanvasScreenState {
           }
         }
 
-        await _applyCanvasData(cloudData);
+        // 🛡️ Suppress autosave during remote apply: _applyCanvasData ends
+        // with a layerController.notifyListeners() that fires _onLayerChanged,
+        // which would otherwise call _autoSaveCanvas() → _performSave with
+        // empty dirtyLayerIds (= full rewrite of the just-applied snapshot).
+        // Pair: see _onLayerChanged guard in _lifecycle_helpers.dart.
+        _isApplyingRemote = true;
+        try {
+          await _applyCanvasData(cloudData);
+        } finally {
+          _isApplyingRemote = false;
+        }
         downloadMissingAssets();
       }
     } catch (e, st) {}
@@ -968,6 +1004,12 @@ extension on _FlueraCanvasScreenState {
           <dynamic>[layersJson, skipStrokes],
         );
         _layerController.clearAllAndLoadLayers(parsedLayers);
+        debugPrint(
+          '📂 [STROKE-DEBUG] loaded layers: '
+          'imageDrawingStrokes=${_layerController.layers.expand((l) => l.images).map((i) => '${i.id}:${i.drawingStrokes.length}').toList()} '
+          'layerStrokes=${_layerController.layers.map((l) => l.strokes.length).toList()} '
+          'imageElements=${_imageElements.length}',
+        );
       }
     }
 

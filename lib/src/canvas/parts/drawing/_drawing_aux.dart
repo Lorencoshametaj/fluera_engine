@@ -318,7 +318,7 @@ extension on _FlueraCanvasScreenState {
       final angle = (random + i * 60) * 0.0174533; // Convert to radians
       final speed = 0.5 + (((random + i * 37) % 100) / 100.0) * 1.5;
       _eraserParticles.add(
-        _EraserParticle(
+        EraserParticle(
           position: position,
           velocity: Offset(
             speed * (angle.isNaN ? 1.0 : (i.isEven ? 1 : -1) * speed * 0.7),

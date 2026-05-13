@@ -69,57 +69,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
 
               // ── Moved from Scientific tab (hidden in V1) ──
 
-              // ✒️ Vector Pen Tool
-              if (widget.onPenToolToggle != null &&
-                  !widget.isImageEditingMode) ...[
-                const SizedBox(width: 12),
-                _ActiveDotWrapper(
-                  isActive: widget.isPenToolActive,
-                  dotColor: isDark ? Colors.white : Colors.black,
-                  child: ToolbarPenToolButton(
-                    isActive: widget.isPenToolActive,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.onPenToolToggle?.call();
-                    },
-                    isDark: isDark,
-                  ),
-                ),
-              ],
-
-              // 🔷 Shape Recognition
-              if (widget.onShapeRecognitionToggle != null) ...[
-                const SizedBox(width: 12),
-                Tooltip(
-                  message: 'Shape Recognition',
-                  waitDuration: const Duration(milliseconds: 500),
-                  child: ToolbarShapeRecognitionButton(
-                    isActive: widget.shapeRecognitionEnabled,
-                    sensitivityIndex: widget.shapeRecognitionSensitivityIndex,
-                    ghostEnabled: widget.ghostSuggestionEnabled,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.onShapeRecognitionToggle!();
-                    },
-                    onLongPress:
-                        widget.onShapeRecognitionSensitivityCycle != null
-                            ? () {
-                              HapticFeedback.mediumImpact();
-                              widget.onShapeRecognitionSensitivityCycle!();
-                            }
-                            : null,
-                    onDoubleTap:
-                        widget.onGhostSuggestionToggle != null
-                            ? () {
-                              HapticFeedback.lightImpact();
-                              widget.onGhostSuggestionToggle!();
-                            }
-                            : null,
-                    isDark: isDark,
-                  ),
-                ),
-              ],
-
               // 📏 Ruler
               if (!widget.isImageEditingMode) ...[
                 const SizedBox(width: 12),
@@ -144,41 +93,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     onTap: () {
                       HapticFeedback.selectionClick();
                       widget.onDigitalTextToggle();
-                    },
-                    isDark: isDark,
-                  ),
-                ),
-              ],
-
-              // 🗺️ Minimap
-              if (!widget.isImageEditingMode) ...[
-                const SizedBox(width: 8),
-                _ActiveDotWrapper(
-                  isActive: widget.isMinimapVisible,
-                  dotColor: isDark ? Colors.white : Colors.black,
-                  child: ToolbarMinimapButton(
-                    isActive: widget.isMinimapVisible,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.onMinimapToggle?.call();
-                    },
-                    isDark: isDark,
-                  ),
-                ),
-              ],
-
-              // 📐 Section
-              if (widget.onSectionToggle != null &&
-                  !widget.isImageEditingMode) ...[
-                const SizedBox(width: 8),
-                _ActiveDotWrapper(
-                  isActive: widget.isSectionActive,
-                  dotColor: isDark ? Colors.white : Colors.black,
-                  child: ToolbarSectionButton(
-                    isActive: widget.isSectionActive,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.onSectionToggle?.call();
                     },
                     isDark: isDark,
                   ),
@@ -705,52 +619,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 widget.onLatexToggle!();
               },
               isDark: isDark,
-            ),
-            const SizedBox(width: 12),
-          ],
-
-          // ✒️ Vector Pen Tool
-          if (widget.onPenToolToggle != null && !widget.isImageEditingMode) ...[
-            ToolbarPenToolButton(
-              isActive: widget.isPenToolActive,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                widget.onPenToolToggle?.call();
-              },
-              isDark: isDark,
-            ),
-            const SizedBox(width: 12),
-          ],
-
-          // 🔷 Shape Recognition
-          if (widget.onShapeRecognitionToggle != null) ...[
-            Tooltip(
-              message: 'Shape Recognition',
-              waitDuration: const Duration(milliseconds: 500),
-              child: ToolbarShapeRecognitionButton(
-                isActive: widget.shapeRecognitionEnabled,
-                sensitivityIndex: widget.shapeRecognitionSensitivityIndex,
-                ghostEnabled: widget.ghostSuggestionEnabled,
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  widget.onShapeRecognitionToggle!();
-                },
-                onLongPress:
-                    widget.onShapeRecognitionSensitivityCycle != null
-                        ? () {
-                          HapticFeedback.mediumImpact();
-                          widget.onShapeRecognitionSensitivityCycle!();
-                        }
-                        : null,
-                onDoubleTap:
-                    widget.onGhostSuggestionToggle != null
-                        ? () {
-                          HapticFeedback.lightImpact();
-                          widget.onGhostSuggestionToggle!();
-                        }
-                        : null,
-                isDark: isDark,
-              ),
             ),
             const SizedBox(width: 12),
           ],
@@ -1553,6 +1421,11 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
             presets: widget.brushPresets,
             selectedPresetId: widget.selectedPresetId,
             isPenActive: !widget.isEraserActive && !widget.isLassoActive,
+            // 🔒 Free-tier paywall gate. ToolbarBrushStrip dims locked
+            // pills + routes their tap to onUpgradePrompt instead of
+            // dispatching the preset.
+            subscriptionTier: widget.subscriptionTier,
+            onUpgradePrompt: widget.onUpgradePrompt,
             onPresetSelected: (preset) {
               HapticFeedback.selectionClick();
               // Deactivate eraser and lasso when activating pen
@@ -1603,46 +1476,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 widget.onStylusModeToggle();
               },
               isDark: isDark,
-            ),
-          ),
-          const SizedBox(width: 6),
-          // 🖐️ Handedness & Palm Rejection Settings
-          Tooltip(
-            message: 'Handedness & Palm Rejection',
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  showModalBottomSheet(
-                    context: context,
-                    backgroundColor: Colors.transparent,
-                    builder:
-                        (_) => HandednessSettingsSheet(
-                          onChanged: () {
-                            if (mounted) setState(() {});
-                          },
-                        ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color:
-                        isDark
-                            ? Colors.white.withValues(alpha: 0.05)
-                            : Colors.black.withValues(alpha: 0.04),
-                  ),
-                  child: Icon(
-                    Icons.back_hand_rounded,
-                    size: 18,
-                    color: isDark ? Colors.white54 : Colors.black45,
-                  ),
-                ),
-              ),
             ),
           ),
           const SizedBox(width: 12),

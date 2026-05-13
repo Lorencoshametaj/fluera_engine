@@ -91,7 +91,6 @@ extension on _FlueraCanvasScreenState {
       });
 
       _layerController.addText(newElement);
-      _broadcastTextChange(newElement);
       _autoSaveCanvas();
     }
   }
@@ -259,7 +258,6 @@ extension on _FlueraCanvasScreenState {
     // 🔑 Notify overlay subtree to rebuild (it's inside ValueListenableBuilder)
     _uiRebuildNotifier.value++;
 
-    _broadcastTextChange(updatedElement);
     _autoSaveCanvas();
 
     // 🔒 Set cooldown timestamp to prevent spurious re-creation
@@ -335,7 +333,6 @@ extension on _FlueraCanvasScreenState {
           _digitalTextTool.selectElement(_digitalTextElements[index]);
         });
 
-        _broadcastTextChange(_digitalTextElements[index]);
         _autoSaveCanvas();
       }
     }
@@ -488,7 +485,6 @@ extension on _FlueraCanvasScreenState {
     if (idx != -1) {
       _digitalTextElements[idx] = updated;
     }
-    _broadcastTextChange(updated);
   }
 
   // ── Handwriting Recognition ────────────────────────────────────────────────
@@ -589,7 +585,6 @@ extension on _FlueraCanvasScreenState {
     });
 
     _layerController.addText(newElement);
-    _broadcastTextChange(newElement);
     _autoSaveCanvas();
 
     // Optionally delete the original strokes
@@ -636,7 +631,6 @@ extension on _FlueraCanvasScreenState {
       });
 
       _layerController.addText(newElement);
-      _broadcastTextChange(newElement);
     } else if (result.blocks != null) {
       // Import individual blocks with relative positions
       final scaleX = 1.0 / result.imageWidth;
@@ -660,7 +654,6 @@ extension on _FlueraCanvasScreenState {
 
         _digitalTextElements.add(newElement);
         _layerController.addText(newElement);
-        _broadcastTextChange(newElement);
       }
 
       setState(() {});

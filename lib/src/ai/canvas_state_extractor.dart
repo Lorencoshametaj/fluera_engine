@@ -1,4 +1,6 @@
 import 'dart:ui';
+import '../canvas/ai/cluster_concept_index.dart';
+import '../reflow/content_cluster.dart';
 import '../systems/selection_manager.dart';
 import '../core/scene_graph/canvas_node.dart';
 import '../core/nodes/text_node.dart';
@@ -146,4 +148,104 @@ class CanvasStateExtractor {
     }
     return null;
   }
+
+  // ===========================================================================
+  // CLUSTER-LEVEL PAYLOAD (Atlas dual-mode dispatcher — F8)
+  // ===========================================================================
+
+  /// Hard cap on clusters sent to the AI in a single cluster-mode call.
+  ///
+  /// Tuned to keep input tokens ≈ 30k on Flash Lite (cap × ~150 tokens per
+  /// cluster entry incl. ocr_breve). For larger canvases the extractor
+  /// keeps the [maxClusters] closest to the viewport center.
+  static const int _defaultClusterCap = 200;
+
+  /// Inflate factor for the viewport when filtering clusters by overlap.
+  /// Matches the heuristic used elsewhere (`_getVisibleClusterIds`).
+  static const double _viewportInflate = 200.0;
+
+  /// Build the JSON payload sent to the AI for cluster-mode commands.
+  ///
+  /// The payload mirrors the node-level `_invokeAtlas` shape (italian-first
+  /// keys, english fallbacks in the parser) but operates on cluster ids
+  /// instead of individual node ids. Every entry is small (no point arrays,
+  /// no full OCR) so the prompt fits comfortably on Flash Lite even with
+  /// a few hundred clusters.
+  ///
+  /// Returns a map shaped as:
+  /// ```json
+  /// {
+  ///   "comando_utente": "...",
+  ///   "viewport": {"x_min", "y_min", "x_max", "y_max"},
+  ///   "cluster_nel_contesto": [
+  ///     {"id", "titolo", "topic", "x", "y", "larghezza", "altezza",
+  ///      "n_strokes", "ocr_breve"}
+  ///   ]
+  /// }
+  /// ```
+  static Map<String, dynamic> buildClusterContext({
+    required String userPrompt,
+    required List<ContentCluster> clusters,
+    required ClusterConceptIndex index,
+    required Rect viewport,
+    int maxClusters = _defaultClusterCap,
+  }) {
+    final inflated = viewport.inflate(_viewportInflate);
+    final viewportCenter = viewport.center;
+
+    // Filter by viewport overlap; if everything fits under the cap we keep
+    // them all, otherwise we keep the N closest to the viewport center so
+    // the AI's working set is the user's current focus.
+    var candidates =
+        clusters.where((c) => c.bounds.overlaps(inflated)).toList();
+    if (candidates.isEmpty) {
+      // Edge case: viewport sits outside any cluster (zoomed out far) —
+      // fall back to the full cache so the AI still has material to work
+      // with, then rely on the cap.
+      candidates = List.of(clusters);
+    }
+
+    if (candidates.length > maxClusters) {
+      candidates.sort((a, b) {
+        final da = (a.centroid - viewportCenter).distanceSquared;
+        final db = (b.centroid - viewportCenter).distanceSquared;
+        return da.compareTo(db);
+      });
+      candidates = candidates.sublist(0, maxClusters);
+    }
+
+    final entries = candidates.map((c) {
+      final concept = index.peek(c.id);
+      final ocr = concept?.cleanedOcr ?? '';
+      final ocrShort = ocr.length > 120 ? ocr.substring(0, 120) : ocr;
+      return <String, dynamic>{
+        'id': c.id,
+        'titolo': concept?.title ?? '',
+        'topic': concept?.topic ?? '',
+        'x': _r1(c.centroid.dx),
+        'y': _r1(c.centroid.dy),
+        'larghezza': _r1(c.bounds.width),
+        'altezza': _r1(c.bounds.height),
+        'n_strokes': c.strokeIds.length,
+        'ocr_breve': ocrShort,
+      };
+    }).toList();
+
+    return <String, dynamic>{
+      'comando_utente': userPrompt,
+      'viewport': {
+        'x_min': _r1(viewport.left),
+        'y_min': _r1(viewport.top),
+        'x_max': _r1(viewport.right),
+        'y_max': _r1(viewport.bottom),
+        'centro_x': _r1(viewportCenter.dx),
+        'centro_y': _r1(viewportCenter.dy),
+      },
+      'cluster_nel_contesto': entries,
+    };
+  }
+
+  /// Round to 1 decimal — sub-pixel precision is irrelevant to the AI and
+  /// wastes tokens.
+  static double _r1(double v) => (v * 10).roundToDouble() / 10;
 }

@@ -67,6 +67,8 @@ class ToolbarCallbacks {
   final VoidCallback? onResetRotation;
   final VoidCallback? onToggleRotationLock;
   final VoidCallback? onSearchPressed;
+  final VoidCallback? onWheelModeToggle;
+  final VoidCallback? onBookmarksPressed;
 
   // ── Shape recognition ─────────────────────────────────────────────────────
   final VoidCallback? onShapeRecognitionToggle;
@@ -154,6 +156,12 @@ class ToolbarCallbacks {
   /// Inserts a text/symbol into the active text field (inline text or LaTeX).
   final ValueChanged<String>? onInsertText;
 
+  /// 🔒 Called when the toolbar wants to surface a "this is Pro" sheet
+  /// (e.g. tap on a locked brush pill, tap on a Pro-only export format).
+  /// The host typically translates this into `onUpgradePrompt` in the
+  /// canvas config → showFlueraUpgradeBanner on the app side.
+  final ValueChanged<String>? onUpgradePrompt;
+
   const ToolbarCallbacks({
     // Drawing — required
     required this.onPenTypeChanged,
@@ -209,6 +217,8 @@ class ToolbarCallbacks {
     this.onResetRotation,
     this.onToggleRotationLock,
     this.onSearchPressed,
+    this.onWheelModeToggle,
+    this.onBookmarksPressed,
     // Shape recognition
     this.onShapeRecognitionToggle,
     this.onShapeRecognitionSensitivityCycle,
@@ -288,5 +298,7 @@ class ToolbarCallbacks {
     this.onTokenExport,
     // Symbol
     this.onInsertText,
+    // Paywall
+    this.onUpgradePrompt,
   });
 }

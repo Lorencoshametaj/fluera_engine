@@ -54,6 +54,58 @@ class CameraKeyframe {
 /// - Physics state machine: IDLE → MOMENTUM / SPRING → IDLE
 /// - Ticker callback drives all active simulations each frame
 class InfiniteCanvasController extends ChangeNotifier {
+  /// 🔬 PAN PROFILER — set true to log notifyListeners dispatch cost to stdout.
+  /// Logs every [_panProfilerWindow] dispatches: avg / p95 / max in ms.
+  /// Costs ~1µs per dispatch when off; toggle from anywhere via the static.
+  static bool kPanProfilerEnabled = false;
+  static const int _panProfilerWindow = 60;
+  static final List<double> _panProfilerSamples = [];
+
+  /// 🔬 FRAME PROFILER — registers a Flutter timings callback once and logs
+  /// frame UI/Raster duration p50/p99 every 60 frames. Idempotent.
+  static bool _frameProfilerInstalled = false;
+  static final List<double> _frameUiMsSamples = [];
+  static final List<double> _frameRasterMsSamples = [];
+  static void _ensureFrameProfilerInstalled() {
+    if (_frameProfilerInstalled || !kPanProfilerEnabled) return;
+    _frameProfilerInstalled = true;
+    SchedulerBinding.instance.addTimingsCallback((timings) {
+      for (final t in timings) {
+        // UI-thread = build + layout + paint record (totalSpan - raster).
+        final uiMs = (t.totalSpan.inMicroseconds -
+                t.rasterDuration.inMicroseconds) /
+            1000.0;
+        _frameUiMsSamples.add(uiMs);
+        _frameRasterMsSamples.add(t.rasterDuration.inMicroseconds / 1000.0);
+      }
+      if (_frameUiMsSamples.length < 60) return;
+      _frameUiMsSamples.sort();
+      _frameRasterMsSamples.sort();
+      final n = _frameUiMsSamples.length;
+      double sumUi = 0, sumR = 0;
+      for (int i = 0; i < n; i++) {
+        sumUi += _frameUiMsSamples[i];
+        sumR += _frameRasterMsSamples[i];
+      }
+      final p50Ui = _frameUiMsSamples[n ~/ 2];
+      final p99Ui = _frameUiMsSamples[((n - 1) * 0.99).floor()];
+      final maxUi = _frameUiMsSamples.last;
+      final p50R = _frameRasterMsSamples[n ~/ 2];
+      final p99R = _frameRasterMsSamples[((n - 1) * 0.99).floor()];
+      final jankCount = _frameUiMsSamples.where((v) => v > 8.3).length;
+      // ignore: avoid_print
+      print(
+        '[Frame $n] UI p50=${p50Ui.toStringAsFixed(1)}ms '
+        'p99=${p99Ui.toStringAsFixed(1)}ms max=${maxUi.toStringAsFixed(1)}ms | '
+        'Raster p50=${p50R.toStringAsFixed(1)}ms '
+        'p99=${p99R.toStringAsFixed(1)}ms | '
+        'jank>8.3ms=$jankCount/$n',
+      );
+      _frameUiMsSamples.clear();
+      _frameRasterMsSamples.clear();
+    });
+  }
+
   // ============================================================================
   // 🎯 CORE STATE
   // ============================================================================
@@ -93,6 +145,38 @@ class InfiniteCanvasController extends ChangeNotifier {
   Offset get offset => _offset;
   double get scale => _scale;
   double get rotation => _rotation;
+
+  @override
+  void notifyListeners() {
+    if (!kPanProfilerEnabled) {
+      super.notifyListeners();
+      return;
+    }
+    _ensureFrameProfilerInstalled();
+    final sw = Stopwatch()..start();
+    super.notifyListeners();
+    final ms = sw.elapsedMicroseconds / 1000.0;
+    _panProfilerSamples.add(ms);
+    if (_panProfilerSamples.length >= _panProfilerWindow) {
+      _panProfilerSamples.sort();
+      final n = _panProfilerSamples.length;
+      double sum = 0;
+      for (final v in _panProfilerSamples) {
+        sum += v;
+      }
+      final avg = sum / n;
+      final p95 = _panProfilerSamples[(n * 0.95).floor().clamp(0, n - 1)];
+      final max = _panProfilerSamples.last;
+      // ignore: avoid_print — profile-mode diagnostic, debugPrint is no-op
+      print(
+        '[ICC.notify $n disp] avg=${avg.toStringAsFixed(2)}ms '
+        'p95=${p95.toStringAsFixed(2)}ms '
+        'max=${max.toStringAsFixed(2)}ms '
+        'listeners=$hasListeners panning=$_isPanning',
+      );
+      _panProfilerSamples.clear();
+    }
+  }
 
   /// 🚀 Current pan velocity from active momentum simulation.
   /// Returns Offset.zero if no momentum is active.
@@ -626,6 +710,43 @@ class InfiniteCanvasController extends ChangeNotifier {
   /// Used for "fit selection in viewport", "fit all content", or any
   /// combined camera transition. The [focalPoint] (in screen coords)
   /// stays visually anchored during the animation.
+  /// 🩻 Sprint 6.2 — Frame the camera so [worldRect] fills (with optional
+  /// padding) the given [viewportSize]. Reuses the spring-driven
+  /// [animateToTransform] under the hood, so the animation feels identical
+  /// to an `animateDiveTo` but without the cinematic depth-of-field
+  /// progress side-channel.
+  ///
+  /// [paddingRatio] controls how much margin is left around the rect:
+  ///   0.0 → tight fit (rect edges touch the viewport edges)
+  ///   0.7 → 70% of the viewport's smaller axis is the rect (default)
+  ///
+  /// Used by the surgical-path Atlas exam to keep the cluster source of
+  /// the current question visible while the student answers.
+  void animateToRect({
+    required Rect worldRect,
+    required Size viewportSize,
+    double paddingRatio = 0.7,
+  }) {
+    if (worldRect.isEmpty || viewportSize.isEmpty) return;
+
+    // Compute the scale that fits the rect inside the viewport with
+    // [paddingRatio] of headroom on the limiting axis.
+    final scaleX = (viewportSize.width * paddingRatio) / worldRect.width;
+    final scaleY = (viewportSize.height * paddingRatio) / worldRect.height;
+    final targetScale = math.min(scaleX, scaleY).clamp(_minScale, _maxScale);
+
+    // Centre the rect in the viewport.
+    final viewportCenter =
+        Offset(viewportSize.width / 2, viewportSize.height / 2);
+    final targetOffset =
+        viewportCenter - worldRect.center * targetScale;
+
+    animateToTransform(
+      targetOffset: targetOffset,
+      targetScale: targetScale,
+    );
+  }
+
   void animateToTransform({
     required Offset targetOffset,
     required double targetScale,

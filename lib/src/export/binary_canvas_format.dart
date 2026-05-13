@@ -306,6 +306,16 @@ class BinaryCanvasFormat {
     for (final stroke in image.drawingStrokes) {
       _writeStroke(builder, stroke);
     }
+    // 🖊️ v3.2: per-stroke referenceScale trailer.
+    // Stored separately from `_writeStroke` so layer strokes (which always
+    // use referenceScale=1.0) keep their existing wire format unchanged.
+    // Image strokes need it because `image_painter.dart` computes
+    // `scaleRatio = imageElement.scale / stroke.referenceScale` at render
+    // time — losing referenceScale collapses the stroke by ~20× and makes
+    // it visually disappear inside the image clipRect on reload.
+    for (final stroke in image.drawingStrokes) {
+      builder.add(_encodeFloat32(stroke.referenceScale));
+    }
   }
 
   static ImageElement _readImage(_BinaryReader reader) {
@@ -330,6 +340,37 @@ class BinaryCanvasFormat {
       final strokeCount = reader.readUint32();
       for (int i = 0; i < strokeCount; i++) {
         drawingStrokes.add(_readStroke(reader));
+      }
+      // 🖊️ v3.2: per-stroke referenceScale trailer.
+      // Old binaries (pre-v3.2) omit this block. Without it, every image
+      // stroke loaded back with the default `referenceScale = 1.0`, and
+      // `image_painter.dart` rendered them at `imageElement.scale / 1.0`
+      // — collapsing them ~20× for a typical 0.05-scale phone image and
+      // making them visually disappear inside the image clipRect.
+      bool migratedFromLegacy = false;
+      try {
+        for (int i = 0; i < strokeCount; i++) {
+          final rs = reader.readFloat32();
+          drawingStrokes[i] = drawingStrokes[i].copyWith(
+            referenceScale: rs,
+          );
+        }
+      } catch (_) {
+        // Pre-v3.2 binary: trailer absent. Leave for the migration below.
+        migratedFromLegacy = true;
+      }
+      if (migratedFromLegacy) {
+        // 🚑 LEGACY MIGRATION: assume the stroke was drawn at the image's
+        // current scale (the dominant case — most users don't resize an
+        // image between drawing on it and saving). Recovers strokes that
+        // would otherwise render invisibly. If the image was resized after
+        // drawing, the stroke renders at slightly off proportions but is
+        // at least visible — strict improvement over the prior behaviour.
+        for (int i = 0; i < drawingStrokes.length; i++) {
+          drawingStrokes[i] = drawingStrokes[i].copyWith(
+            referenceScale: scale,
+          );
+        }
       }
     } catch (_) {
       // Old binary data without URLs/strokes — safe to ignore

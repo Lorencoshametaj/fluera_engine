@@ -31,6 +31,14 @@ class PredictedTouchPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Eve
     companion object {
         private const val METHOD_CHANNEL = "com.flueraengine/predicted_touches_control"
         private const val EVENT_CHANNEL = "com.flueraengine/predicted_touches"
+
+        // 🎚️ A: singleton instance so MainActivity.dispatchTouchEvent
+        // can forward MotionEvents to the plugin without going through
+        // the FlutterPluginRegistry. The Dart side already subscribes
+        // to EVENT_CHANNEL via PredictedTouchService — only this
+        // forwarding hook was missing.
+        var instance: PredictedTouchPlugin? = null
+            private set
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -45,6 +53,7 @@ class PredictedTouchPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Eve
             initMotionPredictor()
         }
 
+        instance = this
         Unit
     }
 
@@ -53,6 +62,7 @@ class PredictedTouchPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Eve
         methodChannel = null
         eventChannel?.setStreamHandler(null)
         eventChannel = null
+        if (instance === this) instance = null
         Unit
     }
 
@@ -104,6 +114,15 @@ class PredictedTouchPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Eve
         } catch (e: Exception) {
             Unit
         }
+    }
+
+    /**
+     * Hover events (S Pen floating above screen). Currently a no-op —
+     * StylusInputPlugin already handles hover metadata. Kept here so
+     * MainActivity.dispatchGenericMotionEvent has a place to call.
+     */
+    fun processHoverEvent(event: MotionEvent) {
+        // Reserved for future use; no-op by design.
     }
 
     /**

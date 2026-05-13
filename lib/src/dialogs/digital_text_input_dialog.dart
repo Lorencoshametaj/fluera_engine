@@ -54,6 +54,16 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
   late Color _selectedColor;
   bool _keepHandwritingStrokes = false; // 🖊️ Keep original strokes?
 
+  // 📋 Paste-warning state (Generation Effect guardrail, §3 + XI.3)
+  String _previousText = '';
+  bool _pasteWarningInFlight = false;
+
+  /// Char-count threshold above which a single text mutation is treated as a
+  /// paste. Human typing and IME composition add 1–3 chars per tick; AI-pasted
+  /// answers tend to be sentences. 40 catches the smallest meaningful block
+  /// without nagging on quick word edits.
+  static const int _pasteThreshold = 40;
+
   // Size font fissa
   static const double _fontSize = 24.0;
 
@@ -74,12 +84,137 @@ class _DigitalTextInputDialogState extends State<DigitalTextInputDialog> {
     super.initState();
     _textController = TextEditingController(text: widget.initialText ?? '');
     _selectedColor = widget.initialColor;
+    _previousText = _textController.text;
+    _textController.addListener(_detectPaste);
   }
 
   @override
   void dispose() {
+    _textController.removeListener(_detectPaste);
     _textController.dispose();
     super.dispose();
+  }
+
+  /// Detects a paste by watching the controller for sudden length jumps.
+  /// OCR-imported text seeds `initialText` before this listener attaches, so
+  /// the first comparison baseline is the seeded value — no false positive on
+  /// the OCR path.
+  void _detectPaste() {
+    final newText = _textController.text;
+    final delta = newText.length - _previousText.length;
+    if (delta >= _pasteThreshold && !_pasteWarningInFlight) {
+      _pasteWarningInFlight = true;
+      final restoreText = _previousText;
+      final pastedLength = delta;
+      _previousText = newText;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showPasteWarning(
+          restoreText: restoreText,
+          pastedLength: pastedLength,
+        );
+      });
+    } else {
+      _previousText = newText;
+    }
+  }
+
+  /// Shows a Generation Effect nudge when the user pastes a large chunk.
+  /// Non-blocking by design (autonomy, T2): offers "rewrite by hand" as the
+  /// default but lets the user override with "paste anyway".
+  Future<void> _showPasteWarning({
+    required String restoreText,
+    required int pastedLength,
+  }) async {
+    if (!mounted) {
+      _pasteWarningInFlight = false;
+      return;
+    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final l10n = FlueraLocalizations.of(context)!;
+    final shouldRewrite = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        icon: Icon(
+          Icons.edit_note_rounded,
+          color: Colors.amber.shade700,
+          size: 36,
+        ),
+        title: Text(
+          l10n.pasteWarning_title,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black87,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.pasteWarning_body(pastedLength),
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: isDark ? Colors.white70 : Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              l10n.pasteWarning_citation,
+              style: TextStyle(
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+                color: (isDark ? Colors.white : Colors.black)
+                    .withValues(alpha: 0.5),
+              ),
+            ),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.spaceBetween,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              l10n.pasteWarning_pasteAnyway,
+              style: TextStyle(
+                fontSize: 13,
+                color: (isDark ? Colors.white : Colors.black)
+                    .withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            icon: const Icon(Icons.draw_rounded, size: 16),
+            label: Text(l10n.pasteWarning_rewrite),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepPurple,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    _pasteWarningInFlight = false;
+    if (!mounted) return;
+    if (shouldRewrite == true) {
+      _textController.value = TextEditingValue(
+        text: restoreText,
+        selection: TextSelection.collapsed(offset: restoreText.length),
+      );
+      _previousText = restoreText;
+      HapticFeedback.lightImpact();
+    }
   }
 
   /// Apply automatic corrections to OCR text

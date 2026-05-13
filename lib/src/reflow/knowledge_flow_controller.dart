@@ -22,6 +22,16 @@ class KnowledgeFlowController {
   List<KnowledgeConnection> get connections =>
       List.unmodifiable(_connections);
 
+  /// Connections that should be rendered.
+  ///
+  /// Excludes dismissed ghost suggestions (Passo 9): those are kept in
+  /// [connections] as durable tombstones so the AI can avoid re-suggesting
+  /// the same pair on future requests, but they must not appear visually.
+  /// Renderers must iterate this view, not [connections].
+  List<KnowledgeConnection> get visibleConnections => List.unmodifiable(
+        _connections.where((c) => !c.bridgeSuggestionDismissed),
+      );
+
   /// Version counter — incremented on every mutation.
   /// KnowledgeFlowPainter listens to this for repaint.
   final ValueNotifier<int> version = ValueNotifier(0);
@@ -280,6 +290,19 @@ class KnowledgeFlowController {
       version.value++;
     });
     return true;
+  }
+
+  /// Immediately remove a connection from the list — no dissolve animation,
+  /// no undo snapshot. For invisible GC of state that the user can't see
+  /// (e.g. Cross-Zone Bridge dismissed-tombstone pruning on triennial-scale
+  /// canvases). Use [removeConnection] for user-initiated deletions where
+  /// the dissolve animation is the correct UX.
+  bool removeConnectionImmediately(String connectionId) {
+    final before = _connections.length;
+    _connections.removeWhere((c) => c.id == connectionId);
+    final removed = _connections.length < before;
+    if (removed) version.value++;
+    return removed;
   }
 
   /// Remove all connections involving a cluster (call when cluster is deleted).

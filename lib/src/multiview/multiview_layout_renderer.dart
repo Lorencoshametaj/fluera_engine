@@ -153,16 +153,22 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
         SizedBox(width: totalWidth * p0, child: widget.panels[0]),
         _buildDivider(
           axis: Axis.vertical,
-          onDrag:
-              (delta) =>
-                  _updateProportion('panel_0', delta.dx, constraints.maxWidth),
+          onDrag: (delta) => _updateProportion(
+            'panel_0',
+            delta.dx,
+            constraints.maxWidth,
+            axisSiblings: const ['panel_1'],
+          ),
         ),
         SizedBox(width: totalWidth * p1, child: widget.panels[1]),
         _buildDivider(
           axis: Axis.vertical,
-          onDrag:
-              (delta) =>
-                  _updateProportion('panel_1', delta.dx, constraints.maxWidth),
+          onDrag: (delta) => _updateProportion(
+            'panel_1',
+            delta.dx,
+            constraints.maxWidth,
+            axisSiblings: const ['panel_0'],
+          ),
         ),
         Expanded(child: widget.panels[2]),
       ],
@@ -180,16 +186,22 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
         SizedBox(height: totalHeight * p0, child: widget.panels[0]),
         _buildDivider(
           axis: Axis.horizontal,
-          onDrag:
-              (delta) =>
-                  _updateProportion('panel_0', delta.dy, constraints.maxHeight),
+          onDrag: (delta) => _updateProportion(
+            'panel_0',
+            delta.dy,
+            constraints.maxHeight,
+            axisSiblings: const ['panel_1'],
+          ),
         ),
         SizedBox(height: totalHeight * p1, child: widget.panels[1]),
         _buildDivider(
           axis: Axis.horizontal,
-          onDrag:
-              (delta) =>
-                  _updateProportion('panel_1', delta.dy, constraints.maxHeight),
+          onDrag: (delta) => _updateProportion(
+            'panel_1',
+            delta.dy,
+            constraints.maxHeight,
+            axisSiblings: const ['panel_0'],
+          ),
         ),
         Expanded(child: widget.panels[2]),
       ],
@@ -296,12 +308,15 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
           SizedBox(height: totalHeight * props[i], child: widget.panels[i]),
           _buildDivider(
             axis: Axis.horizontal,
-            onDrag:
-                (delta) => _updateProportion(
-                  'panel_$i',
-                  delta.dy,
-                  constraints.maxHeight,
-                ),
+            onDrag: (delta) => _updateProportion(
+              'panel_$i',
+              delta.dy,
+              constraints.maxHeight,
+              axisSiblings: [
+                for (int j = 0; j < 3; j++)
+                  if (j != i) 'panel_$j',
+              ],
+            ),
           ),
         ],
         Expanded(child: widget.panels[3]),
@@ -320,12 +335,15 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
           SizedBox(width: totalWidth * props[i], child: widget.panels[i]),
           _buildDivider(
             axis: Axis.vertical,
-            onDrag:
-                (delta) => _updateProportion(
-                  'panel_$i',
-                  delta.dx,
-                  constraints.maxWidth,
-                ),
+            onDrag: (delta) => _updateProportion(
+              'panel_$i',
+              delta.dx,
+              constraints.maxWidth,
+              axisSiblings: [
+                for (int j = 0; j < 3; j++)
+                  if (j != i) 'panel_$j',
+              ],
+            ),
           ),
         ],
         Expanded(child: widget.panels[3]),
@@ -389,12 +407,32 @@ class _MultiviewLayoutRendererState extends State<MultiviewLayoutRenderer> {
   // PROPORTION UPDATE
   // ============================================================================
 
-  void _updateProportion(String key, double delta, double totalSize) {
+  /// Updates a single divider's proportion.
+  ///
+  /// [axisSiblings] are the OTHER explicitly-sized proportions on the same
+  /// axis (excluding [key] itself and the final Expanded panel). The new
+  /// value is clamped so that `newValue + sum(axisSiblings) ≤ 1 -
+  /// _minProportion`, guaranteeing the last Expanded panel keeps at least
+  /// `_minProportion` of the available space — otherwise the surrounding
+  /// Row/Column overflows and the trailing panels collapse to width=0
+  /// ("black panels" + a few-pixel RenderFlex overflow).
+  void _updateProportion(
+    String key,
+    double delta,
+    double totalSize, {
+    List<String> axisSiblings = const [],
+  }) {
     setState(() {
       final current = _proportions[key] ?? 0.5;
+      double sumOthers = 0.0;
+      for (final s in axisSiblings) {
+        sumOthers += _proportions[s] ?? 0.0;
+      }
+      final upperBound = (1.0 - sumOthers - _minProportion)
+          .clamp(_minProportion, 1.0 - _minProportion);
       final newValue = (current + delta / totalSize).clamp(
         _minProportion,
-        1.0 - _minProportion,
+        upperBound,
       );
       _proportions[key] = newValue;
     });

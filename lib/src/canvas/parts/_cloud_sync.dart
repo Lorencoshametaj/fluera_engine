@@ -199,6 +199,13 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
           }
 
           try {
+            debugPrint(
+              '💾 [STROKE-DEBUG] saving layers: '
+              'imageDrawingStrokes=${saveData.layers.expand((l) => l.images).map((i) => '${i.id}:${i.drawingStrokes.length}').toList()} '
+              'layerStrokes=${saveData.layers.map((l) => l.strokes.length).toList()} '
+              'dirtyLayers=${dirtyIds.toList()}',
+            );
+
             // 🚀 FAST PATH: Direct Layer → Binary (Isolate) → SQLite
             // 🚀 DELTA: Only re-encode dirty layers
             await adapter.saveCanvasLayers(
@@ -252,13 +259,55 @@ extension CloudSyncExtension on _FlueraCanvasScreenState {
       // 📐 1.6: Save section summaries, content bounds, and last viewport
       _saveSectionMetadata(saveData.canvasId);
 
-      // 2️⃣ Cloud save — DISABLED during active editing for cost optimisation.
-      // Canvas data is pushed to the cloud ONLY on:
-      //   • Canvas exit (dispose → _performSave → flush)
-      //   • App background (didChangeAppLifecycleState → flush)
-      // This avoids uploading large JSONB payloads every ~5s, cutting
-      // Supabase bandwidth by ~99% for heavy canvases.
-      // See: forceFirebaseSync() for manual trigger if needed.
+      // 2️⃣ Cloud save — gated by sharing + ownership.
+      //
+      // For solo canvases we still hold cloud uploads to canvas exit /
+      // backgrounding (cost optimisation: ~99% bandwidth reduction on
+      // heavy canvases). For shared canvases that path leaves a peer
+      // who reopens after a teammate's edits with a stale snapshot —
+      // realtime Broadcast only carries ops between simultaneously-
+      // connected peers, so an intermittently-online collaborator
+      // never sees what was drawn while they were away.
+      //
+      // BUT we only push the canvas SNAPSHOT when the local user is
+      // the OWNER. Editors / viewers don't have INSERT/UPDATE on the
+      // `canvases` row (RLS blocks them — 42501 Forbidden); their
+      // edits replicate to the owner via `operations_log` (M4 RPC
+      // `get_ops_since`), and the owner persists the snapshot.
+      // Letting editors attempt the upsert spams the offline-replay
+      // queue and surfaces user-facing failures with no value.
+      final role = _config.permissions?.currentUserRole;
+      final isOwner = role == 'owner' || role == 'owner-shared';
+      if (_isSharedCanvas && isOwner && _syncEngine != null) {
+        try {
+          final cloudData = saveData.toJson();
+          final cloudAdapter = _syncEngine!.adapter;
+          if (cloudAdapter.supportsStrokeSharding) {
+            cloudData['layers'] =
+                saveData.layers.map((l) => l.toJsonMetadataOnly()).toList();
+            // Fire-and-forget: never block local save on cloud network.
+            unawaited(_syncEngine!.flush(_canvasId, cloudData));
+            final strokeTuples = <(String, Map<String, dynamic>)>[];
+            for (final layer in saveData.layers) {
+              for (final stroke in layer.strokes) {
+                strokeTuples.add((layer.id, stroke.toJson()));
+              }
+            }
+            if (strokeTuples.isNotEmpty) {
+              unawaited(
+                cloudAdapter.saveStrokes(_canvasId, strokeTuples).then((_) {}),
+              );
+            }
+          } else {
+            cloudData['layers'] =
+                saveData.layers.map((l) => l.toJson()).toList();
+            unawaited(_syncEngine!.flush(_canvasId, cloudData));
+          }
+        } catch (_) {
+          // Cloud is best-effort during live editing; the next
+          // canvas-exit flush will catch up.
+        }
+      }
     } catch (e, st) {
       debugPrint('💾 [SAVE-DEBUG] ❌ Save FAILED: $e');
       debugPrint('💾 [SAVE-DEBUG] ❌ Stack: $st');

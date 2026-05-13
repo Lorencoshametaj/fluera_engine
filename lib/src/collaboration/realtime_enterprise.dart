@@ -291,6 +291,9 @@ enum AuditAction {
   /// Conflict was detected and resolved.
   conflictResolved,
 
+  /// CRDT operation broadcast on the wire.
+  crdtOperation,
+
   /// Unknown action.
   unknown,
 }
@@ -429,6 +432,8 @@ class SessionAuditLog {
         return AuditAction.unknown;
       case RealtimeEventType.recordingPinRemoved:
         return AuditAction.unknown;
+      case RealtimeEventType.crdtOperation:
+        return AuditAction.crdtOperation;
     }
   }
 
@@ -483,6 +488,8 @@ class SessionAuditLog {
         return 'Pinned recording$elementPart';
       case RealtimeEventType.recordingPinRemoved:
         return 'Unpinned recording$elementPart';
+      case RealtimeEventType.crdtOperation:
+        return 'CRDT operation$elementPart';
     }
   }
 }
@@ -523,6 +530,34 @@ abstract class RealtimeEncryptionProvider {
   Future<Uint8List> decrypt(Uint8List ciphertext);
 }
 
+/// Thrown by [EncryptedRealtimeAdapter] when encryption or decryption
+/// fails. The adapter does NOT fall back to plaintext — for Pro/EDU
+/// where end-to-end encryption is part of the contract, leaking even
+/// one event in the clear is unacceptable. Callers (the realtime
+/// engine, UI overlays) should surface this to the user and refuse to
+/// re-broadcast until keys are refreshed.
+class EncryptionFailureException implements Exception {
+  /// Human-readable reason ("encrypt" / "decrypt" / "missing payload").
+  final String stage;
+
+  /// The underlying error from the crypto provider, if available.
+  final Object? cause;
+
+  /// Optional event identifier (the senderId or elementId) that triggered
+  /// the failure — useful for telemetry without leaking content.
+  final String? eventId;
+
+  const EncryptionFailureException({
+    required this.stage,
+    this.cause,
+    this.eventId,
+  });
+
+  @override
+  String toString() =>
+      'EncryptionFailureException(stage=$stage, eventId=$eventId, cause=$cause)';
+}
+
 /// Wraps a [FlueraRealtimeAdapter] to add transparent E2E encryption.
 ///
 /// Events are serialized to JSON → UTF-8 → encrypted → base64 before
@@ -560,32 +595,49 @@ class EncryptedRealtimeAdapter implements FlueraRealtimeAdapter {
           timestamp: event.timestamp,
         );
       } catch (e) {
-        return event; // Return as-is on failure
+        // Fail loud: a corrupted ciphertext means a key/version mismatch
+        // or active tampering. Surfacing as a stream error lets the
+        // engine treat it as a transport error (which feeds Sentry +
+        // the connection-quality monitor) without ever leaking the
+        // un-decryptable payload to the canvas. Returning the event
+        // as-is would silently expose the `_enc` blob to consumers
+        // that aren't expecting it.
+        throw EncryptionFailureException(
+          stage: 'decrypt',
+          cause: e,
+          eventId: event.elementId ?? event.senderId,
+        );
       }
     });
   }
 
   @override
   Future<void> broadcast(String canvasId, CanvasRealtimeEvent event) async {
+    final Uint8List cipherBytes;
     try {
       // Encrypt the payload
       final jsonStr = jsonEncode(event.payload);
       final plainBytes = utf8.encode(jsonStr);
-      final cipherBytes = await _crypto.encrypt(Uint8List.fromList(plainBytes));
-      final encPayload = base64Encode(cipherBytes);
-
-      final encEvent = CanvasRealtimeEvent(
-        type: event.type,
-        senderId: event.senderId,
-        elementId: event.elementId,
-        payload: {'_enc': encPayload},
-        timestamp: event.timestamp,
-      );
-
-      await _inner.broadcast(canvasId, encEvent);
+      cipherBytes = await _crypto.encrypt(Uint8List.fromList(plainBytes));
     } catch (e) {
-      await _inner.broadcast(canvasId, event);
+      // Fail loud — never broadcast unencrypted as a fallback. For
+      // Pro/EDU users who turned encryption ON as part of the contract,
+      // a single plaintext leak is worse than a dropped op (the CRDT
+      // outbox will retry once keys are restored).
+      throw EncryptionFailureException(
+        stage: 'encrypt',
+        cause: e,
+        eventId: event.elementId ?? event.senderId,
+      );
     }
+    final encEvent = CanvasRealtimeEvent(
+      type: event.type,
+      senderId: event.senderId,
+      elementId: event.elementId,
+      payload: {'_enc': base64Encode(cipherBytes)},
+      timestamp: event.timestamp,
+    );
+    await _inner.broadcast(canvasId, encEvent);
   }
 
   @override

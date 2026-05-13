@@ -62,18 +62,6 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// 🧠 SEMANTIC MORPHING: controller with titles and stats
   final SemanticMorphController? semanticController;
 
-  /// ✂️ SPACE-SPLIT: Split line Y position (canvas space). null = no split.
-  final double? spaceSplitLineY;
-
-  /// ✂️ SPACE-SPLIT: Spread progress (0.0 = just started, 1.0 = full spread).
-  final double spaceSplitSpreadProgress;
-
-  /// ✂️ SPACE-SPLIT: Ghost displacements per cluster (for preview rendering).
-  final Map<String, Offset> spaceSplitGhostDisplacements;
-
-  /// ✂️ SPACE-SPLIT: Whether this is a horizontal split (↔) vs vertical (↕).
-  final bool spaceSplitIsHorizontal;
-
   /// 🎬 CINEMATIC FLIGHT: Flight animation progress (0.0—1.0).
   final double flightProgress;
 
@@ -198,10 +186,6 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.selectedConnectionId,
     this.semanticMorphProgress = 0.0,
     this.semanticController,
-    this.spaceSplitLineY,
-    this.spaceSplitSpreadProgress = 0.0,
-    this.spaceSplitGhostDisplacements = const {},
-    this.spaceSplitIsHorizontal = false,
     this.flightProgress = 0.0,
     this.flightPhase = -1,
     this.flightSourceClusterId,
@@ -235,6 +219,16 @@ class KnowledgeFlowPainter extends CustomPainter {
     final lod = _getLodLevel();
     final fade = _computeFade();
 
+    // 📚 LOW-ZOOM GATE: under scale 0.20 every effect smaller than ~5
+    // canvas-pixels is already sub-pixel on screen — emitting it burns
+    // GPU fillrate for nothing. Gate the costly cosmetic layers (glow,
+    // halos, monument/zone labels, badges, underlines, network stats,
+    // flight VFX) but KEEP the pedagogical core (cluster outlines +
+    // labels, connections, semantic nodes / super-nodes, mastery via
+    // FogOfWar overlay). 0.20 chosen to align with FogOfWar's own
+    // gate so the overview stack stops/starts coherently.
+    final bool _isLowZoom = canvasScale < 0.20;
+
     // 🧠 SEMANTIC MORPHING: When morph is active, overlay semantic nodes
     final morphT = semanticMorphProgress.clamp(0.0, 1.0);
     final hasMorph = morphT > 0.01 && semanticController != null;
@@ -255,12 +249,14 @@ class KnowledgeFlowPainter extends CustomPainter {
 
     // Render order: network glow → halos → cluster visuals → underlines → connections → badges → drag
     final lod2Fade = _computeLod2Fade();
-    if (lod2Fade > 0.01) {
+    // 📚 LOW-ZOOM SKIP: network glow is a sub-pixel ambient halo.
+    if (lod2Fade > 0.01 && !_isLowZoom) {
       _paintNetworkGlow(canvas, fade * lod2Fade);
     }
 
     // LOD 2: Cluster grouping halos for nearby clusters
-    if (lod == 2) {
+    // 📚 LOW-ZOOM SKIP: O(N²) halo loop, illegible at this zoom.
+    if (lod == 2 && !_isLowZoom) {
       _paintClusterGroupHalos(canvas, fade);
     }
 
@@ -277,12 +273,24 @@ class KnowledgeFlowPainter extends CustomPainter {
       _paintClusterBubbles(canvas, fade);
     }
 
-    _paintWordUnderlines(canvas, fade);
+    // 📚 LOW-ZOOM SKIP: word underlines are 1-2 px decorations under
+    // each recognized word — sub-pixel below scale 0.20.
+    if (!_isLowZoom) {
+      _paintWordUnderlines(canvas, fade);
+    }
     _paintConnections(canvas, lod, fade);
-    _paintGhostConnectionsDashed(canvas, fade);
+    // 📚 LOW-ZOOM SKIP: dashed ghost connections are visual hints,
+    // unreadable at extreme zoom-out (already drawn by base
+    // _paintConnections at LOD 2).
+    if (!_isLowZoom) {
+      _paintGhostConnectionsDashed(canvas, fade);
+    }
 
     // 📍 Connection count badges (LOD 1-2)
-    _paintConnectionBadges(canvas, lod, fade);
+    // 📚 LOW-ZOOM SKIP: numeric badges are 5×8 px, illegible.
+    if (!_isLowZoom) {
+      _paintConnectionBadges(canvas, lod, fade);
+    }
 
     // 🏛️ MONUMENT LABELS (LOD 2 satellite view): named landmarks of the
     // student's Memory Palace (§1098). Kept visible through most of the
@@ -292,14 +300,24 @@ class KnowledgeFlowPainter extends CustomPainter {
     // monuments coexist with early morph, but yield to AI labels when
     // the morph is clearly taking over.
     final landmarkGate = _landmarkLayerFade(morphT);
-    if (lod == 2 && monumentIds.isNotEmpty && landmarkGate > 0.01) {
+    // 📚 LOW-ZOOM SKIP: monument pills + glow are gradient saveLayer ops
+    // (most expensive in this painter). At scale<0.20 the glow halo is
+    // sub-pixel and the pill text < 4 px — invisible anyway.
+    if (lod == 2 &&
+        monumentIds.isNotEmpty &&
+        landmarkGate > 0.01 &&
+        !_isLowZoom) {
       _paintMonumentLabels(canvas, fade * landmarkGate);
     }
 
     // 🗺️ ZONE LABELS (LOD 2 mappamondo): auto-derived macro-region names
     // from the student's own handwriting (§1981 "i nomi delle macro-zone").
     // Same crossfade gate as monuments.
-    if (lod == 2 && zoneLabels.isNotEmpty && landmarkGate > 0.01) {
+    // 📚 LOW-ZOOM SKIP: large text labels with shadows, illegible.
+    if (lod == 2 &&
+        zoneLabels.isNotEmpty &&
+        landmarkGate > 0.01 &&
+        !_isLowZoom) {
       _paintZoneLabels(canvas, fade * landmarkGate);
     }
 
@@ -331,22 +349,18 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
 
     // 📊 Network stats badge (LOD 2 only)
-    if (lod == 2) {
+    // 📚 LOW-ZOOM SKIP: tiny corner badge, sub-pixel readability.
+    if (lod == 2 && !_isLowZoom) {
       _paintNetworkStats(canvas);
     }
 
     // 🎬 CINEMATIC FLIGHT: Speed-glow + vignette during camera flight
-    if (flightProgress > 0.01 && flightProgress < 0.99) {
+    // 📚 LOW-ZOOM SKIP: flight VFX are full-screen glow/vignette, very
+    // expensive (saveLayer + gradients). User rarely triggers a flight
+    // animation at scale<0.20 — and if they do, the visuals collapse
+    // to indistinct color anyway.
+    if (flightProgress > 0.01 && flightProgress < 0.99 && !_isLowZoom) {
       _paintFlightEffects(canvas, size, fade);
-    }
-
-    // ✂️ SPACE-SPLIT: Draw split line indicator
-    if (spaceSplitLineY != null && spaceSplitSpreadProgress > 0.01) {
-      _paintSplitLine(canvas, size);
-      // Ghost cluster outlines at displaced positions
-      if (spaceSplitGhostDisplacements.isNotEmpty) {
-        _paintGhostClusters(canvas);
-      }
     }
   }
 
@@ -354,202 +368,6 @@ class KnowledgeFlowPainter extends CustomPainter {
     if (canvasScale > _lodLevel1Max) return 0;
     if (canvasScale > _lodLevel1Min) return 1;
     return 2;
-  }
-
-  // ===========================================================================
-  // ✂️ SPACE-SPLIT LINE INDICATOR
-  // ===========================================================================
-
-  /// Paints a breathing dashed line with animated directional arrows.
-  /// Supports both horizontal (Y-axis) and vertical (X-axis) split lines.
-  void _paintSplitLine(Canvas canvas, Size size) {
-    final pos = spaceSplitLineY!;
-    final progress = spaceSplitSpreadProgress;
-    final alpha = (progress * 255).clamp(0, 255).toInt();
-    final time = animationTime;
-    final isH = spaceSplitIsHorizontal;
-
-    const extent = 50000.0;
-
-    // ── Breathing pulse: opacity oscillates gently ──
-    final breathe = 0.7 + 0.3 * math.sin(time * 3.0);
-    final breathAlpha = (alpha * breathe).toInt().clamp(0, 255);
-
-    // ── Outer glow (diffuse) ──
-    _p
-      ..color = Color.fromARGB(breathAlpha ~/ 3, 100, 180, 255)
-      ..strokeWidth = 14.0 / canvasScale
-      ..style = PaintingStyle.stroke
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10.0 / canvasScale);
-    if (isH) {
-      canvas.drawLine(Offset(pos, -extent), Offset(pos, extent), _p);
-    } else {
-      canvas.drawLine(Offset(-extent, pos), Offset(extent, pos), _p);
-    }
-
-    // ── Core dashed line ──
-    final dashLen = 24.0 / canvasScale;
-    final gapLen = 12.0 / canvasScale;
-    final lineWidth = 2.5 / canvasScale;
-    _p
-      ..color = Color.fromARGB(breathAlpha, 130, 200, 255)
-      ..strokeWidth = lineWidth
-      ..strokeCap = StrokeCap.round
-      ..maskFilter = null;
-
-    // Draw dashes with animated offset (scrolling effect)
-    final dashOffset = (time * 40.0 / canvasScale) % (dashLen + gapLen);
-    for (double t = -extent - dashOffset; t < extent; t += dashLen + gapLen) {
-      final start = t;
-      final end = math.min(t + dashLen, extent);
-      if (isH) {
-        canvas.drawLine(Offset(pos, start), Offset(pos, end), _p);
-      } else {
-        canvas.drawLine(Offset(start, pos), Offset(end, pos), _p);
-      }
-    }
-
-    // ── Animated directional arrows (drift + pulse) ──
-    final arrowSize = 8.0 / canvasScale;
-    final arrowSpacing = 180.0 / canvasScale;
-    final arrowAlpha = (breathAlpha * 0.7).toInt();
-    // Drift: arrows slowly move in the push direction
-    final drift = math.sin(time * 2.0) * arrowSize * 0.6;
-    // Pulse scale
-    final pulse = 1.0 + 0.15 * math.sin(time * 4.0);
-    final scaledArrow = arrowSize * pulse;
-
-    _p
-      ..color = Color.fromARGB(arrowAlpha, 130, 200, 255)
-      ..style = PaintingStyle.fill
-      ..maskFilter = null;
-
-    for (double a = -extent; a < extent; a += arrowSpacing) {
-      if (isH) {
-        // Arrows pointing RIGHT (+X)
-        // 🚀 P99 FIX: Reuse _reusePath instead of allocating Path() per arrow
-        _reusePath.reset();
-        _reusePath.moveTo(pos + scaledArrow * 0.5 + drift, a - scaledArrow);
-        _reusePath.lineTo(pos + scaledArrow * 0.5 + drift, a + scaledArrow);
-        _reusePath.lineTo(pos + scaledArrow * 2.5 + drift, a);
-        _reusePath.close();
-        canvas.drawPath(_reusePath, _p);
-        // Arrows pointing LEFT (-X)
-        _reusePath.reset();
-        _reusePath.moveTo(pos - scaledArrow * 0.5 - drift, a - scaledArrow);
-        _reusePath.lineTo(pos - scaledArrow * 0.5 - drift, a + scaledArrow);
-        _reusePath.lineTo(pos - scaledArrow * 2.5 - drift, a);
-        _reusePath.close();
-        canvas.drawPath(_reusePath, _p);
-      } else {
-        // Arrows pointing DOWN (+Y)
-        _reusePath.reset();
-        _reusePath.moveTo(a - scaledArrow, pos + scaledArrow * 0.5 + drift);
-        _reusePath.lineTo(a + scaledArrow, pos + scaledArrow * 0.5 + drift);
-        _reusePath.lineTo(a, pos + scaledArrow * 2.5 + drift);
-        _reusePath.close();
-        canvas.drawPath(_reusePath, _p);
-        // Arrows pointing UP (-Y)
-        _reusePath.reset();
-        _reusePath.moveTo(a - scaledArrow, pos - scaledArrow * 0.5 - drift);
-        _reusePath.lineTo(a + scaledArrow, pos - scaledArrow * 0.5 - drift);
-        _reusePath.lineTo(a, pos - scaledArrow * 2.5 - drift);
-        _reusePath.close();
-        canvas.drawPath(_reusePath, _p);
-      }
-    }
-  }
-
-  /// ✂️ Paints ghost cluster silhouettes at displaced positions.
-  ///
-  /// Instead of a plain rectangle, draws the individual element bounds
-  /// within each cluster as smaller translucent rects — approximating
-  /// the stroke layout ("silhouette").
-  void _paintGhostClusters(Canvas canvas) {
-    final alpha = (spaceSplitSpreadProgress * 160).clamp(0, 160).toInt();
-    final pulse = 0.85 + 0.15 * math.sin(animationTime * 3.5);
-    final pulseAlpha = (alpha * pulse).toInt().clamp(0, 180);
-
-    for (final cluster in clusters) {
-      final displacement = spaceSplitGhostDisplacements[cluster.id];
-      if (displacement == null || displacement == Offset.zero) continue;
-
-      final ghostBounds = cluster.bounds.shift(displacement);
-      final r = Radius.circular(8.0 / canvasScale);
-
-      // Outer ghost outline (dashed feel via reduced opacity)
-      _p
-        ..color = Color.fromARGB(pulseAlpha, 130, 200, 255)
-        ..strokeWidth = 1.5 / canvasScale
-        ..style = PaintingStyle.stroke
-        ..maskFilter = null;
-      canvas.drawRRect(RRect.fromRectAndRadius(ghostBounds, r), _p);
-
-      // Inner silhouette: subdivide cluster bounds into element-sized rects
-      // Use stroke IDs count to approximate subdivision
-      final elementCount = cluster.strokeIds.length +
-          cluster.shapeIds.length +
-          cluster.imageIds.length;
-      if (elementCount > 1 && elementCount <= 20) {
-        // Approximate: divide bounds into rows of elements
-        final cols = math.min(elementCount, 4);
-        final rows = (elementCount / cols).ceil();
-        final cellW = ghostBounds.width / cols;
-        final cellH = ghostBounds.height / rows;
-        final innerAlpha = (pulseAlpha * 0.3).toInt();
-        _p
-          ..color = Color.fromARGB(innerAlpha, 130, 200, 255)
-          ..strokeWidth = 0.8 / canvasScale
-          ..style = PaintingStyle.stroke;
-        for (int i = 0; i < elementCount && i < cols * rows; i++) {
-          final col = i % cols;
-          final row = i ~/ cols;
-          final cellRect = Rect.fromLTWH(
-            ghostBounds.left + col * cellW + cellW * 0.1,
-            ghostBounds.top + row * cellH + cellH * 0.1,
-            cellW * 0.8,
-            cellH * 0.8,
-          );
-          canvas.drawRRect(
-            RRect.fromRectAndRadius(cellRect, Radius.circular(4.0 / canvasScale)),
-            _p,
-          );
-        }
-      }
-
-      // Ghost fill
-      _p
-        ..color = Color.fromARGB(pulseAlpha ~/ 8, 130, 200, 255)
-        ..style = PaintingStyle.fill;
-      canvas.drawRRect(RRect.fromRectAndRadius(ghostBounds, r), _p);
-
-      // Directional arrow inside the ghost showing displacement direction
-      final arrowLen = 12.0 / canvasScale;
-      final cx = ghostBounds.center.dx;
-      final cy = ghostBounds.center.dy;
-      _p
-        ..color = Color.fromARGB(pulseAlpha ~/ 2, 200, 230, 255)
-        ..style = PaintingStyle.fill;
-      if (displacement.dy.abs() > displacement.dx.abs()) {
-        // Vertical arrow
-        final sign = displacement.dy > 0 ? 1.0 : -1.0;
-        final path = Path()
-          ..moveTo(cx - arrowLen * 0.5, cy)
-          ..lineTo(cx + arrowLen * 0.5, cy)
-          ..lineTo(cx, cy + arrowLen * sign)
-          ..close();
-        canvas.drawPath(path, _p);
-      } else {
-        // Horizontal arrow
-        final sign = displacement.dx > 0 ? 1.0 : -1.0;
-        final path = Path()
-          ..moveTo(cx, cy - arrowLen * 0.5)
-          ..lineTo(cx, cy + arrowLen * 0.5)
-          ..lineTo(cx + arrowLen * sign, cy)
-          ..close();
-        canvas.drawPath(path, _p);
-      }
-    }
   }
 
   // ===========================================================================
@@ -596,9 +414,10 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
 
     // ── Luminous connection glow ──
-    if (controller.connections.isEmpty) return;
+    final glowConns = controller.visibleConnections;
+    if (glowConns.isEmpty) return;
 
-    for (final conn in controller.connections) {
+    for (final conn in glowConns) {
       final src = cMap[conn.sourceClusterId];
       final tgt = cMap[conn.targetClusterId];
       if (src == null || tgt == null) continue;
@@ -650,13 +469,14 @@ class KnowledgeFlowPainter extends CustomPainter {
   // ===========================================================================
 
   void _paintWordUnderlines(Canvas canvas, double fade) {
-    if (controller.connections.isEmpty && snapTargetClusterId == null &&
+    final underlineConns = controller.visibleConnections;
+    if (underlineConns.isEmpty && snapTargetClusterId == null &&
         dragSourceClusterId == null) return;
 
     // Collect IDs of clusters that participate in connections
     final connectedIds = <String>{};
     final connColors = <String, Color>{};
-    for (final conn in controller.connections) {
+    for (final conn in underlineConns) {
       connectedIds.add(conn.sourceClusterId);
       connectedIds.add(conn.targetClusterId);
       connColors[conn.sourceClusterId] = conn.color;
@@ -822,7 +642,10 @@ class KnowledgeFlowPainter extends CustomPainter {
   }
 
   void _paintGhostConnectionsDashed(Canvas canvas, double fade) {
-    final ghostConns = controller.connections.where((c) => c.isGhost);
+    // Dismissed ghosts are kept in the scene as tombstones (avoid-list source)
+    // but never rendered — see CrossZoneBridgeController.dismissBridge.
+    final ghostConns = controller.connections
+        .where((c) => c.isGhost && !c.bridgeSuggestionDismissed);
     if (ghostConns.isEmpty) return;
 
     final cMap = _buildClusterMap();
@@ -834,9 +657,12 @@ class KnowledgeFlowPainter extends CustomPainter {
       final tgt = cMap[conn.targetClusterId];
       if (src == null || tgt == null) continue;
 
-      // === Anchor points (same logic as solid connections) ===
-      final srcCenter = conn.sourceAnchor ?? src.centroid;
-      final tgtCenter = conn.targetAnchor ?? tgt.centroid;
+      // === Anchor points ===
+      // Ghosts use the live centroid every frame so the suggestion line
+      // tracks cluster mutations (anchor-drift fix, Passo 9). Materialized
+      // bridges keep their frozen anchor for visual stability after accept.
+      final srcCenter = src.centroid;
+      final tgtCenter = tgt.centroid;
       final dx = (tgtCenter.dx - srcCenter.dx).abs();
       final dy = (tgtCenter.dy - srcCenter.dy).abs();
       final Offset srcPt;
@@ -981,10 +807,11 @@ class KnowledgeFlowPainter extends CustomPainter {
 
 
   void _paintGhostConnections(Canvas canvas) {
-    if (controller.connections.isEmpty) return;
+    final visibleConns = controller.visibleConnections;
+    if (visibleConns.isEmpty) return;
 
     final cMap = _buildClusterMap();
-    for (final conn in controller.connections) {
+    for (final conn in visibleConns) {
       final src = cMap[conn.sourceClusterId];
       final tgt = cMap[conn.targetClusterId];
       if (src == null || tgt == null) continue;

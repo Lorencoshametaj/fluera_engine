@@ -117,6 +117,30 @@ extension AdvancedExportFeatures on _FlueraCanvasScreenState {
   /// Save as binary Fluera format.
   /// Wires: fluera_file_format, binary_canvas_format, fluera_file_export_service
   Future<void> _saveAsFlueraFormat() async {
+    // 🔒 Tier gate — `.fluera` is the structured-export format that
+    // preserves layers + strokes + metadata round-trippably. Free users
+    // get the visual export gate in the PDF dialog (PNG-only) but the
+    // "Save as Fluera" entry-point lives outside that dialog, so we
+    // gate it explicitly here. Anti-fraud: even if the menu item is
+    // shown, the action no-ops with an upgrade prompt.
+    if (!widget.config.subscriptionTier.canUseExportFormat('fluera')) {
+      if (!mounted) return;
+      final hosted = widget.config.onUpgradePrompt;
+      const message =
+          'Il salvataggio in formato .fluera (con tratti, livelli e metadati) è incluso in Fluera Plus / Pro.';
+      if (hosted != null) {
+        hosted(context, message);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(message),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
+
     final layers = _layerController.layers;
     if (layers.isEmpty) {
       if (mounted) {

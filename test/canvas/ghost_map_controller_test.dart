@@ -18,6 +18,7 @@ import 'package:fluera_engine/src/canvas/ai/ghost_map_controller.dart';
 import 'package:fluera_engine/src/canvas/ai/ghost_map_model.dart';
 import 'package:fluera_engine/src/ai/ai_provider.dart';
 import 'package:fluera_engine/src/ai/atlas_action.dart';
+import 'package:fluera_engine/src/ai/cluster_action.dart';
 
 // ─── Fake AI Provider (never calls the real API) ──────────────────────────
 class _FakeAiProvider implements AiProvider {
@@ -36,6 +37,38 @@ class _FakeAiProvider implements AiProvider {
   Stream<String> askChatStream(String h, String m, String c) async* {}
   @override
   Future<String> askFreeText(String prompt) async => '';
+  @override
+  Future<String> askSocraticBatch(String prompt,
+          {List<String> avoidPrompts = const []}) async =>
+      '';
+  @override
+  Future<String> cleanOcrItalian(String raw, {String language = 'Italian'}) async =>
+      raw;
+  @override
+  Future<({String question, bool isAporetic})> askSocraticFollowUp({
+    required String tipo,
+    required String tema,
+    required String priorQuestion,
+    required String sketchOcr,
+    required dynamic role,
+    String? stage,
+  }) async =>
+      (question: '', isAporetic: false);
+  @override
+  Future<double> validateSocraticQuestion({
+    required String questionText,
+    required String clusterTopic,
+    String? clusterRawOcr,
+    String? stage,
+    String? targetLang,
+  }) async =>
+      1.0; // tests always accept
+  @override
+  Future<ClusterAtlasResponse> askAtlasCluster(
+    String userPrompt,
+    Map<String, dynamic> clusterContext,
+  ) async =>
+      const ClusterAtlasResponse.empty();
   @override
   void dispose() {}
 }

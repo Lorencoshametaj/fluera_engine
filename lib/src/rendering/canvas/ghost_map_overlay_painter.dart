@@ -130,6 +130,9 @@ class GhostMapOverlayPainter extends CustomPainter {
     this.activeAttemptNodeId,
     // Whether new strokes exist in the active attempt zone
     this.hasStrokesInAttemptZone = false,
+    // 🌉 Passo 9: clusters connected by accepted cross-zone bridges, tinted
+    // golden so the student sees transfer-learning hubs at a glance.
+    this.crossZoneConnectedClusterIds = const {},
   });
 
   /// U-1: Entry animation progress (seconds since activation).
@@ -150,6 +153,10 @@ class GhostMapOverlayPainter extends CustomPainter {
   final String labelBelowZPD;
   final String labelWriteHere;
 
+  /// 🌉 Passo 9: clusters with an accepted Cross-Zone Bridge get a golden
+  /// halo tint so the student visually identifies transfer-learning hubs.
+  final Set<String> crossZoneConnectedClusterIds;
+
   @override
   void paint(Canvas canvas, Size size) {
     if (result.nodes.isEmpty && result.connections.isEmpty) return;
@@ -161,6 +168,13 @@ class GhostMapOverlayPainter extends CustomPainter {
       ..shader = null
       ..style = PaintingStyle.fill
       ..strokeWidth = 1.0;
+
+    // 🌉 Passo 9: paint a golden halo behind clusters that have accepted
+    // cross-zone bridges (transfer-learning hubs). Drawn first so subsequent
+    // ghost nodes / connections render on top.
+    if (crossZoneConnectedClusterIds.isNotEmpty) {
+      _paintCrossZoneHalos(canvas);
+    }
 
     // Invalidate caches if needed
     _ensureCacheValid(canvasScale, isDarkMode);
@@ -290,6 +304,32 @@ class GhostMapOverlayPainter extends CustomPainter {
       if (nodeProgress < 1.0) {
         canvas.restore();
       }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🌉 PASSO 9 — Cross-zone halos: golden glow behind connected clusters
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _paintCrossZoneHalos(Canvas canvas) {
+    // Spec P9-05: golden #FFD700. Use mid-alpha glow so it reads as halo,
+    // not solid fill (the cluster's own ink stays the dominant signal).
+    const goldenColor = Color(0xFFFFD700);
+    final glowPaint = Paint()
+      ..color = goldenColor.withValues(alpha: 0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12.0);
+    final ringPaint = Paint()
+      ..color = goldenColor.withValues(alpha: 0.55)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    for (final c in clusters) {
+      if (!crossZoneConnectedClusterIds.contains(c.id)) continue;
+      final bounds = c.displacedBounds.inflate(10.0);
+      if (viewportRect != null && !viewportRect!.overlaps(bounds)) continue;
+      final rrect = RRect.fromRectAndRadius(bounds, const Radius.circular(18.0));
+      canvas.drawRRect(rrect, glowPaint);
+      canvas.drawRRect(rrect, ringPaint);
     }
   }
 
@@ -1049,6 +1089,8 @@ class GhostMapOverlayPainter extends CustomPainter {
         dismissedNodeIds != oldDelegate.dismissedNodeIds ||
         activeAttemptNodeId != oldDelegate.activeAttemptNodeId ||
         hasStrokesInAttemptZone != oldDelegate.hasStrokesInAttemptZone ||
+        crossZoneConnectedClusterIds !=
+            oldDelegate.crossZoneConnectedClusterIds ||
         isDarkMode != oldDelegate.isDarkMode ||
         (canvasScale - oldDelegate.canvasScale).abs() > 0.01 ||
         // 🚀 P99 FIX G1: throttle breathing-animation repaints to ~20 Hz

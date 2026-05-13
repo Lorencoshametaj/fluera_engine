@@ -133,11 +133,32 @@ extension on _FlueraCanvasScreenState {
 
   void _echoSearchToast(String message) {
     if (!mounted) return;
+    // 🩹 Override SnackBar text/bg explicitly. The app's
+    // `snackBarTheme.backgroundColor` is `surfaceContainerHighest`
+    // (≈ #363539) but no `contentTextStyle` is set — Flutter falls back
+    // to the theme's default body color which in the Fluera dark theme
+    // ends up near-black, producing the "scuro su scuro" the user saw.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('🔍 $message'),
+        content: Text(
+          '🔍 $message',
+          style: const TextStyle(
+            color: Color(0xFFE0DCFF),
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.2,
+          ),
+        ),
+        backgroundColor: const Color(0xFF1A1A2E),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: const Color(0xFFE0DCFF).withValues(alpha: 0.30),
+            width: 1.2,
+          ),
+        ),
       ),
     );
   }
@@ -324,38 +345,58 @@ extension on _FlueraCanvasScreenState {
                 ),
 
               // ── 🔄 Search History (shown in idle phase) ──
+              // High-contrast palette: was rendering dark-accent items on a
+              // dark navy panel → "scuro su scuro" / unreadable.
               if ((phase == EchoSearchPhase.idle || phase == EchoSearchPhase.drawing) &&
                   ctrl.searchHistory.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 6, right: 4),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0D0D1A).withValues(alpha: 0.85),
+                      color: const Color(0xFF1A1A2E).withValues(alpha: 0.96),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: badgeAccent.withValues(alpha: 0.2),
+                        color: const Color(0xFFE0DCFF).withValues(alpha: 0.30),
+                        width: 1.2,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.30),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Recent:', style: TextStyle(
-                          color: Color(0xFF9D8FFF), fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                        )),
-                        const SizedBox(height: 3),
+                        const Text(
+                          'Recenti',
+                          style: TextStyle(
+                            color: Color(0xFFE0DCFF),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
                         for (final q in ctrl.searchHistory.take(3))
                           GestureDetector(
                             onTap: () => ctrl.searchFromHistory(q),
+                            behavior: HitTestBehavior.opaque,
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 1.5),
+                              padding: const EdgeInsets.symmetric(vertical: 2.5),
                               child: Text(
                                 '🕐 $q',
-                                style: TextStyle(
-                                  color: badgeAccent.withValues(alpha: 0.8),
-                                  fontSize: 11,
+                                style: const TextStyle(
+                                  // Pure white-ish so it stands out against
+                                  // the dark navy panel, regardless of brush
+                                  // accent color.
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
                             ),
@@ -804,7 +845,9 @@ class _EchoSwipeDownZoneState extends State<_EchoSwipeDownZone>
                 ),
               ),
 
-            // 💡 Onboarding hint
+            // 💡 Onboarding hint — readable on any background.
+            // Was: dark-navy pill at α=0.7 inside Opacity(value * 0.6) →
+            // effective alpha ~0.42 → "nero su nero" on a dark canvas.
             if (_showHint)
               Positioned(
                 left: 0,
@@ -813,28 +856,49 @@ class _EchoSwipeDownZoneState extends State<_EchoSwipeDownZone>
                 child: Center(
                   child: TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0.0, end: 1.0),
-                    duration: const Duration(milliseconds: 600),
+                    duration: const Duration(milliseconds: 350),
                     builder: (context, value, child) => Opacity(
-                      opacity: value * 0.6,
+                      opacity: value,
                       child: child,
                     ),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
+                          horizontal: 14, vertical: 7),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1A1A2E).withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(12),
+                        color: const Color(0xFF1A1A2E).withValues(alpha: 0.96),
+                        borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: const Color(0xFF6C63FF).withValues(alpha: 0.3),
+                          color: const Color(0xFF9D8FFF)
+                              .withValues(alpha: 0.55),
+                          width: 1.2,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.30),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
                       ),
-                      child: const Text(
-                        '↓ 2-finger swipe to search',
-                        style: TextStyle(
-                          color: Color(0xFF9D8FFF),
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.swipe_down_alt_rounded,
+                            color: Color(0xFFE0DCFF),
+                            size: 14,
+                          ),
+                          SizedBox(width: 6),
+                          Text(
+                            'Trascina giù con 2 dita per cercare',
+                            style: TextStyle(
+                              color: Color(0xFFE0DCFF),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),

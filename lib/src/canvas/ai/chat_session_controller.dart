@@ -7,6 +7,40 @@ import '../../ai/chat_context_builder.dart';
 import '../../utils/safe_path_provider.dart';
 import 'chat_session_model.dart';
 
+/// Bridge from the chat surface to the cognitive feature controllers
+/// (Ghost Map, Exam Session, Socratic V2, source compare).
+///
+/// The quick-action chips in [ChatOverlay] used to send hard-coded prompts
+/// like "Summarize my notes" — a pattern that violates the product's
+/// teoria_cognitiva_apprendimento.md (Generation Effect §3, Productive
+/// Failure T4). Instead, the chips now invoke these callbacks so that
+/// the right cognitive feature opens directly, bypassing the LLM.
+///
+/// Any null callback is treated as "feature not available in this context"
+/// — the chip will surface a graceful no-op (snackbar) at the UI layer.
+class ChatActionRouter {
+  /// Open the Ghost Map gap-analysis overlay. Closes the chat first.
+  final VoidCallback? onTriggerGhostMap;
+
+  /// Open the Exam Session configuration. Closes the chat first.
+  final VoidCallback? onTriggerExam;
+
+  /// Start a Socratic V2 mini-session. [clusterId] is the preselected
+  /// cluster if any; if null, the canvas decides UX (picker or full scope).
+  final void Function(String? clusterId)? onTriggerSocraticOnCluster;
+
+  /// Open split-view PDF/source compare. [clusterId] is the cluster the
+  /// student wants to verify against the source.
+  final void Function(String? clusterId)? onTriggerSourceCompare;
+
+  const ChatActionRouter({
+    this.onTriggerGhostMap,
+    this.onTriggerExam,
+    this.onTriggerSocraticOnCluster,
+    this.onTriggerSourceCompare,
+  });
+}
+
 /// 💬 CHAT WITH NOTES — Session controller.
 ///
 /// Manages multi-turn AI conversations grounded in the user's canvas notes.
@@ -16,9 +50,10 @@ import 'chat_session_model.dart';
 /// - Streaming AI responses via [AiProvider.askChatStream]
 /// - Context building from clusters, audio, PDF
 /// - Session history persistence (JSON in app documents dir)
-/// - Quick actions: summarize, generate quiz prompt, flashcards
+/// - Quick actions: route to cognitive features (Ghost Map, Exam, Socratic)
 class ChatSessionController extends ChangeNotifier {
   final AiProvider _provider;
+  final ChatActionRouter _router;
 
   ChatSession? _session;
   ChatSession? get session => _session;
@@ -43,7 +78,9 @@ class ChatSessionController extends ChangeNotifier {
 
   ChatSessionController({
     required AiProvider provider,
-  }) : _provider = provider {
+    ChatActionRouter? router,
+  })  : _provider = provider,
+        _router = router ?? const ChatActionRouter() {
     _loadHistory();
   }
 
@@ -157,24 +194,50 @@ class ChatSessionController extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Quick actions
+  // Quick actions — route to cognitive features, not to the LLM
   // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Rationale: the previous quick actions (summarize / generateFlashcards /
+  // explainConcept) trained the student in the exact pattern the product
+  // is supposed to break — passive consumption of LLM output. The new
+  // actions hand the student off to the matching cognitive feature where
+  // the AI asks and the student writes.
 
-  /// Send a "summarize my notes" quick action.
-  Future<void> summarize() =>
-      sendMessage('Summarize all my notes concisely, highlighting key concepts and connections.');
+  /// 🗺 Find my gaps → Ghost Map. Returns `true` if a handler was wired.
+  bool findGaps() {
+    if (_router.onTriggerGhostMap == null) return false;
+    _router.onTriggerGhostMap!();
+    return true;
+  }
 
-  /// Send a "generate quiz" quick action.
-  Future<void> generateQuizPrompt() =>
-      sendMessage('Generate 3 study questions based on my notes. Include the answers.');
+  /// 🎯 Quiz me → Exam Session. Returns `true` if a handler was wired.
+  bool startQuiz() {
+    if (_router.onTriggerExam == null) return false;
+    _router.onTriggerExam!();
+    return true;
+  }
 
-  /// Send a "generate flashcards" quick action.
-  Future<void> generateFlashcards() =>
-      sendMessage('Create 5 flashcards (front/back) from the key concepts in my notes.');
+  /// 🤺 Challenge me → Socratic V2 mini-session. If a single cluster is
+  /// selected it becomes the scope; otherwise the canvas decides UX.
+  /// Returns `true` if a handler was wired.
+  bool startSocratic() {
+    if (_router.onTriggerSocraticOnCluster == null) return false;
+    final preselected =
+        selectedClusterIds.length == 1 ? selectedClusterIds.first : null;
+    _router.onTriggerSocraticOnCluster!(preselected);
+    return true;
+  }
 
-  /// Send an "explain this" quick action for a specific concept.
-  Future<void> explainConcept(String concept) =>
-      sendMessage('Explain "$concept" in detail, using my notes as context.');
+  /// 🔍 Compare with source → split-view PDF reader. The cluster is the
+  /// student's elaboration to verify against the source (§32). Returns
+  /// `true` if a handler was wired.
+  bool compareWithSource() {
+    if (_router.onTriggerSourceCompare == null) return false;
+    final preselected =
+        selectedClusterIds.length == 1 ? selectedClusterIds.first : null;
+    _router.onTriggerSourceCompare!(preselected);
+    return true;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // History persistence

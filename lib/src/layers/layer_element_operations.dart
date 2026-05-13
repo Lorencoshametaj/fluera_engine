@@ -118,13 +118,21 @@ extension _LayerElementOps on LayerController {
       final layer = _layers[i];
       if (layer.isLocked) continue;
 
+      // Snapshot the stroke BEFORE mutating the scene graph so the delta
+      // can carry its full JSON — without it `applyInverseDelta` for
+      // strokeRemoved has nothing to reconstruct from, and undo of a
+      // bulk delete (F10 / cluster actions / lasso) becomes a no-op.
+      final ProStroke? snapshot =
+          layer.strokes.where((s) => s.id == strokeId).firstOrNull;
+
       // 🚀 O(1) direct scene graph mutation — same pattern as addStroke.
       // Previously used copyWith(strokes: List.from(...).removeAt()), which
       // created a brand new CanvasLayer + LayerNode + re-added ALL children.
       // With 500 strokes × 30 interpolation steps = 15,000 copies per frame.
       if (layer.node.removeStrokeById(strokeId)) {
         if (enableDeltaTracking) {
-          _deltaTracker.recordStrokeRemoved(layer.id, strokeId);
+          _deltaTracker.recordStrokeRemoved(layer.id, strokeId,
+              stroke: snapshot);
         }
         _emitTT(CanvasDeltaType.strokeRemoved, layer.id, elementId: strokeId);
 
@@ -289,6 +297,7 @@ extension _LayerElementOps on LayerController {
           layer.id,
           elementId: updatedText.id,
           elementData: updatedText.toJson(),
+          previousData: prevData.toJson(),
         );
 
         _spatialIndexDirty = true;
@@ -382,6 +391,7 @@ extension _LayerElementOps on LayerController {
           layer.id,
           elementId: updatedImage.id,
           elementData: updatedImage.toJson(),
+          previousData: prevData.toJson(),
         );
 
         _spatialIndexDirty = true;
@@ -458,10 +468,15 @@ extension _LayerElementOps on LayerController {
     final layer = activeLayer;
     if (layer == null || layer.isLocked) return;
 
+    final layerSnapshot = layer.toJson();
     if (enableDeltaTracking) {
-      _deltaTracker.recordLayerCleared(layer.id, layerSnapshot: layer.toJson());
+      _deltaTracker.recordLayerCleared(layer.id, layerSnapshot: layerSnapshot);
     }
-    _emitTT(CanvasDeltaType.layerCleared, layer.id);
+    _emitTT(
+      CanvasDeltaType.layerCleared,
+      layer.id,
+      previousData: layerSnapshot,
+    );
 
     // 🚀 O(1): clear all standard children directly, preserving non-standard
     // nodes (PdfDocumentNode, TabularNode, etc.).
@@ -576,6 +591,9 @@ extension _LayerElementOps on LayerController {
       CanvasDeltaType.adjustmentRemoved,
       layer.id,
       elementId: adjustmentId,
+      previousData: previousStack != null
+          ? {'adjustmentStack': previousStack.toJson()}
+          : null,
     );
   }
 
@@ -616,6 +634,7 @@ extension _LayerElementOps on LayerController {
       layer.id,
       elementId: adjustmentId,
       elementData: {'adjustmentStack': newStack.toJson()},
+      previousData: {'adjustmentStack': previousStack.toJson()},
     );
   }
 }

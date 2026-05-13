@@ -44,7 +44,7 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 17;
+const int _kSchemaVersion = 18;
 
 /// Default viewport size used to compute a bookmark zoom that inscribes
 /// the former [SectionSummary] rectangle (v15 → v16 migration heuristic).
@@ -180,6 +180,11 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
           await db.execute('PRAGMA journal_mode=WAL');
           // Enable foreign keys
           await db.execute('PRAGMA foreign_keys=ON');
+          // Wait up to 5s for a writer lock instead of returning
+          // SQLITE_BUSY immediately. Without this the CRDT op-log
+          // (insertOp + vector_clocks bump) and concurrent canvas saves
+          // contend, throwing "database is locked" under load.
+          await db.execute('PRAGMA busy_timeout=5000');
         },
       ),
     );
@@ -257,6 +262,9 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
 
     // 🗺️ v15: Ghost Map sessions (R10 — atomic persistence).
     await _createGhostMapSessionsTable(db);
+
+    // 🔄 v18: CRDT op-log + vector clocks + snapshot for offline collab.
+    await _createCrdtTables(db);
   }
 
   /// Handle schema migrations.
@@ -413,6 +421,10 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         // Legacy SQLite — column stays, harmless.
       }
     }
+    if (oldVersion < 18) {
+      // 🔄 v18: CRDT persistence tables for offline-first collaboration.
+      await _createCrdtTables(db);
+    }
   }
 
   /// v15 → v16: convert each SectionSummary in `sections_json` into a
@@ -514,6 +526,72 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_ghost_map_canvas
         ON ghost_map_sessions(canvas_id)
+    ''');
+  }
+
+  /// 🔄 v18: CRDT persistence — op-log, per-peer vector clocks, snapshots.
+  ///
+  /// Three tables form an offline-first replication primitive:
+  ///
+  ///   • `crdt_operations` — append-only log of every CRDTOperation produced
+  ///     locally or received remotely. Indexed by (canvas_id, ts_ms, counter)
+  ///     so `ops since last_hlc` queries are O(log n). `sent_at` tracks
+  ///     outbox state: NULL = pending broadcast, non-null = acknowledged.
+  ///   • `crdt_vector_clocks` — one row per (canvas_id, peer_id) holding the
+  ///     latest HLC counter observed from that peer. Used to compute the
+  ///     causal frontier for incremental catch-up.
+  ///   • `crdt_snapshots` — periodic full-state dump of the CRDT graph so
+  ///     reconnects don't have to replay the entire op-log.
+  Future<void> _createCrdtTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS crdt_operations (
+        op_id         TEXT PRIMARY KEY,
+        canvas_id     TEXT NOT NULL,
+        peer_id       TEXT NOT NULL,
+        op_type       TEXT NOT NULL,
+        node_id       TEXT NOT NULL,
+        ts_ms         INTEGER NOT NULL,
+        counter       INTEGER NOT NULL,
+        payload_json  TEXT NOT NULL,
+        applied_at    INTEGER NOT NULL,
+        sent_at       INTEGER,
+        FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_crdt_ops_canvas_hlc
+        ON crdt_operations(canvas_id, ts_ms, counter)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_crdt_ops_outbox
+        ON crdt_operations(canvas_id, sent_at)
+        WHERE sent_at IS NULL
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS crdt_vector_clocks (
+        canvas_id   TEXT NOT NULL,
+        peer_id     TEXT NOT NULL,
+        ts_ms       INTEGER NOT NULL,
+        counter     INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY (canvas_id, peer_id),
+        FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS crdt_snapshots (
+        canvas_id     TEXT PRIMARY KEY,
+        snapshot_json TEXT NOT NULL,
+        hlc_ts_ms     INTEGER NOT NULL,
+        hlc_counter   INTEGER NOT NULL,
+        hlc_peer_id   TEXT NOT NULL,
+        created_at    INTEGER NOT NULL,
+        FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
+      )
     ''');
   }
 
@@ -1004,14 +1082,14 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   Future<List<CanvasMetadata>> listCanvases({String? folderId}) async {
     final db = _ensureInitialized();
 
-    // 🔐 Build WHERE clause with user_id filtering
+    // 🔐 Per-user isolation is already enforced by [_userDatabaseName]:
+    // each Supabase user gets their own SQLite file (`fluera_canvas_<id>.db`).
+    // We deliberately do NOT add a `user_id = ?` filter here, because shared
+    // canvases land in the local DB with `user_id = owner_id` (the original
+    // creator on another device) — filtering by `currentUserId` would hide
+    // every collaboration the user has been invited to.
     final conditions = <String>[];
     final args = <dynamic>[];
-
-    if (_currentUserId != null) {
-      conditions.add('user_id = ?');
-      args.add(_currentUserId);
-    }
 
     if (folderId != null) {
       conditions.add('folder_id = ?');
@@ -1230,17 +1308,15 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       ],
     );
 
-    // 2. 📐 Pre-seed initial sections when requested
-    if (options.initialSections.isNotEmpty) {
-      // A4 at 150 DPI screen equivalent — looks like a real notebook page.
-      // 595pt A4 (72 DPI PDF) → ×2.083 → 1240 canvas units ≈ A4 at 150 DPI.
-      // At 0.3× zoom on a phone (393px wide), section fills ~95% of the screen.
-      const sectionW = 1240.0; // A4 Portrait width  — feels like a real page
-      const sectionH = 1754.0; // A4 Portrait height (1240 × √2 ≈ 1754)
-      const gap     = 200.0;   // comfortable breathing room between sections
-
-      // Create one empty binary layer to anchor the section nodes
-      final layerId = 'layer_$now';
+    // 2. 🛡️ Always create a default empty layer.
+    // Without this, free canvases (no initialSections) end up with zero
+    // layer rows in `canvas_layers`. On reopen the in-memory state has
+    // the constructor's default layer, but downstream readers (cluster
+    // rebuild, etc.) hit a `firstWhere(orElse: layers.first)` pattern on
+    // an empty list and throw `Bad state: No element`. Seeding a layer
+    // row at creation keeps the on-disk and in-memory states aligned.
+    final layerId = 'layer_$now';
+    {
       final emptyLayer = CanvasLayer(
         id: layerId,
         name: 'Layer',
@@ -1262,6 +1338,16 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         where: 'canvas_id = ?',
         whereArgs: [id],
       );
+    }
+
+    // 3. 📐 Pre-seed initial sections when requested
+    if (options.initialSections.isNotEmpty) {
+      // A4 at 150 DPI screen equivalent — looks like a real notebook page.
+      // 595pt A4 (72 DPI PDF) → ×2.083 → 1240 canvas units ≈ A4 at 150 DPI.
+      // At 0.3× zoom on a phone (393px wide), section fills ~95% of the screen.
+      const sectionW = 1240.0; // A4 Portrait width  — feels like a real page
+      const sectionH = 1754.0; // A4 Portrait height (1240 × √2 ≈ 1754)
+      const gap     = 200.0;   // comfortable breathing room between sections
 
       // Build SectionNode JSON entries for scene_nodes_json
       final sceneNodes = <Map<String, dynamic>>[];
@@ -1420,14 +1506,11 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
   Future<List<FolderMetadata>> listFolders({String? parentFolderId}) async {
     final db = _ensureInitialized();
 
-    // 🔐 Build WHERE clause with user_id filtering
+    // 🔐 Per-user isolation handled by [_userDatabaseName]; see note in
+    // [listCanvases]. No `user_id = ?` filter for the same shared-resource
+    // reason (folders containing shared canvases must remain visible).
     final conditions = <String>[];
     final args = <dynamic>[];
-
-    if (_currentUserId != null) {
-      conditions.add('user_id = ?');
-      args.add(_currentUserId);
-    }
 
     if (parentFolderId != null) {
       conditions.add('parent_folder_id = ?');

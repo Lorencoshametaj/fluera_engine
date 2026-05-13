@@ -28,7 +28,26 @@ class FGeminiResponse {
   final String? text;
   final FGeminiUsageMetadata? usageMetadata;
 
-  const FGeminiResponse({this.text, this.usageMetadata});
+  /// 🔍 Why generation stopped. One of: `STOP` (natural), `MAX_TOKENS`
+  /// (output budget reached), `SAFETY` (filter triggered), `RECITATION`,
+  /// `LANGUAGE`, `OTHER`. Used by Sprint E (2026-05-13) to diagnose
+  /// silent truncation: a `MAX_TOKENS` reason with low
+  /// `candidatesTokenCount` reveals the proxy/model is enforcing a
+  /// smaller output budget than the client requested.
+  final String? finishReason;
+
+  /// 🔍 Number of `parts` returned by Gemini for the first candidate.
+  /// Some models split long responses across multiple parts; we now log
+  /// it to detect cases where the first part is incomplete but later
+  /// parts hold the tail. Used by Sprint E diagnostic.
+  final int? partsCount;
+
+  const FGeminiResponse({
+    this.text,
+    this.usageMetadata,
+    this.finishReason,
+    this.partsCount,
+  });
 }
 
 class FGeminiUsageMetadata {
@@ -279,7 +298,22 @@ class ProxiedGeminiClient implements GeminiClient {
       body['systemInstruction'] = _systemInstructionText;
     }
     if (_generationConfig != null) {
-      body['generationConfig'] = _generationConfig;
+      // 🛡️ 2026-05-12 device fix: sanitize generationConfig for JSON
+      // serialization. The `responseSchema` value (when present) is a
+      // `Schema` instance from google_generative_ai which `jsonEncode`
+      // cannot serialize natively — it throws silently in some HTTP
+      // pipelines, producing a malformed POST body that Gemini answers
+      // with a truncated response (device repro: 170 chars then abort).
+      // Schema exposes a `toJson()` method we must call explicitly.
+      final sanitized = <String, dynamic>{};
+      _generationConfig.forEach((key, value) {
+        if (key == 'responseSchema' && value is Schema) {
+          sanitized[key] = value.toJson();
+        } else {
+          sanitized[key] = value;
+        }
+      });
+      body['generationConfig'] = sanitized;
     }
     return body;
   }
@@ -300,15 +334,28 @@ class ProxiedGeminiClient implements GeminiClient {
   }
 
   FGeminiResponse _parseGeminiJson(Map<String, dynamic> json) {
-    // Extract first candidate's first part text. Matches Gemini REST format.
+    // Extract first candidate's text. Concatenate ALL parts (some
+    // Gemini responses split text across multiple parts). Track parts
+    // count + finishReason for Sprint E (2026-05-13) diagnostic.
     String? text;
+    String? finishReason;
+    int? partsCount;
     final candidates = json['candidates'] as List?;
     if (candidates != null && candidates.isNotEmpty) {
       final first = candidates.first as Map<String, dynamic>?;
+      final fr = first?['finishReason'];
+      if (fr is String) finishReason = fr;
       final parts = (first?['content'] as Map?)?['parts'] as List?;
       if (parts != null && parts.isNotEmpty) {
-        final t = (parts.first as Map?)?['text'];
-        if (t is String) text = t;
+        partsCount = parts.length;
+        final buf = StringBuffer();
+        for (final p in parts) {
+          if (p is Map) {
+            final t = p['text'];
+            if (t is String) buf.write(t);
+          }
+        }
+        if (buf.isNotEmpty) text = buf.toString();
       }
     }
 
@@ -323,7 +370,12 @@ class ProxiedGeminiClient implements GeminiClient {
       );
     }
 
-    return FGeminiResponse(text: text, usageMetadata: usage);
+    return FGeminiResponse(
+      text: text,
+      usageMetadata: usage,
+      finishReason: finishReason,
+      partsCount: partsCount,
+    );
   }
 }
 

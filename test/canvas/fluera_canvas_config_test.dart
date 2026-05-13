@@ -129,15 +129,23 @@ void main() {
       expect(FlueraSubscriptionTier.free.canUseCloudSync, isFalse);
     });
 
-    test('plus can use cloud sync and collaborate', () {
+    test('plus can use cloud sync but cannot collaborate', () {
       expect(FlueraSubscriptionTier.plus.canUseCloudSync, isTrue);
-      expect(FlueraSubscriptionTier.plus.canCollaborate, isTrue);
+      expect(FlueraSubscriptionTier.plus.canCollaborate, isFalse);
     });
 
     test('pro can use everything', () {
       expect(FlueraSubscriptionTier.pro.canUseCloudSync, isTrue);
       expect(FlueraSubscriptionTier.pro.canCollaborate, isTrue);
       expect(FlueraSubscriptionTier.pro.canUseAIFilters, isTrue);
+    });
+
+    test('free cannot collaborate', () {
+      expect(FlueraSubscriptionTier.free.canCollaborate, isFalse);
+    });
+
+    test('essential cannot collaborate', () {
+      expect(FlueraSubscriptionTier.essential.canCollaborate, isFalse);
     });
 
     test('essential cannot use cloud sync', () {

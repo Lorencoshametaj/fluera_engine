@@ -108,6 +108,22 @@ class VulkanStrokeOverlayPlugin : FlutterPlugin, MethodChannel.MethodCallHandler
                     val success = nativeInit(producerSurface, width, height)
                     if (success) {
                         nativeInitialized = true
+                        // 🎚️ I: lock the Vulkan stroke surface to the device's
+                        // max refresh rate. Without this, Android's variable
+                        // refresh rate logic can downshift the surface to
+                        // 60 Hz during idle and snap back to 120 Hz with a
+                        // 1-2 frame delay — the snap is exactly when the
+                        // user starts a stroke, costing visible latency.
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            try {
+                                producerSurface.setFrameRate(
+                                    120.0f,
+                                    Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+                                )
+                            } catch (_: Exception) {
+                                // Silent fail — pre-S devices may reject the call.
+                            }
+                        }
                         android.util.Log.i("FlueraVk", "Vulkan renderer initialized, textureId=$currentTextureId")
                         result.success(currentTextureId)
                     } else {

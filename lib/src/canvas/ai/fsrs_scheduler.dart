@@ -617,6 +617,53 @@ class FsrsScheduler {
     );
   }
 
+  /// Apply a stability bump from a multi-turn Socratic reflection
+  /// (NOT a right/wrong recall signal).
+  ///
+  /// Unlike [review], this method:
+  ///   • Doesn't change `difficulty` (no "right/wrong" info from a
+  ///     reflection — only engagement/productive struggle/consolidation)
+  ///   • Doesn't increment `reps` more than once per call
+  ///   • Adds [stabilityBump] days directly to the existing stability
+  ///   • Updates `lastReview`, recomputes `nextReview` from new stability
+  ///   • Transits state to [FsrsState.review] (from newCard) since
+  ///     engagement counts as a review event
+  ///
+  /// Used by `_persistSocraticToFSRS` to map:
+  ///   thinking   → 0.5 days   (engagement, weak signal)
+  ///   uncertain  → 1.0 day    (productive struggle = strongest learning)
+  ///   satisfied  → 2.0 days   (consolidation)
+  static SrsCardData applyReflection(
+    SrsCardData card, {
+    required double stabilityBump,
+  }) {
+    final now = DateTime.now();
+    final newStability = max(_minStability, card.stability + stabilityBump);
+    final newInterval = newStability
+        .clamp(_minIntervalDays, _maxIntervalDays);
+    final updatedResults = List<bool>.from(card.recentResults);
+    // Reflection counts as a "soft positive" — productive struggle is
+    // strong learning even if the student wasn't sure. Append `true`
+    // for the recent-results window (used by Stage 4/5 lapse check).
+    updatedResults.add(true);
+    if (updatedResults.length > 10) {
+      updatedResults.removeRange(0, updatedResults.length - 10);
+    }
+    return SrsCardData(
+      stability: newStability,
+      difficulty: card.difficulty, // unchanged — reflection isn't a difficulty signal
+      elapsedDays: 0,
+      scheduledDays: newInterval.round(),
+      reps: card.reps + 1,
+      lapses: card.lapses, // unchanged
+      state: card.state == FsrsState.newCard ? FsrsState.review : card.state,
+      nextReview: now.add(Duration(hours: (newInterval * 24).round())),
+      lastReview: now,
+      desiredRetention: card.desiredRetention,
+      recentResults: updatedResults,
+    );
+  }
+
   /// Converts a legacy `Map<String, int>` (concept → epoch ms) schedule
   /// to the new `Map<String, SrsCardData>` format.
   ///

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../drawing/models/brush_preset.dart';
 import '../../drawing/models/pro_drawing_point.dart';
+import '../fluera_canvas_config.dart' show FlueraSubscriptionTier;
 
 // ============================================================================
 // TOOLBAR BRUSH STRIP — Category-tabbed preset selector (single row)
@@ -17,6 +18,17 @@ class ToolbarBrushStrip extends StatefulWidget {
   final VoidCallback? onLongPress;
   final bool isDark;
 
+  /// Current user's subscription tier — pills render a 🔒 badge and
+  /// suppress selection on Free for any preset NOT in
+  /// [BrushPreset.freePresetIds]. Plus / Pro see no gating.
+  final FlueraSubscriptionTier subscriptionTier;
+
+  /// Fired when a Free user taps a locked preset. The host typically
+  /// shows a paywall sheet / upgrade banner with the supplied message.
+  /// When `null`, taps on locked pills are silently ignored (no UX,
+  /// but no crash either).
+  final void Function(String message)? onUpgradePrompt;
+
   const ToolbarBrushStrip({
     super.key,
     required this.presets,
@@ -25,6 +37,8 @@ class ToolbarBrushStrip extends StatefulWidget {
     required this.onPresetSelected,
     this.onLongPress,
     required this.isDark,
+    this.subscriptionTier = FlueraSubscriptionTier.free,
+    this.onUpgradePrompt,
   });
 
   @override
@@ -39,6 +53,27 @@ class _ToolbarBrushStripState extends State<ToolbarBrushStrip> {
     return widget.presets.isNotEmpty
         ? widget.presets
         : BrushPreset.defaultPresets;
+  }
+
+  /// Whether [preset] is locked behind the user's tier. Free users are
+  /// limited to [BrushPreset.freePresetIds]; Plus / Pro see no gating.
+  bool _isLockedFor(BrushPreset preset) {
+    if (widget.subscriptionTier != FlueraSubscriptionTier.free) return false;
+    return !BrushPreset.freePresetIds.contains(preset.id);
+  }
+
+  /// Pill tap dispatcher. Routes locked taps to the upgrade prompt and
+  /// blocks the underlying selection (anti-fraud — even if the visual
+  /// gate is bypassed via accessibility tools, the selection won't go
+  /// through). Unlocked taps go straight to the host callback.
+  void _onPillTap(BrushPreset preset, bool isLocked) {
+    if (isLocked) {
+      widget.onUpgradePrompt?.call(
+        'Sblocca il pennello "${preset.name}" con Fluera Plus o Pro.',
+      );
+      return;
+    }
+    widget.onPresetSelected(preset);
   }
 
   @override
@@ -56,16 +91,17 @@ class _ToolbarBrushStripState extends State<ToolbarBrushStrip> {
         mainAxisSize: MainAxisSize.min,
         children:
             _displayPresets.map((preset) {
+              final isLocked = _isLockedFor(preset);
               return ToolbarBrushPill(
                 preset: preset,
                 isSelected: widget.selectedPresetId == preset.id,
                 isPenActive: widget.isPenActive,
                 isDark: widget.isDark,
-                onTap: () => widget.onPresetSelected(preset),
-                onLongPress:
-                    widget.selectedPresetId == preset.id
-                        ? widget.onLongPress
-                        : null,
+                isLocked: isLocked,
+                onTap: () => _onPillTap(preset, isLocked),
+                onLongPress: isLocked || widget.selectedPresetId != preset.id
+                    ? null
+                    : widget.onLongPress,
               );
             }).toList(),
       ),
@@ -166,6 +202,10 @@ class ToolbarBrushPill extends StatelessWidget {
   final bool isSelected;
   final bool isPenActive;
   final bool isDark;
+  /// Free-tier lock — when true, the pill renders dimmed with a 🔒
+  /// badge. The owning strip routes the tap to an upgrade prompt
+  /// instead of selecting the preset.
+  final bool isLocked;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
 
@@ -177,6 +217,7 @@ class ToolbarBrushPill extends StatelessWidget {
     required this.isDark,
     required this.onTap,
     this.onLongPress,
+    this.isLocked = false,
   });
 
   /// Accent color based on pen type
@@ -211,7 +252,95 @@ class ToolbarBrushPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isHighlighted = isSelected && isPenActive;
+    // Locked pills never show as "active" even if their id matches the
+    // current selection — paying-tier downgrades shouldn't leave a
+    // dangling highlight on a now-forbidden brush.
+    final isHighlighted = isSelected && isPenActive && !isLocked;
+    final pillBody = AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.symmetric(
+        horizontal: isHighlighted ? 10 : 7,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        gradient:
+            isHighlighted
+                ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _accentColor.withValues(alpha: isDark ? 0.35 : 0.18),
+                    _accentColor.withValues(alpha: isDark ? 0.2 : 0.08),
+                  ],
+                )
+                : null,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color:
+              isHighlighted
+                  ? _accentColor.withValues(alpha: 0.6)
+                  : Colors.transparent,
+          width: 1.5,
+        ),
+        boxShadow:
+            isHighlighted
+                ? [
+                  BoxShadow(
+                    color: _accentColor.withValues(alpha: 0.25),
+                    blurRadius: 8,
+                    spreadRadius: 0,
+                  ),
+                ]
+                : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Opacity(
+            opacity: isLocked ? 0.4 : 1.0,
+            child: Text(
+              preset.icon,
+              style: TextStyle(fontSize: isHighlighted ? 16 : 14),
+            ),
+          ),
+          if (isHighlighted) ...[
+            const SizedBox(width: 5),
+            Text(
+              preset.name,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: _accentColor,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    // 🔒 Free-tier lock badge — anchored top-right outside the pill
+    // body so it doesn't shift the selected-state width animation.
+    final lockBadge = Positioned(
+      right: -2,
+      top: -2,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.all(1.5),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.black87 : Colors.white,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.lock_rounded,
+            size: 9,
+            color: (isDark ? Colors.white : Colors.black87)
+                .withValues(alpha: 0.7),
+          ),
+        ),
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -219,69 +348,17 @@ class ToolbarBrushPill extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          onLongPress: isSelected ? onLongPress : null,
+          onLongPress: isSelected && !isLocked ? onLongPress : null,
           borderRadius: BorderRadius.circular(10),
-          splashColor: _accentColor.withValues(alpha: 0.2),
-          highlightColor: _accentColor.withValues(alpha: 0.1),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.symmetric(
-              horizontal: isHighlighted ? 10 : 7,
-              vertical: 5,
-            ),
-            decoration: BoxDecoration(
-              gradient:
-                  isHighlighted
-                      ? LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          _accentColor.withValues(alpha: isDark ? 0.35 : 0.18),
-                          _accentColor.withValues(alpha: isDark ? 0.2 : 0.08),
-                        ],
-                      )
-                      : null,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color:
-                    isHighlighted
-                        ? _accentColor.withValues(alpha: 0.6)
-                        : Colors.transparent,
-                width: 1.5,
-              ),
-              boxShadow:
-                  isHighlighted
-                      ? [
-                        BoxShadow(
-                          color: _accentColor.withValues(alpha: 0.25),
-                          blurRadius: 8,
-                          spreadRadius: 0,
-                        ),
-                      ]
-                      : null,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  preset.icon,
-                  style: TextStyle(fontSize: isHighlighted ? 16 : 14),
-                ),
-                if (isHighlighted) ...[
-                  const SizedBox(width: 5),
-                  Text(
-                    preset.name,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: _accentColor,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+          splashColor: _accentColor.withValues(alpha: isLocked ? 0.05 : 0.2),
+          highlightColor:
+              _accentColor.withValues(alpha: isLocked ? 0.03 : 0.1),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              pillBody,
+              if (isLocked) lockBadge,
+            ],
           ),
         ),
       ),

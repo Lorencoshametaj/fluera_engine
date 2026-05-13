@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import '../core/models/canvas_layer.dart';
+import '../core/scene_graph/canvas_node.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
@@ -44,8 +45,12 @@ abstract class FlueraLayerController extends ChangeNotifier {
   // LAYER MANAGEMENT
   // ============================================================================
 
-  /// Add a new layer
-  void addLayer({String? name});
+  /// Append a new layer.
+  ///
+  /// [name] sets the display label (auto-generated when null). [id] forces a
+  /// specific identifier — used by the CRDT applier to mirror a remote
+  /// peer's layer using the same id; left null in normal local usage.
+  void addLayer({String? name, String? id});
 
   /// Remove a layer by ID
   void removeLayer(String layerId);
@@ -101,6 +106,19 @@ abstract class FlueraLayerController extends ChangeNotifier {
 
   /// Get all visible strokes across all visible layers
   List<ProStroke> getAllVisibleStrokes();
+
+  /// Delete N scene-graph nodes as a single atomic undoable operation.
+  ///
+  /// Returns the number of nodes actually removed. Implementations should
+  /// route each node to the appropriate typed removal (`removeStroke`,
+  /// `removeShape`, `removeText`, `removeImage`) and aggregate the
+  /// resulting deltas into one composite undo entry so the user gets a
+  /// single Ctrl+Z to revert a bulk selection delete.
+  ///
+  /// Default implementation forwards to per-element removal without
+  /// batching — concrete controllers (e.g. `LayerController`) override
+  /// this to provide the composite-undo guarantee.
+  Future<int> deleteNodes(List<CanvasNode> nodes) async => 0;
 
   // ============================================================================
   // SHAPE OPERATIONS

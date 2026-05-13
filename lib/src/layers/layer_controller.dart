@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import '../core/models/canvas_layer.dart';
 import '../core/scene_graph/canvas_node.dart';
+import '../core/nodes/group_node.dart';
 import '../core/nodes/layer_node.dart';
 import '../core/nodes/stroke_node.dart';
 import '../core/nodes/shape_node.dart';
@@ -24,6 +25,9 @@ part 'layer_spatial_index.dart';
 part 'layer_scene_graph.dart';
 
 /// Typedef for the Time Travel callback.
+///
+/// Legacy single-callback hook predating [LayerMutationListener]. Setting it
+/// remains supported and routes through the multi-listener dispatch.
 typedef TimeTravelEventCallback =
     void Function(
       CanvasDeltaType type,
@@ -31,6 +35,20 @@ typedef TimeTravelEventCallback =
       String? elementId,
       Map<String, dynamic>? elementData,
     });
+
+/// Multi-listener observer for every mutation that happens on a
+/// [LayerController].
+///
+/// Receives a fully-populated [CanvasDelta] (the same record used by the
+/// undo/redo and incremental sync pipelines), so a listener can choose to:
+///   • forward the delta to a CRDT layer for replication;
+///   • persist it to a local op-log;
+///   • derive analytics events;
+///
+/// Listeners are invoked synchronously on the calling thread, in registration
+/// order, only when [LayerController.enableDeltaTracking] is `true`. This
+/// matches the legacy [TimeTravelEventCallback] semantics.
+typedef LayerMutationListener = void Function(CanvasDelta delta);
 
 /// Controller for managing canvas layers.
 ///
@@ -84,23 +102,103 @@ class LayerController extends FlueraLayerController {
   /// Disable during batch operations (e.g., load from storage).
   bool enableDeltaTracking = true;
 
+  /// Identifier of the local actor (CRDT peerId). When set, every
+  /// [_emitTT] stamps the resulting [CanvasDelta] with this id so the
+  /// undo manager can later filter "deltas I authored" from "deltas a
+  /// teammate authored". Wired by the CRDT collab init; stays null for
+  /// solo-canvas sessions (the undo manager just doesn't filter).
+  ///
+  /// Setting this also propagates to [UndoRedoManager.localActorId] so
+  /// the per-actor filter in `undo()` / `redo()` is in sync.
+  String? get localActorId => _localActorId;
+  set localActorId(String? value) {
+    _localActorId = value;
+    _undoRedoManager.localActorId = value;
+  }
+
+  String? _localActorId;
+
+  /// While true, [_emitTT] still notifies mutation observers (the CRDT
+  /// pipeline keeps replicating) but skips the legacy `onTimeTravelEvent`
+  /// hook that feeds the undo manager. Set by
+  /// [CRDTToLayerControllerApplier.applyRemote] for the duration of a
+  /// remote op replay so a peer's edit doesn't land on the local user's
+  /// undo stack — `Ctrl+Z` should never revert another user's stroke.
+  bool suppressUndoTracking = false;
+
   /// Time Travel: optional callback to record events.
   TimeTravelEventCallback? onTimeTravelEvent;
 
-  /// Helper: emit Time Travel event if callback is set.
+  /// Registered mutation observers, dispatched in registration order.
+  final List<LayerMutationListener> _mutationObservers = [];
+
+  /// Cached snapshot of mutation observers, rebuilt on register/unregister.
+  /// Avoids allocating a copy on every dispatch (mutations are hot-path).
+  List<LayerMutationListener> _mutationObserverSnapshot = const [];
+
+  /// Register a [LayerMutationListener] to receive every canvas mutation.
+  ///
+  /// Listeners fire only while [enableDeltaTracking] is `true`, matching the
+  /// existing `onTimeTravelEvent` hook. Returns an unsubscribe closure for
+  /// scoped registration (`final off = lc.addMutationObserver(...);
+  /// off();`).
+  void Function() addMutationObserver(LayerMutationListener observer) {
+    _mutationObservers.add(observer);
+    _mutationObserverSnapshot = List.of(_mutationObservers);
+    return () => removeMutationObserver(observer);
+  }
+
+  /// Unregister a previously-added [LayerMutationListener].
+  void removeMutationObserver(LayerMutationListener observer) {
+    if (_mutationObservers.remove(observer)) {
+      _mutationObserverSnapshot = List.of(_mutationObservers);
+    }
+  }
+
+  /// Emit a mutation event to TimeTravel (legacy) and every registered
+  /// [LayerMutationListener]. No-op while [enableDeltaTracking] is `false`.
+  ///
+  /// [previousData] is the pre-mutation snapshot used by reversible
+  /// operations (textUpdated, imageUpdated, layerModified, layerCleared,
+  /// adjustmentUpdated). Pass `null` for non-reversible operations.
   void _emitTT(
     CanvasDeltaType type,
     String layerId, {
     String? elementId,
     Map<String, dynamic>? elementData,
+    Map<String, dynamic>? previousData,
   }) {
     if (!enableDeltaTracking) return;
-    onTimeTravelEvent?.call(
-      type,
-      layerId,
+
+    // Undo tracking is gated separately so a remote-applied mutation
+    // can still flow through the CRDT mutation observers (which dedup
+    // their own re-emission via runSilently) without polluting the
+    // local user's undo stack.
+    if (!suppressUndoTracking) {
+      onTimeTravelEvent?.call(
+        type,
+        layerId,
+        elementId: elementId,
+        elementData: elementData,
+      );
+    }
+
+    final observers = _mutationObserverSnapshot;
+    if (observers.isEmpty) return;
+
+    final delta = CanvasDelta(
+      id: _generateUniqueId(),
+      type: type,
+      layerId: layerId,
+      timestamp: DateTime.now(),
       elementId: elementId,
       elementData: elementData,
+      previousData: previousData,
+      actorId: localActorId,
     );
+    for (final obs in observers) {
+      obs(delta);
+    }
   }
 
   LayerController() {
@@ -169,6 +267,91 @@ class LayerController extends FlueraLayerController {
 
   /// Whether we are inside a batch.
   bool get _isBatching => _batchDepth > 0;
+
+  /// Run [body] inside a composite undo batch.
+  ///
+  /// Every mutation that lands on the [UndoRedoManager] during [body] is
+  /// accumulated and pushed as a SINGLE composite undo entry on completion
+  /// (one Ctrl+Z reverts the whole operation). Also wraps the call in the
+  /// existing [beginBatch] / [endBatch] pair so version bumps and
+  /// listener notifications fire once at the end.
+  ///
+  /// On exception: any partially-accumulated deltas are reverted in-place
+  /// and the error is rethrown — the canvas state ends up where it was
+  /// before [body] started, preserving atomicity.
+  ///
+  /// Use for AI cluster actions, group operations, and any high-level
+  /// command the user perceives as a single step.
+  Future<T> runAsBatch<T>(
+    String label,
+    Future<T> Function() body,
+  ) async {
+    beginBatch();
+    _undoRedoManager.beginBatch();
+    try {
+      final result = await body();
+      _undoRedoManager.endBatchAsComposite(label, actorId: localActorId);
+      return result;
+    } catch (e) {
+      // Roll back accumulated deltas: pop them off the in-progress batch
+      // by ending it as a no-op composite that we then discard.
+      _undoRedoManager.endBatchAsComposite('${label}_rolled_back',
+          actorId: localActorId);
+      _undoRedoManager.discardLastUndo();
+      rethrow;
+    } finally {
+      endBatch();
+    }
+  }
+
+  /// Delete N scene-graph nodes in a single composite undo entry.
+  ///
+  /// Routes each node to the appropriate typed removal API
+  /// (`removeStroke` / `removeShape` / `removeText` / `removeImage`) and
+  /// falls back to a direct `parent.remove(node)` for node types that
+  /// don't have a dedicated `LayerController` method (LatexNode,
+  /// TabularNode, PathNode, etc.) — the delta tracker captures these via
+  /// the scene-graph mutation observer all the same.
+  ///
+  /// Returns the number of nodes actually removed (skipped types are
+  /// counted as 0 — useful for `"$removed elementi rimossi"` snackbars).
+  ///
+  /// Replaces the legacy `SelectionManager.deleteAll()` path which
+  /// generated N separate undo entries — one Ctrl+Z used to revert just
+  /// one element of a multi-selection delete. With this API, one Ctrl+Z
+  /// reverts the whole bulk delete.
+  Future<int> deleteNodes(List<CanvasNode> nodes) async {
+    if (nodes.isEmpty) return 0;
+    var removed = 0;
+    await runAsBatch('Cancella ${nodes.length} elementi', () async {
+      for (final node in nodes) {
+        if (node is StrokeNode) {
+          removeStroke(node.id.toString());
+          removed++;
+        } else if (node is ShapeNode) {
+          removeShape(node.id.toString());
+          removed++;
+        } else if (node is TextNode) {
+          removeText(node.id.toString());
+          removed++;
+        } else if (node is ImageNode) {
+          removeImage(node.id.toString());
+          removed++;
+        } else {
+          // Scene-graph fallback for node types without a typed LayerController
+          // removal API. The mutation observer still captures the change as
+          // a delta inside the active batch.
+          final parent = node.parent;
+          if (parent is GroupNode) {
+            parent.remove(node);
+            removed++;
+          }
+          // Silently skip orphan nodes (no parent) — defensive.
+        }
+      }
+    });
+    return removed;
+  }
 
   /// Bump scene graph version (deferred if batching).
   void _bumpVersionOrDefer() {
@@ -260,13 +443,29 @@ class LayerController extends FlueraLayerController {
     final layer = CanvasLayer(id: _generateUniqueId(), name: 'Layer 1');
     _layers.add(layer);
     _activeLayerId = layer.id;
+    // 🛡️ Defensive: the unmodifiable-layers cache uses `??=` and is only
+    // invalidated by `notifyListeners()`. If anything reads `layers`
+    // before the next notification (e.g. during construction or inside
+    // `clearAllAndLoadLayers` between `_layers.clear()` and the trailing
+    // notify), the cache freezes against the wrong list. Invalidate
+    // explicitly so the next read sees the freshly-added layer.
+    _invalidateLayersCache();
+    _cachedActiveLayerIndex = null;
   }
 
   @override
-  void addLayer({String? name}) {
+  void addLayer({String? name, String? id}) {
+    // Skip silently if a layer with the requested id already exists. This
+    // matters when the CRDT applier replays a remote layerAdded op that has
+    // already been observed locally — the operation must be idempotent.
+    if (id != null && _layers.any((l) => l.id == id)) {
+      _activeLayerId = id;
+      notifyListeners();
+      return;
+    }
     final newLayerNumber = _layers.length + 1;
     final layer = CanvasLayer(
-      id: _generateUniqueId(),
+      id: id ?? _generateUniqueId(),
       name: name ?? 'Layer $newLayerNumber',
     );
     _layers.add(layer);
@@ -276,7 +475,11 @@ class LayerController extends FlueraLayerController {
     if (enableDeltaTracking) {
       _deltaTracker.recordLayerAdded(layer);
     }
-    _emitTT(CanvasDeltaType.layerAdded, layer.id);
+    _emitTT(
+      CanvasDeltaType.layerAdded,
+      layer.id,
+      elementData: layer.toJsonMetadataOnly(),
+    );
     _invalidateSceneGraph();
     notifyListeners();
   }

@@ -75,6 +75,130 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
   bool _fuzzy = false;
   bool _visibleAreaOnly = false;
   bool _useRegex = false;
+
+  /// 🪜 Filter panel collapsed by default — keeps the search bar uncluttered.
+  /// User taps the funnel icon to reveal the row of filter chips.
+  bool _showFilters = false;
+
+  /// Count of currently-active filter toggles (for the badge on the funnel
+  /// icon). Excludes "All pages" because it's a scope choice, not a filter.
+  int get _activeFilterCount {
+    int n = 0;
+    if (_searchAllCanvases) n++;
+    if (_caseSensitive) n++;
+    if (_wholeWord) n++;
+    if (_fuzzy) n++;
+    if (_useRegex) n++;
+    if (_visibleAreaOnly) n++;
+    return n;
+  }
+
+  /// 📖 Help sheet — explains every filter in plain Italian so the user
+  /// doesn't need to guess what each chip does.
+  void _showFiltersHelp(BuildContext context, bool isDark) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bg = isDark ? const Color(0xFF1E1B2E) : Colors.white;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: bg,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 24,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 20,
+                        color: Colors.deepPurple.shade300,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Filtri di ricerca',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _FilterHelpRow(
+                    icon: Icons.language_rounded,
+                    title: 'Tutte le pagine',
+                    body: 'Cerca in TUTTI i canvas del tuo gallery, non '
+                        'solo in questo. Quando è spento cerchi solo qui.',
+                    isDark: isDark,
+                  ),
+                  _FilterHelpRow(
+                    label: 'Aa',
+                    title: 'Case sensitive',
+                    body: 'Distingue maiuscole e minuscole. "Roma" non '
+                        'corrisponde a "roma" quando è attivo.',
+                    isDark: isDark,
+                  ),
+                  _FilterHelpRow(
+                    label: 'Word',
+                    title: 'Parola intera',
+                    body: 'Trova solo parole intere. "art" non corrisponde '
+                        'a "carta" o "arte" quando è attivo.',
+                    isDark: isDark,
+                  ),
+                  _FilterHelpRow(
+                    label: 'Fuzzy',
+                    title: 'Ricerca tollerante ai typo',
+                    body: 'Trova parole anche con max 2 errori di battitura. '
+                        'Utile per la grafia veloce o presa di appunti.',
+                    isDark: isDark,
+                  ),
+                  _FilterHelpRow(
+                    label: '.*',
+                    title: 'Regex',
+                    body: 'Per utenti avanzati: usa pattern di espressioni '
+                        'regolari (es. "ca[sr]a" per casa o cara).',
+                    isDark: isDark,
+                  ),
+                  _FilterHelpRow(
+                    icon: Icons.visibility_rounded,
+                    title: 'Solo area visibile',
+                    body: 'Cerca solo nell’area che vedi sullo schermo. '
+                        'Utile per restringere a una zona specifica.',
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Ho capito'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
   List<String> _suggestions = [];
   Timer? _debounce;
   StreamSubscription? _indexSub;
@@ -363,6 +487,19 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
               // ── Search Bar ──
               _buildSearchBar(isDark),
 
+              // ── Filters Panel (collapsible — chips live here now) ──
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                child: _showFilters
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: _buildFiltersPanel(isDark),
+                      )
+                    : const SizedBox.shrink(),
+              ),
+
               // ── Replace Row (Find & Replace) ──
               if (_showReplace && widget.onReplaceText != null) ...[
                 const SizedBox(height: 4),
@@ -416,6 +553,118 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
     );
   }
 
+  /// 🪜 Filters panel — chips that used to live inline in the search bar.
+  /// Collapsed by default; revealed only when the user taps the funnel icon.
+  Widget _buildFiltersPanel(bool isDark) {
+    // 🎨 Solid surface — translucent-white-on-white-canvas was unreadable.
+    // Use the same palette as the search bar so the two pieces look unified.
+    final bg = isDark
+        ? const Color(0xFF2A2535) // dark purple-gray (matches search bar)
+        : const Color(0xFFF5F3F8); // warm lavender-tinted gray
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.10)
+                  : Colors.black.withValues(alpha: 0.06),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black
+                    .withValues(alpha: isDark ? 0.20 : 0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildToggleChip(
+                  label:
+                      _searchAllCanvases ? 'Tutte le pagine' : 'Questa pagina',
+                  icon: _searchAllCanvases
+                      ? Icons.language_rounded
+                      : Icons.description_outlined,
+                  isActive: _searchAllCanvases,
+                  isDark: isDark,
+                  onTap: () {
+                    setState(() => _searchAllCanvases = !_searchAllCanvases);
+                    if (_controller.text.trim().isNotEmpty) _performSearch();
+                  },
+                ),
+                const SizedBox(width: 4),
+                _buildToggleChip(
+                  label: 'Aa',
+                  isActive: _caseSensitive,
+                  isDark: isDark,
+                  tooltip: 'Distingue maiuscole / minuscole',
+                  onTap: () {
+                    setState(() => _caseSensitive = !_caseSensitive);
+                    if (_controller.text.trim().isNotEmpty) _performSearch();
+                  },
+                ),
+                const SizedBox(width: 4),
+                _buildToggleChip(
+                  label: 'Word',
+                  isActive: _wholeWord,
+                  isDark: isDark,
+                  tooltip: 'Solo parole intere',
+                  onTap: () {
+                    setState(() => _wholeWord = !_wholeWord);
+                    if (_controller.text.trim().isNotEmpty) _performSearch();
+                  },
+                ),
+                const SizedBox(width: 4),
+                _buildToggleChip(
+                  label: 'Fuzzy',
+                  isActive: _fuzzy,
+                  isDark: isDark,
+                  tooltip: 'Tollerante ai typo (≤2 errori)',
+                  onTap: () {
+                    setState(() => _fuzzy = !_fuzzy);
+                    if (_controller.text.trim().isNotEmpty) _performSearch();
+                  },
+                ),
+                const SizedBox(width: 4),
+                _buildToggleChip(
+                  label: 'Regex',
+                  isActive: _useRegex,
+                  isDark: isDark,
+                  tooltip: 'Pattern regex (utenti avanzati)',
+                  onTap: () {
+                    setState(() => _useRegex = !_useRegex);
+                    if (_controller.text.trim().isNotEmpty) _performSearch();
+                  },
+                ),
+                if (widget.getViewportRect != null) ...[
+                  const SizedBox(width: 4),
+                  _buildToggleChip(
+                    label: 'Visibile',
+                    icon: Icons.visibility_rounded,
+                    isActive: _visibleAreaOnly,
+                    isDark: isDark,
+                    tooltip: 'Solo l’area che vedi sullo schermo',
+                    onTap: () {
+                      setState(() => _visibleAreaOnly = !_visibleAreaOnly);
+                      if (_controller.text.trim().isNotEmpty) _performSearch();
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ),
+    );
+  }
+
   Widget _buildSearchBar(bool isDark) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
@@ -455,97 +704,6 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                 Icons.search_rounded,
                 size: 20,
                 color: isDark ? Colors.white54 : Colors.black45,
-              ),
-              const SizedBox(width: 6),
-              // 🔍 Toggle chips row — scrollable to fit all toggles
-              Flexible(
-                flex: 0,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildToggleChip(
-                        label: _searchAllCanvases ? 'All pages' : 'This page',
-                        icon: _searchAllCanvases
-                            ? Icons.language_rounded
-                            : Icons.description_outlined,
-                        isActive: _searchAllCanvases,
-                        isDark: isDark,
-                        onTap: () {
-                          setState(() => _searchAllCanvases = !_searchAllCanvases);
-                          if (_controller.text.trim().isNotEmpty) _performSearch();
-                        },
-                      ),
-                      const SizedBox(width: 3),
-                      _buildToggleChip(
-                        label: 'Aa',
-                        isActive: _caseSensitive,
-                        isDark: isDark,
-                        tooltip: _caseSensitive ? 'Case sensitive' : 'Case insensitive',
-                        onTap: () {
-                          setState(() => _caseSensitive = !_caseSensitive);
-                          if (_controller.text.trim().isNotEmpty) _performSearch();
-                        },
-                      ),
-                      const SizedBox(width: 3),
-                      _buildToggleChip(
-                        label: 'Word',
-                        isActive: _wholeWord,
-                        isDark: isDark,
-                        tooltip: _wholeWord ? 'Whole word' : 'Substring match',
-                        onTap: () {
-                          setState(() => _wholeWord = !_wholeWord);
-                          if (_controller.text.trim().isNotEmpty) _performSearch();
-                        },
-                      ),
-                      const SizedBox(width: 3),
-                      _buildToggleChip(
-                        label: 'Fuzzy',
-                        icon: null,
-                        isActive: _fuzzy,
-                        isDark: isDark,
-                        tooltip: _fuzzy
-                            ? 'Fuzzy match (≤2 typos)'
-                            : 'Exact match only',
-                        onTap: () {
-                          setState(() => _fuzzy = !_fuzzy);
-                          if (_controller.text.trim().isNotEmpty) _performSearch();
-                        },
-                      ),
-                      const SizedBox(width: 3),
-                      _buildToggleChip(
-                        label: 'Regex',
-                        icon: null,
-                        isActive: _useRegex,
-                        isDark: isDark,
-                        tooltip: _useRegex
-                            ? 'Regex mode active'
-                            : 'Enable regex patterns',
-                        onTap: () {
-                          setState(() => _useRegex = !_useRegex);
-                          if (_controller.text.trim().isNotEmpty) _performSearch();
-                        },
-                      ),
-                      if (widget.getViewportRect != null) ...[
-                        const SizedBox(width: 3),
-                        _buildToggleChip(
-                          label: 'Visible',
-                          icon: Icons.visibility_rounded,
-                          isActive: _visibleAreaOnly,
-                          isDark: isDark,
-                          tooltip: _visibleAreaOnly
-                              ? 'Visible area only'
-                              : 'Search entire canvas',
-                          onTap: () {
-                            setState(() => _visibleAreaOnly = !_visibleAreaOnly);
-                            if (_controller.text.trim().isNotEmpty) _performSearch();
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
               ),
               const SizedBox(width: 6),
               Expanded(
@@ -619,6 +777,26 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                   isDark: isDark,
                 ),
               ],
+
+              // 🪜 Filters toggle — collapses 5-6 chips behind one funnel icon
+              // with a small badge showing how many filters are currently
+              // active. Keeps the search bar wide and uncluttered.
+              _FiltersIconButton(
+                isActive: _showFilters,
+                activeFilterCount: _activeFilterCount,
+                isDark: isDark,
+                onTap: () =>
+                    setState(() => _showFilters = !_showFilters),
+              ),
+
+              // ℹ️ Info — opens a help sheet that explains every filter in
+              // plain language (Italian).
+              _NavButton(
+                icon: Icons.info_outline_rounded,
+                tooltip: 'Cosa fanno i filtri?',
+                onTap: () => _showFiltersHelp(context, isDark),
+                isDark: isDark,
+              ),
 
               // Replace toggle
               if (widget.onReplaceText != null)
@@ -1082,42 +1260,71 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
   }
 
   Widget _buildEmptyState(bool isDark) {
+    final query = _controller.text.trim();
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-          decoration: BoxDecoration(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF2A2535)
+              : const Color(0xFFF5F3F8),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
             color: isDark
-                ? const Color(0xFF2A2535)
-                : const Color(0xFFF5F3F8),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : Colors.deepPurple.withValues(alpha: 0.10),
+                ? Colors.white.withValues(alpha: 0.18)
+                : Colors.deepPurple.withValues(alpha: 0.18),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black
+                  .withValues(alpha: isDark ? 0.20 : 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                Icons.search_off_rounded,
-                size: 20,
-                color: isDark ? Colors.white24 : Colors.black26,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'No results found',
+          ],
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 22,
+              // High-contrast accent so the icon is clearly visible on
+              // both dark and light themes (was white24/black26 → washed out).
+              color: isDark
+                  ? const Color(0xFFE0DCFF)
+                  : Colors.deepPurple.shade400,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: RichText(
+                text: TextSpan(
                   style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? Colors.white30 : Colors.black38,
+                    fontSize: 13.5,
+                    height: 1.3,
+                    color: isDark
+                        ? const Color(0xFFE0DCFF)
+                        : Colors.black87,
+                    fontWeight: FontWeight.w500,
                   ),
+                  children: [
+                    const TextSpan(text: 'Nessun risultato per '),
+                    TextSpan(
+                      text: '"$query"',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white
+                            : Colors.deepPurple.shade700,
+                      ),
+                    ),
+                  ],
                 ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -1358,16 +1565,18 @@ class _NavButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool isDark;
+  final String? tooltip;
 
   const _NavButton({
     required this.icon,
     required this.onTap,
     required this.isDark,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    final btn = GestureDetector(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
@@ -1375,6 +1584,158 @@ class _NavButton extends StatelessWidget {
           icon,
           size: 22,
           color: isDark ? Colors.white54 : Colors.black45,
+        ),
+      ),
+    );
+    if (tooltip == null) return btn;
+    return Tooltip(message: tooltip!, child: btn);
+  }
+}
+
+/// 📖 Single explanatory row for the filters help sheet. Renders an
+/// icon (or a 2-letter chip) + bold title + plain-language description.
+class _FilterHelpRow extends StatelessWidget {
+  final IconData? icon;
+  final String? label;
+  final String title;
+  final String body;
+  final bool isDark;
+
+  const _FilterHelpRow({
+    this.icon,
+    this.label,
+    required this.title,
+    required this.body,
+    required this.isDark,
+  }) : assert(icon != null || label != null);
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Colors.deepPurple.shade300;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: icon != null
+                ? Icon(icon, size: 18, color: accent)
+                : Text(
+                    label!,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                      color: accent,
+                    ),
+                  ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 🪜 Funnel-icon toggle for the filters panel + small badge with the
+/// number of currently active filters. Replaces the inline 6-chip row to
+/// keep the search bar uncluttered.
+class _FiltersIconButton extends StatelessWidget {
+  final bool isActive;
+  final int activeFilterCount;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _FiltersIconButton({
+    required this.isActive,
+    required this.activeFilterCount,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Colors.deepPurple.shade300;
+    final tint = isActive
+        ? accent
+        : (isDark ? Colors.white54 : Colors.black45);
+    return Tooltip(
+      message: 'Filtri di ricerca'
+          '${activeFilterCount > 0 ? ' ($activeFilterCount attivi)' : ''}',
+      child: GestureDetector(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 8),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(Icons.tune_rounded, size: 22, color: tint),
+              if (activeFilterCount > 0)
+                Positioned(
+                  right: -3,
+                  top: -2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(7),
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFF1E1B2E)
+                            : Colors.white,
+                        width: 1,
+                      ),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 14,
+                      minHeight: 12,
+                    ),
+                    child: Text(
+                      '$activeFilterCount',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

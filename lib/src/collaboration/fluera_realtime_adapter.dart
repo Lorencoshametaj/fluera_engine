@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'realtime_enterprise.dart';
 import 'conflict_resolution.dart';
+import 'scene_graph_crdt.dart';
 
 // =============================================================================
 // 🔴 REAL-TIME COLLABORATION — Backend-Agnostic Adapter + Engine
@@ -100,6 +101,14 @@ enum RealtimeEventType {
   /// 📌 A recording pin was removed from the canvas.
   /// Payload: `{ 'id': '...' }`
   recordingPinRemoved,
+
+  /// 🔄 A CRDT operation produced by the local scene graph or
+  /// [LayerController] mutation pipeline.
+  ///
+  /// Payload is a serialized [CRDTOperation] under the key `op`. This is the
+  /// canonical path for replicating scene-graph state since it carries the
+  /// HLC timestamp + opId required for idempotent merge.
+  crdtOperation,
 }
 
 // ─── Data Classes ────────────────────────────────────────────────────────────
@@ -141,8 +150,13 @@ class CanvasRealtimeEvent {
   });
 
   /// Serialize for network transport.
+  ///
+  /// Note: we intentionally avoid the field name `type` because Supabase
+  /// Realtime Broadcast reserves it for its own envelope (`type: "broadcast"`)
+  /// and silently overwrites whatever the application puts there. Using
+  /// `eventType` instead keeps our enum round-trip safe across the wire.
   Map<String, dynamic> toJson() => {
-    'type': type.name,
+    'eventType': type.name,
     'senderId': senderId,
     if (elementId != null) 'elementId': elementId,
     'payload': payload,
@@ -150,17 +164,48 @@ class CanvasRealtimeEvent {
   };
 
   /// Deserialize from network transport.
+  ///
+  /// Reads `eventType` first (current schema) and falls back to `type`
+  /// for any legacy payload that still uses the old field name.
   factory CanvasRealtimeEvent.fromJson(Map<String, dynamic> json) {
+    final raw = (json['eventType'] ?? json['type']) as String?;
     return CanvasRealtimeEvent(
       type: RealtimeEventType.values.firstWhere(
-        (e) => e.name == json['type'],
+        (e) => e.name == raw,
         orElse: () => RealtimeEventType.canvasSettingsChanged,
       ),
-      senderId: json['senderId'] as String,
+      senderId: json['senderId'] as String? ?? '',
       elementId: json['elementId'] as String?,
       payload: Map<String, dynamic>.from(json['payload'] as Map? ?? {}),
       timestamp: json['timestamp'] as int? ?? 0,
     );
+  }
+
+  /// Wrap a [CRDTOperation] into a transport [CanvasRealtimeEvent].
+  ///
+  /// The op is serialized under `payload['op']`; the [elementId] mirrors
+  /// `op.nodeId` so legacy element-locking infrastructure keeps working.
+  factory CanvasRealtimeEvent.fromCRDTOperation(
+    CRDTOperation op, {
+    required String senderId,
+    int? timestamp,
+  }) {
+    return CanvasRealtimeEvent(
+      type: RealtimeEventType.crdtOperation,
+      senderId: senderId,
+      elementId: op.nodeId.isEmpty ? null : op.nodeId,
+      payload: {'op': op.toJson()},
+      timestamp: timestamp ?? DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  /// If this event wraps a CRDT op, deserialize and return it; otherwise
+  /// `null`.
+  CRDTOperation? toCRDTOperation() {
+    if (type != RealtimeEventType.crdtOperation) return null;
+    final raw = payload['op'];
+    if (raw is! Map) return null;
+    return CRDTOperation.fromJson(Map<String, dynamic>.from(raw));
   }
 }
 
@@ -204,6 +249,13 @@ class CursorPresenceData {
   final double? viewportY;
   final double? viewportScale;
 
+  /// IDs of nodes the remote user currently has selected.
+  ///
+  /// Empty / null means nothing selected. Encoded compactly as `s` on the
+  /// wire and dropped entirely when the list is empty to keep idle cursor
+  /// updates at the same baseline cost.
+  final List<String>? selection;
+
   const CursorPresenceData({
     required this.userId,
     required this.displayName,
@@ -219,10 +271,17 @@ class CursorPresenceData {
     this.viewportX,
     this.viewportY,
     this.viewportScale,
+    this.selection,
   });
 
   /// Compact JSON for network (use short keys to reduce bandwidth).
+  ///
+  /// `userId` is always included: receivers route cursors by it (presence
+  /// dedup, self-filter, follow-mode, sync indicator headcount). Skipping
+  /// it makes presence state ambiguous as soon as `displayName` collides
+  /// (two users with the default `"User"` would merge into one cursor).
   Map<String, dynamic> toJson() => {
+    if (userId.isNotEmpty) 'userId': userId,
     'x': x,
     'y': y,
     'd': isDrawing,
@@ -236,6 +295,7 @@ class CursorPresenceData {
     if (viewportX != null) 'vx': viewportX,
     if (viewportY != null) 'vy': viewportY,
     if (viewportScale != null) 'vs': viewportScale,
+    if (selection != null && selection!.isNotEmpty) 's': selection,
   };
 
   /// Deserialize (compact keys with legacy fallback).
@@ -243,6 +303,17 @@ class CursorPresenceData {
     String userId,
     Map<String, dynamic> json,
   ) {
+    final rawSelection = json['s'] ?? json['selection'];
+    final List<String>? parsedSelection;
+    if (rawSelection is List) {
+      parsedSelection = rawSelection
+          .whereType<Object?>()
+          .map((e) => e?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList(growable: false);
+    } else {
+      parsedSelection = null;
+    }
     return CursorPresenceData(
       userId: userId,
       displayName: (json['n'] ?? json['displayName']) as String? ?? 'User',
@@ -255,6 +326,7 @@ class CursorPresenceData {
       isListening: (json['l'] ?? json['isListening']) as bool? ?? false,
       penType: (json['pt'] ?? json['penType']) as String?,
       penColor: (json['pc'] ?? json['penColor']) as int?,
+      selection: parsedSelection,
       viewportX: (json['vx'] as num?)?.toDouble(),
       viewportY: (json['vy'] as num?)?.toDouble(),
       viewportScale: (json['vs'] as num?)?.toDouble(),
@@ -381,6 +453,15 @@ class FlueraRealtimeEngine {
   /// The canvas screen subscribes to this.
   Stream<CanvasRealtimeEvent> get incomingEvents => _incomingController.stream;
   final _incomingController = StreamController<CanvasRealtimeEvent>.broadcast();
+
+  /// Stream of incoming CRDT operations (deserialized from
+  /// [RealtimeEventType.crdtOperation] events). Self-echoes are NOT filtered
+  /// here: the [CRDTSceneGraph] dedup-by-opId is the canonical guard, and
+  /// deserialization preserves the original peerId so receivers can still
+  /// reason about provenance.
+  Stream<CRDTOperation> get incomingCRDTOperations =>
+      _crdtOpController.stream;
+  final _crdtOpController = StreamController<CRDTOperation>.broadcast();
 
   /// ⭐ CRDT: Vector clock for causal ordering.
   late final VectorClockManager vectorClock;
@@ -543,20 +624,24 @@ class FlueraRealtimeEngine {
   ///
   /// If offline, queues the event for replay on reconnect.
   /// Rate-limited to [_maxTokensPerSecond] events/sec.
-  Future<void> broadcastEvent(CanvasRealtimeEvent event) async {
+  /// Returns `true` when the adapter accepted the broadcast on the wire,
+  /// `false` when it was deferred (offline / rate-limited) or the adapter
+  /// threw. Callers that own a durable outbox MUST keep the op flagged
+  /// unsent on `false` so the next drain or periodic safety net retries it.
+  Future<bool> broadcastEvent(CanvasRealtimeEvent event) async {
     final canvasId = _activeCanvasId;
-    if (canvasId == null) return;
+    if (canvasId == null) return false;
 
     // 📴 Queue if offline
     if (connectionState.value != RealtimeConnectionState.connected) {
       _enqueueOffline(event);
-      return;
+      return false;
     }
 
     // 🚦 Rate limit check
     if (_rateBucketTokens <= 0) {
       _enqueueOffline(event);
-      return;
+      return false;
     }
     _rateBucketTokens--;
 
@@ -570,81 +655,20 @@ class FlueraRealtimeEngine {
 
     try {
       await _adapter.broadcast(canvasId, event);
+      return true;
     } catch (e) {
       _enqueueOffline(event);
+      return false;
     }
   }
 
-  /// Broadcast a completed stroke to all collaborators.
-  void broadcastStroke(Map<String, dynamic> strokeJson) {
-    broadcastEvent(
-      CanvasRealtimeEvent(
-        type: RealtimeEventType.strokeAdded,
-        senderId: _localUserId,
-        elementId: strokeJson['id'] as String?,
-        payload: strokeJson,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ),
-    );
-  }
-
-  /// Broadcast a stroke removal (eraser).
-  void broadcastStrokeRemoved(String strokeId) {
-    broadcastEvent(
-      CanvasRealtimeEvent(
-        type: RealtimeEventType.strokeRemoved,
-        senderId: _localUserId,
-        elementId: strokeId,
-        payload: {'strokeId': strokeId},
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ),
-    );
-  }
-
-  /// Broadcast an image addition or update.
-  void broadcastImageUpdate(
-    Map<String, dynamic> imageJson, {
-    bool isNew = false,
-  }) {
-    broadcastEvent(
-      CanvasRealtimeEvent(
-        type:
-            isNew
-                ? RealtimeEventType.imageAdded
-                : RealtimeEventType.imageUpdated,
-        senderId: _localUserId,
-        elementId: imageJson['id'] as String?,
-        payload: imageJson,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ),
-    );
-  }
-
-  /// Broadcast an image removal to all collaborators.
-  void broadcastImageRemoved(String imageId) {
-    broadcastEvent(
-      CanvasRealtimeEvent(
-        type: RealtimeEventType.imageRemoved,
-        senderId: _localUserId,
-        elementId: imageId,
-        payload: {'id': imageId},
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ),
-    );
-  }
-
-  /// Broadcast a text element change.
-  void broadcastTextChange(Map<String, dynamic> textJson) {
-    broadcastEvent(
-      CanvasRealtimeEvent(
-        type: RealtimeEventType.textChanged,
-        senderId: _localUserId,
-        elementId: textJson['id'] as String?,
-        payload: textJson,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-      ),
-    );
-  }
+  // Stroke / image / text broadcasts are no longer exposed: scene-graph
+  // mutations replicate exclusively through [broadcastCRDTOperation], which
+  // carries the HLC + opId required for idempotent merge. The legacy
+  // strokeAdded / strokeRemoved / imageAdded / imageUpdated / imageRemoved /
+  // textChanged / textRemoved / layerChanged / canvasSettingsChanged event
+  // types remain in [RealtimeEventType] only so older peers can still parse
+  // wire payloads; the local engine never produces them.
 
   /// 📄 Broadcast that a PDF upload is starting — remote devices show placeholder.
   void broadcastPdfLoading({
@@ -904,6 +928,23 @@ class FlueraRealtimeEngine {
     );
   }
 
+  /// 🔄 Broadcast a [CRDTOperation] produced by the local mutation pipeline.
+  ///
+  /// Wraps the op in a [CanvasRealtimeEvent] so it travels through the same
+  /// transport pipeline as legacy events (rate-limit, offline queue,
+  /// reconnect replay). Receivers see it on [incomingCRDTOperations].
+  ///
+  /// Returns `true` once the underlying adapter accepted the message, `false`
+  /// when the engine is offline / rate-limited / the adapter threw — those
+  /// cases are also persisted to the in-memory offline queue but the caller
+  /// is expected to retain the op in its own durable outbox until a `true`
+  /// completion guarantees the wire send.
+  Future<bool> broadcastCRDTOperation(CRDTOperation op) {
+    return broadcastEvent(
+      CanvasRealtimeEvent.fromCRDTOperation(op, senderId: _localUserId),
+    );
+  }
+
   // ─── Live Stroke Streaming ──────────────────────────────────────────
 
   /// 🎨 Stream partial stroke points to collaborators during active drawing.
@@ -958,7 +999,31 @@ class FlueraRealtimeEngine {
     if (connectionState.value != RealtimeConnectionState.connected) return;
 
     _pendingCursorBroadcast = null;
-    _adapter.broadcastCursor(canvasId, cursor).catchError((_) {});
+    // Stamp the local identity onto every cursor broadcast. Callers (the
+    // canvas screen) construct CursorPresenceData with `userId: ''` because
+    // they don't have the engine's identity in scope; the resulting JSON
+    // would otherwise omit `userId` (toJson skips empty strings) and the
+    // remote SyncStatusIndicator would never increment its peer count.
+    final stamped = cursor.userId.isNotEmpty
+        ? cursor
+        : CursorPresenceData(
+            userId: _localUserId,
+            displayName: cursor.displayName,
+            cursorColor: cursor.cursorColor,
+            x: cursor.x,
+            y: cursor.y,
+            isDrawing: cursor.isDrawing,
+            isTyping: cursor.isTyping,
+            isRecording: cursor.isRecording,
+            isListening: cursor.isListening,
+            penType: cursor.penType,
+            penColor: cursor.penColor,
+            viewportX: cursor.viewportX,
+            viewportY: cursor.viewportY,
+            viewportScale: cursor.viewportScale,
+            selection: cursor.selection,
+          );
+    _adapter.broadcastCursor(canvasId, stamped).catchError((_) {});
   }
 
   // ─── Element Locking ────────────────────────────────────────────────
@@ -1059,6 +1124,14 @@ class FlueraRealtimeEngine {
     // 🔀 Track applied remote event
     if (event.elementId != null) {
       elementStateTracker.markRemoteApplied(event.elementId!, event);
+    }
+
+    // 🔄 CRDT operations are routed to a dedicated stream so consumers don't
+    // need to peek at the legacy CanvasRealtimeEvent payload.
+    if (event.type == RealtimeEventType.crdtOperation) {
+      final op = event.toCRDTOperation();
+      if (op != null) _crdtOpController.add(op);
+      return; // Do not double-dispatch on the legacy stream.
     }
 
     // Handle lock/unlock events internally
@@ -1274,6 +1347,7 @@ class FlueraRealtimeEngine {
     _eventSubscription?.cancel();
     _cursorSubscription?.cancel();
     _incomingController.close();
+    _crdtOpController.close();
     connectionState.dispose();
     remoteCursors.dispose();
     lockedElements.dispose();

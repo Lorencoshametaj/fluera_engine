@@ -277,7 +277,7 @@ class FogOfWarController extends ChangeNotifier {
       fogLevel: fogLevel,
       startedAt: DateTime.now(),
       totalNodes: clustersInZone.length,
-    );
+    )..zoneRect = zone; // Sprint 6: needed for reverse-return rehydration.
 
     // Initialize entries for all clusters.
     for (final cluster in clustersInZone) {
@@ -291,6 +291,49 @@ class FogOfWarController extends ChangeNotifier {
       'fog_level': fogLevel.name,
       'total_nodes': clustersInZone.length,
       'zone_id': zoneId,
+    });
+    notifyListeners();
+  }
+
+  /// Sprint 6 — Reverse return Exam→Fog.
+  ///
+  /// Re-enter the controller in [FogPhase.masteryMap] using a
+  /// previously-completed [savedSession] (read from disk by
+  /// [FogSessionResumeStorage]). Skips the active + revealing phases —
+  /// the heatmap is rendered immediately so the student returns to the
+  /// exact spatial context they had right before tapping
+  /// "Interrogami sui blind spot".
+  ///
+  /// Called by `_handleExamCompleteFromFog` in `_fog_of_war.dart`.
+  void activateInMasteryMode({
+    required Rect zone,
+    required List<ContentCluster> clustersInZone,
+    required String canvasId,
+    required FogOfWarSession savedSession,
+  }) {
+    if (isActive) return;
+    _selectedZone = zone;
+    _originalClusters = List.unmodifiable(clustersInZone);
+    _fogLevel = savedSession.fogLevel;
+    _torchCenter = zone.center;
+    _hintsUsed = 0;
+    _pendingEvalClusterId = null;
+    _session = savedSession..zoneRect = zone;
+    // Treat every node that has a non-hidden status as already revealed —
+    // those silhouettes are already painted in the heatmap, no fog hole
+    // to open. Hidden nodes stay fogged (blind spots).
+    _revealedNodeIds
+      ..clear()
+      ..addAll(savedSession.nodeEntries.entries
+          .where((e) => e.value.status != FogNodeStatus.hidden)
+          .map((e) => e.key));
+    _revealProgress = 1.0; // fully cleared
+    _phase = FogPhase.masteryMap;
+    _telemetry.logEvent('step_10_fog_of_war_resumed_post_exam', properties: {
+      'recalled': savedSession.recalledCount,
+      'forgotten': savedSession.forgottenCount,
+      'blind_spots': savedSession.blindSpotCount,
+      'total_nodes': savedSession.totalNodes,
     });
     notifyListeners();
   }

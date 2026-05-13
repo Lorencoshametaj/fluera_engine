@@ -4,10 +4,65 @@ part of '../../fluera_canvas_screen.dart';
 /// remote viewports / presence.
 /// Extracted from _FlueraCanvasScreenState._buildImpl
 extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
-  /// Remote overlays: viewport, presence (shared canvas only).
-  /// Phase 2: will be re-implemented with new collaboration system.
+  /// Remote overlays: presence cursors + a top-right HUD with the connected
+  /// users strip and a sync status pill.
+  ///
+  /// Cursors are mounted inside the canvas Stack so positions follow the
+  /// camera (pan + zoom) — the overlay reads the current `canvasController`
+  /// offset / scale on each rebuild, and an inner [AnimatedBuilder] keys
+  /// repaints to the controller's notifications rather than the whole tree.
+  ///
+  /// The HUD strip sits in screen-space (no canvas transform) and is
+  /// rendered as a separate `Positioned` so it can be tapped without
+  /// stealing pointer events from the canvas.
   List<Widget> _buildRemoteOverlays(BuildContext context) {
-    return const [];
+    final engine = _realtimeEngine;
+    if (engine == null) return const [];
+
+    return [
+      Positioned.fill(
+        child: AnimatedBuilder(
+          animation: _canvasController,
+          builder: (context, _) {
+            return CanvasPresenceOverlay(
+              cursors: engine.remoteCursors,
+              canvasOffset: _canvasController.offset,
+              canvasScale: _canvasController.scale,
+              followingUserId:
+                  CollaborationExtension._followingUserIds[hashCode],
+              onFollowUser: _startFollowing,
+              nodeBoundsLookup: _lookupSelectionBounds,
+            );
+          },
+        ),
+      ),
+      // Sync HUD sits below the top toolwheel/brush strip so the "Live"
+      // badge and connected-users avatars don't sit on top of the pen
+      // icons when the toolbar is active. SafeArea keeps it below the
+      // status bar / notch on mobile.
+      Positioned(
+        top: 64,
+        right: 12,
+        child: SafeArea(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ConnectedUsersStrip(
+                engine: engine,
+                followingUserId:
+                    CollaborationExtension._followingUserIds[hashCode],
+                onTapUser: _startFollowing,
+              ),
+              const SizedBox(width: 8),
+              SyncStatusIndicator(
+                engine: engine,
+                pendingOps: _crdtPendingOpsNotifier,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
   }
 
   /// Standard overlays: lasso, selection, pen tool.
@@ -22,7 +77,18 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
             child: ValueListenableBuilder<int>(
               valueListenable: _lassoTool.lassoPathNotifier,
               builder: (context, _, __) {
-                if (_lassoTool.lassoPath.isEmpty) {
+                // 🎯 Mode-aware emptiness check: the freehand lasso uses
+                // `lassoPath`, but marquee / ellipse use `_marqueeStart` and
+                // `_marqueeEnd` (exposed via `marqueeRect` / `ellipseRect`).
+                // Without this, the rect / oval never appears live during
+                // drag — only on completion.
+                final mode = _lassoTool.selectionMode;
+                final hasShape = mode == SelectionMode.marquee
+                    ? _lassoTool.marqueeRect != null
+                    : mode == SelectionMode.ellipse
+                        ? _lassoTool.ellipseRect != null
+                        : _lassoTool.lassoPath.isNotEmpty;
+                if (!hasShape) {
                   return const SizedBox.shrink();
                 }
                 return CustomPaint(
@@ -59,7 +125,7 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                 final radius = 20.0 + t * 60.0;
                 final opacity = (1.0 - t) * 0.5;
                 return CustomPaint(
-                  painter: _LassoRipplePainter(
+                  painter: LassoRipplePainter(
                     center: center,
                     radius: radius,
                     opacity: opacity,
@@ -2401,13 +2467,15 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   break;
                 case RadialMenuItem.brush:
                   if (result.brushItem != null) {
-                    final penType =
-                        ProPenType.values[result.brushItem!.index.clamp(
-                          0,
-                          ProPenType.values.length - 1,
-                        )];
-                    _toolController.setPenType(penType);
-                    _toolController.resetToDrawingMode();
+                    // 🎯 Apply the named preset (Everyday Pen, Fine Pen, etc.)
+                    // rather than just the raw pen type, so brush settings
+                    // (pressure curves, opacity, nib angle…) match the toolbar.
+                    final targetId = result.brushItem!.presetId;
+                    final preset = _wheelModeBrushPresets.firstWhere(
+                      (p) => p.id == targetId,
+                      orElse: () => _wheelModeBrushPresets.first,
+                    );
+                    _applyBrushPreset(preset);
                     HapticFeedback.selectionClick();
                     setState(() {});
                   } else if (result.selectedColor != null) {
@@ -2510,8 +2578,21 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                           const SizedBox(height: 20),
                           ListTile(
                             leading: const Icon(Icons.auto_awesome_rounded, size: 22, color: Color(0xFF6C63FF)),
-                            title: const Text('Chiedi all\u2019IA', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                            subtitle: Text('Prompt libero o analisi selezione', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                            // Renamed from "Chiedi all'IA" to "Comandi Atlas":
+                            // this entry opens the one-shot prompt that
+                            // produces canvas ACTIONS (crea_nodo / sposta_nodo
+                            // / raggruppa), not a conversation. The "ask"
+                            // wording was creating an expectation of chat that
+                            // the surface doesn't fulfil. The conversational
+                            // entry below is now the single "Chiedi a Fluera AI".
+                            title: Text(
+                              FlueraLocalizations.of(context)?.atlasMenu_commandsTitle ?? 'Atlas commands',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              FlueraLocalizations.of(context)?.atlasMenu_commandsSubtitle ?? 'Free-form prompt or actions on selected nodes',
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+                            ),
                             onTap: () {
                               Navigator.pop(context);
                               setState(() { _showAtlasPrompt = true; _atlasIsLoading = false; _atlasResponseText = null; });
@@ -2527,10 +2608,37 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                 _startExamSession();
                               },
                             ),
+                          if (V1FeatureGate.examSession &&
+                              widget.config.onShowExamDashboard != null)
+                            ListTile(
+                              leading: const Text('📊', style: TextStyle(fontSize: 22)),
+                              title: Text(
+                                  FlueraLocalizations.of(context)!.exam_dashboardMenu,
+                                  style: const TextStyle(
+                                      color: Color(0xFF69F0AE), fontWeight: FontWeight.w600)),
+                              subtitle: Text('Andamento + argomenti da rinforzare',
+                                  style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.45),
+                                      fontSize: 12)),
+                              onTap: () {
+                                Navigator.pop(context);
+                                widget.config.onShowExamDashboard!();
+                              },
+                            ),
                           ListTile(
                             leading: const Text('💬', style: TextStyle(fontSize: 22)),
-                            title: const Text('Chat with Notes', style: TextStyle(color: Color(0xFF69F0AE), fontWeight: FontWeight.w600)),
-                            subtitle: Text('Chatta con Atlas sui tuoi appunti', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                            // Renamed from "Chat with Notes" (English-only,
+                            // confusing) to "Chiedi a Fluera AI": this is now
+                            // the canonical conversational surface. The chat
+                            // is Socratic-by-design (see chat_session_controller).
+                            title: Text(
+                              FlueraLocalizations.of(context)?.atlasMenu_chatTitle ?? 'Ask Fluera AI',
+                              style: const TextStyle(color: Color(0xFF69F0AE), fontWeight: FontWeight.w600),
+                            ),
+                            subtitle: Text(
+                              FlueraLocalizations.of(context)?.atlasMenu_chatSubtitle ?? 'Talk about your notes',
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12),
+                            ),
                             onTap: () {
                               Navigator.pop(context);
                               _startChatWithNotes();
@@ -2593,7 +2701,16 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                   _atlasLoadingPhase = null;
                 });
               },
-              onSubmit: (prompt) => _invokeAtlas(prompt),
+              onSubmit: (prompt, {bool forceCluster = false}) {
+                // Chip-driven prompts that target the canvas as a whole
+                // (Organizza/Layout/Collega/Colora) pin cluster mode so
+                // the AI never receives the per-stroke node payload. See
+                // F8 for the dual-mode rationale.
+                _invokeAtlas(
+                  prompt,
+                  forcedMode: forceCluster ? AtlasMode.cluster : null,
+                );
+              },
             ),
           ),
         ),
@@ -3485,8 +3602,11 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
 
   @override
   Widget build(BuildContext context) {
+    // Opaque background — Impeller-Vulkan does not honor the parent ClipRRect
+    // bounds for BackdropFilter, so a blurred toolbar washes the entire canvas
+    // grey on Android. Solid fill avoids the bug (same pattern as _build_ui.dart).
     final bg =
-        widget.isDark ? const Color(0xDD1A1A2E) : const Color(0xDDFFFFFF);
+        widget.isDark ? const Color(0xFF1A1A2E) : const Color(0xFFFFFFFF);
     final accent = const Color(0xFF4A90D9);
 
     return Column(
@@ -3495,9 +3615,7 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
         // Mode buttons row
         ClipRRect(
           borderRadius: BorderRadius.circular(14),
-          child: BackdropFilter(
-            filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
+          child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               decoration: BoxDecoration(
                 color: bg,
@@ -3549,11 +3667,13 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                             : Colors.black.withValues(alpha: 0.1),
                   ),
 
-                  // Feather toggle
+                  // Soft-edge toggle (renamed from "Feather" — controls how
+                  // soft / blurred the glow halo around selected items is).
                   _buildIconButton(
                     icon: Icons.blur_on_rounded,
                     tooltip:
-                        'Feather: ${widget.featherRadius.toStringAsFixed(0)}',
+                        'Sfumatura bordo selezione: '
+                        '${widget.featherRadius.toStringAsFixed(0)}',
                     isActive: _showFeather,
                     color: Colors.purple,
                     onTap: () {
@@ -3564,7 +3684,6 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                 ],
               ),
             ),
-          ),
         ),
 
         // Feather slider (expandable)
@@ -3577,13 +3696,11 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                     padding: const EdgeInsets.only(top: 6),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: BackdropFilter(
-                        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                        child: Container(
-                          width: 220,
+                      child: Container(
+                          width: 240,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
+                            horizontal: 12,
+                            vertical: 8,
                           ),
                           decoration: BoxDecoration(
                             color: bg,
@@ -3592,51 +3709,85 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                               color: Colors.purple.withValues(alpha: 0.3),
                             ),
                           ),
-                          child: Row(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(
-                                Icons.blur_on,
-                                size: 14,
-                                color: Colors.purple.shade300,
-                              ),
-                              Expanded(
-                                child: SliderTheme(
-                                  data: SliderThemeData(
-                                    trackHeight: 3,
-                                    thumbShape: const RoundSliderThumbShape(
-                                      enabledThumbRadius: 6,
+                              // 📝 Descriptive header — explains what the
+                              // slider does in plain language.
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.blur_on,
+                                    size: 14,
+                                    color: Colors.purple.shade300,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Sfumatura bordo selezione',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: widget.isDark
+                                            ? Colors.white
+                                            : Colors.black87,
+                                      ),
                                     ),
-                                    activeTrackColor: Colors.purple.shade400,
-                                    inactiveTrackColor: Colors.purple
-                                        .withValues(alpha: 0.2),
-                                    thumbColor: Colors.purple.shade300,
                                   ),
-                                  child: Slider(
-                                    min: 0,
-                                    max: 20,
-                                    value: widget.featherRadius.clamp(0, 20),
-                                    onChanged: widget.onFeatherChanged,
+                                  SizedBox(
+                                    width: 28,
+                                    child: Text(
+                                      widget.featherRadius.toStringAsFixed(0),
+                                      textAlign: TextAlign.end,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontFamily: 'monospace',
+                                        color: widget.isDark
+                                            ? Colors.white70
+                                            : Colors.black54,
+                                      ),
+                                    ),
                                   ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              // Sub-label — clarifies that it's purely visual.
+                              Text(
+                                'Quanto è morbido il bagliore attorno agli '
+                                'elementi selezionati. 0 = nitido, 20 = soffice.',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: widget.isDark
+                                      ? Colors.white54
+                                      : Colors.black45,
+                                  height: 1.25,
                                 ),
                               ),
-                              SizedBox(
-                                width: 28,
-                                child: Text(
-                                  widget.featherRadius.toStringAsFixed(0),
-                                  textAlign: TextAlign.end,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontFamily: 'monospace',
-                                    color:
-                                        widget.isDark
-                                            ? Colors.white54
-                                            : Colors.black45,
+                              const SizedBox(height: 2),
+                              SliderTheme(
+                                data: SliderThemeData(
+                                  trackHeight: 3,
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 6,
                                   ),
+                                  activeTrackColor: Colors.purple.shade400,
+                                  inactiveTrackColor:
+                                      Colors.purple.withValues(alpha: 0.2),
+                                  thumbColor: Colors.purple.shade300,
+                                  overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 14,
+                                  ),
+                                ),
+                                child: Slider(
+                                  min: 0,
+                                  max: 20,
+                                  value: widget.featherRadius.clamp(0, 20),
+                                  onChanged: widget.onFeatherChanged,
                                 ),
                               ),
                             ],
                           ),
-                        ),
                       ),
                     ),
                   )
@@ -3654,6 +3805,10 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
   }) {
     final isActive = widget.currentMode == mode;
     return GestureDetector(
+      // 🎯 Inactive buttons have a transparent background → without
+      // `opaque` the hit-test falls through the AnimatedContainer to the
+      // canvas underneath and the tap is "eaten" by pan/zoom.
+      behavior: HitTestBehavior.opaque,
       onTap: () => widget.onModeChanged(mode),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
@@ -3694,6 +3849,9 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
     return Tooltip(
       message: tooltip,
       child: GestureDetector(
+        // Same fix as _buildModeButton: ensure tap is captured even when
+        // the container background is transparent.
+        behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
@@ -3709,54 +3867,7 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
   }
 }
 
-/// Paints an expanding, fading ripple circle at a given center.
-/// Used for the gestural lasso closing animation.
-class _LassoRipplePainter extends CustomPainter {
-  final Offset center;
-  final double radius;
-  final double opacity;
-
-  _LassoRipplePainter({
-    required this.center,
-    required this.radius,
-    required this.opacity,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Outer ring glow
-    canvas.drawCircle(
-      center,
-      radius,
-      Paint()
-        ..color = const Color(0xFF818CF8).withValues(alpha: opacity * 0.3)
-        ..strokeWidth = 3.0
-        ..style = PaintingStyle.stroke
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.15),
-    );
-    // Inner ring
-    canvas.drawCircle(
-      center,
-      radius * 0.6,
-      Paint()
-        ..color = const Color(0xFF22D3EE).withValues(alpha: opacity * 0.2)
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.1),
-    );
-    // Core flash
-    canvas.drawCircle(
-      center,
-      radius * 0.2,
-      Paint()
-        ..color = Colors.white.withValues(alpha: opacity * 0.4)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, radius * 0.1),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_LassoRipplePainter oldDelegate) =>
-      center != oldDelegate.center ||
-      radius != oldDelegate.radius ||
-      opacity != oldDelegate.opacity;
-}
+// LassoRipplePainter moved to
+// `lib/src/tools/lasso/lasso_ripple_painter.dart` so `FlueraCanvasView`
+// can reuse it. Imported into the screen library via
+// `fluera_canvas_screen.dart`.

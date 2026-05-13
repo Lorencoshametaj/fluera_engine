@@ -47,7 +47,7 @@ extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
                   Positioned.fill(
                     child: IgnorePointer(
                       child: CustomPaint(
-                        painter: _EraserTrailPainter(
+                        painter: EraserTrailPainter(
                           trail: _eraserTrail,
                           canvasController: _canvasController,
                           now: now,
@@ -62,7 +62,7 @@ extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
                   Positioned.fill(
                     child: IgnorePointer(
                       child: CustomPaint(
-                        painter: _EraserParticlePainter(
+                        painter: EraserParticlePainter(
                           particles: _eraserParticles,
                           canvasController: _canvasController,
                           isDark: isDark,
@@ -76,7 +76,7 @@ extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
                   Positioned.fill(
                     child: IgnorePointer(
                       child: CustomPaint(
-                        painter: _EraserLassoPathPainter(
+                        painter: EraserLassoPathPainter(
                           points: _eraserLassoPoints,
                           canvasController: _canvasController,
                           isDark: isDark,
@@ -91,7 +91,7 @@ extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
                   Positioned.fill(
                     child: IgnorePointer(
                       child: CustomPaint(
-                        painter: _EraserProtectedRegionPainter(
+                        painter: EraserProtectedRegionPainter(
                           regions: _eraserTool.protectedRegions,
                           canvasController: _canvasController,
                           isDark: isDark,
@@ -138,7 +138,7 @@ extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
                   Positioned.fill(
                     child: IgnorePointer(
                       child: CustomPaint(
-                        painter: _EraserGhostPreviewPainter(
+                        painter: EraserGhostPreviewPainter(
                           previewStrokeIds: _eraserPreviewIds,
                           layerController: _layerController,
                           canvasController: _canvasController,
@@ -155,7 +155,7 @@ extension FlueraCanvasEraserUI on _FlueraCanvasScreenState {
                   Positioned.fill(
                     child: IgnorePointer(
                       child: CustomPaint(
-                        painter: _MagneticSnapIndicatorPainter(
+                        painter: MagneticSnapIndicatorPainter(
                           cursorPos: _canvasController.canvasToScreen(
                             _eraserCursorPosition!,
                           ),

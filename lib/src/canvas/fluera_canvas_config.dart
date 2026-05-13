@@ -57,6 +57,18 @@ class FlueraCanvasConfig {
   /// Get current user ID (for per-user storage paths)
   final Future<String?> Function() getUserId;
 
+  /// Get a stable, device-local identifier for the local peer.
+  ///
+  /// Used as the CRDT `peerId` so that two browser tabs / two devices for the
+  /// same user resolve concurrent edits independently (the HLC tie-breaker
+  /// keys on this id). The value MUST survive app restart — generate a UUID
+  /// once and persist it (e.g. `SharedPreferences`).
+  ///
+  /// When null (default), the engine falls back to [getUserId], which keeps
+  /// existing single-device deployments working unchanged. Multi-device
+  /// collab installs should override this.
+  final Future<String?> Function()? getDeviceId;
+
   // ===========================================================================
   // SUBSCRIPTION TIER
   // ===========================================================================
@@ -285,9 +297,86 @@ class FlueraCanvasConfig {
   /// [TelemetryRecorder.noop].
   final TelemetryRecorder? telemetry;
 
+  // ===========================================================================
+  // AI CONSENT (GDPR Art. 6 — explicit consent before LLM call)
+  // ===========================================================================
+
+  /// Synchronous check: does the user already grant consent to send their
+  /// notes to a third-party LLM (Gemini)?
+  ///
+  /// The engine calls this BEFORE any prompt-injection of student content
+  /// (Exam Session question generation, Atlas chat, Socratic mode).
+  ///
+  /// Return `true` if consent is on file, `false` if it should be requested.
+  /// The host typically wires this to a [GdprConsentManager.isGranted]
+  /// check on `ConsentCategory.aiProcessing`.
+  ///
+  /// Leave null in tests / demos / when no consent system is wired — the
+  /// engine assumes consent is implicit (legacy behaviour).
+  final bool Function()? hasAiProcessingConsent;
+  /// Async prompt: ask the user to grant consent for AI processing.
+  ///
+  /// Called by the engine when [hasAiProcessingConsent] returns `false`.
+  /// The host shows a dialog explaining what will be sent (and what not),
+  /// then resolves to `true` if the user accepted.
+  ///
+  /// Returning `false` (or null) cancels the AI-driven action gracefully.
+  /// Leave null in tests — the engine then falls back to a built-in
+  /// disclosure dialog inside the calling overlay.
+  final Future<bool> Function(BuildContext context)? requestAiProcessingConsent;
+
+  // ===========================================================================
+  // CHAT — Cost transparency
+  // ===========================================================================
+
+  /// 🧠 Show the read-cost badge under "Chiedi a Fluera AI" responses.
+  ///
+  /// When `true` (default), each non-streaming Atlas message displays a small
+  /// passive badge — once the message has been visible for a few seconds —
+  /// with the read duration and an estimated 7-day retention from passive
+  /// reading. Tapping the badge offers to route the topic into a Ghost Map
+  /// gap analysis.
+  ///
+  /// This is the UX expression of teoria_cognitiva_apprendimento.md §4
+  /// (Hypercorrection) and §11 (Illusion of Fluency). The estimate is a
+  /// conservative heuristic, not a clinical predictor.
+  ///
+  /// Host apps can wire this to a user preference (e.g. via
+  /// `shared_preferences`); the engine defaults to on.
+  final bool showChatReadCostBadge;
+
+  // ===========================================================================
+  // EXAM PREFERENCES (persistent UI defaults)
+  // ===========================================================================
+
+  /// Optional bridge to the host app's persistent exam preferences (question
+  /// count, input mode, hypercorrection toggle, reduce motion). Leave null
+  /// in tests / demos — the engine falls back to legacy hardcoded defaults
+  /// (7 questions, handwriting mode on, hypercorrection on, reduce motion off).
+  ///
+  /// The host typically wires this to its own `ExamPreferences` singleton.
+  final ExamPreferencesBridge? examPreferences;
+
+  /// Optional handler that opens the host app's exam analytics dashboard
+  /// (cross-session weakness analysis, score trends, Bloom distribution).
+  /// When non-null, the engine surfaces a "Dashboard" entry in the Atlas
+  /// menu. Leave null on platforms without a dashboard implementation.
+  final VoidCallback? onShowExamDashboard;
+
+  /// Optional cloud sync sink for the per-question strokes JSON. Called
+  /// from the engine after each local save when this hook is non-null.
+  /// Hosts wire this only for tiers that include cloud sync (Plus / Pro);
+  /// Free users get `null`, so the engine never even attempts an upload.
+  /// Receives the `<sessionId>__<questionId>__answer|elaboration` key +
+  /// the JSON string. Implementation is host-side (typically Supabase
+  /// Storage with per-user RLS bucket). Failures are silent — local
+  /// persistence is the source of truth.
+  final Future<void> Function(String key, String json)? onUploadExamStrokes;
+
   const FlueraCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
+    this.getDeviceId,
     this.subscriptionTier = FlueraSubscriptionTier.free,
     this.storageAdapter,
     this.onSaveCanvas,
@@ -317,6 +406,12 @@ class FlueraCanvasConfig {
     this.onUpgradePrompt,
     this.aiUsageTracker,
     this.telemetry,
+    this.hasAiProcessingConsent,
+    this.requestAiProcessingConsent,
+    this.examPreferences,
+    this.onShowExamDashboard,
+    this.onUploadExamStrokes,
+    this.showChatReadCostBadge = true,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';
@@ -369,6 +464,38 @@ class FlueraCanvasConfig {
   }
 }
 
+/// Host-side bridge to persistent exam preferences. Implemented by the
+/// host app (Fluera) — the engine reads via the synchronous getters and
+/// writes via the async setters. Defaults match legacy hardcoded behaviour
+/// so an absent bridge is indistinguishable from V1.
+abstract class ExamPreferencesBridge {
+  /// Number of questions per exam (clamped to 3..15).
+  int get questionCount;
+
+  /// Whether handwriting is the default input mode for new exam sessions.
+  bool get handwritingMode;
+
+  /// Whether the hypercorrection shock UI is enabled (red flash + shake on
+  /// overconfident-wrong answers). When false, the cognitive logic still
+  /// runs but the visual cue is suppressed.
+  bool get hypercorrectionEnabled;
+
+  /// User-opted reduce-motion preference. ORed with the OS-level
+  /// `MediaQuery.disableAnimations` at the call site.
+  bool get reduceMotion;
+
+  /// When true, the exam UI uses a deuteranopia-safe palette
+  /// (blue=correct, orange=incorrect, yellow=partial) plus always-visible
+  /// icons (✓ ≈ ✗) so colour is never the sole signal.
+  bool get colorBlindSafePalette;
+
+  /// Persist a new question count.
+  Future<void> setQuestionCount(int value);
+
+  /// Persist the latest handwriting/keyboard toggle.
+  Future<void> setHandwritingMode(bool value);
+}
+
 // =============================================================================
 // SUBSCRIPTION TIER ENUM
 // =============================================================================
@@ -382,7 +509,24 @@ enum FlueraSubscriptionTier {
 
   bool get canUseCloudSync => this == plus || this == pro;
   bool get canUseAIFilters => this == pro;
-  bool get canCollaborate => this == plus || this == pro;
+  // Real-time multi-user collab is Pro-tier (Team/Edu pricing layer on top of Pro).
+  // Plus is single-user multi-device cloud sync only.
+  bool get canCollaborate => this == pro;
+
+  /// Whether this tier may export the given file format.
+  ///
+  /// Free → PNG only (raster snapshot). Plus / Pro → every supported format
+  /// (JPEG, WebP, SVG, PDF, .fluera). The host's export dialog should call
+  /// this before showing each format option so Free users see a clear
+  /// "Plus richiesto" badge instead of hitting the paywall after picking.
+  ///
+  /// [format] is matched case-insensitively against the canonical short
+  /// names: 'png', 'jpeg', 'webp', 'svg', 'pdf', 'fluera'.
+  bool canUseExportFormat(String format) {
+    final f = format.trim().toLowerCase();
+    if (f == 'png') return true; // PNG is universal
+    return this == plus || this == pro;
+  }
 }
 
 // =============================================================================
@@ -508,6 +652,20 @@ abstract class FlueraPermissionProvider {
   Future<bool> canEdit(String canvasId);
   Future<bool> canView(String canvasId);
   String get currentUserRole;
+
+  /// Optional reactive stream of edit-permission changes for [canvasId].
+  ///
+  /// Emits `true` when the local user gains edit access, `false` when it
+  /// is revoked. Implementations that wire this (e.g. via Postgres
+  /// realtime on a `canvas_shares` table) let the canvas screen react to
+  /// runtime revocation — without it, an editor whose access was removed
+  /// while the canvas is open keeps broadcasting until they close and
+  /// reopen the canvas.
+  ///
+  /// Returning `null` (the default) preserves the legacy
+  /// "check-once-at-open" behavior; the canvas screen treats it as
+  /// "no live updates available".
+  Stream<bool>? canEditChanges(String canvasId) => null;
 }
 
 /// Abstract presence provider

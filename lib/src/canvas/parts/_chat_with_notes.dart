@@ -23,7 +23,38 @@ extension ChatWithNotesWiring on _FlueraCanvasScreenState {
     final provider = EngineScope.current.atlasProvider;
     if (!provider.isInitialized) await provider.initialize();
 
-    final chatController = ChatSessionController(provider: provider);
+    // OverlayEntry is captured by the router callbacks so the chips can
+    // close the chat before opening the destination feature. Declared
+    // `late` so the closures can capture it before assignment.
+    late OverlayEntry entry;
+    late ChatSessionController chatController;
+
+    final router = ChatActionRouter(
+      onTriggerGhostMap: () {
+        entry.remove();
+        chatController.dispose();
+        unawaited(triggerGhostMap());
+      },
+      onTriggerExam: () {
+        entry.remove();
+        chatController.dispose();
+        unawaited(_startExamSession());
+      },
+      onTriggerSocraticOnCluster: (clusterId) {
+        entry.remove();
+        chatController.dispose();
+        // Socratic V2 currently scopes to selected/all clusters at activation
+        // time; preselected clusterId is passed for future scoped activation.
+        showSocraticSetup();
+      },
+      onTriggerSourceCompare: (clusterId) {
+        entry.remove();
+        chatController.dispose();
+        _openFirstPdfForChatCompare();
+      },
+    );
+
+    chatController = ChatSessionController(provider: provider, router: router);
 
     // Populate context from canvas state
     chatController.clusterTexts = Map.from(_clusterTextCache);
@@ -52,9 +83,10 @@ extension ChatWithNotesWiring on _FlueraCanvasScreenState {
     // Mount overlay
     if (!mounted) return;
     final overlay = Overlay.of(context);
-    late OverlayEntry entry;
     entry = OverlayEntry(builder: (_) => ChatOverlay(
       controller: chatController,
+      showReadCostBadge: widget.config.showChatReadCostBadge,
+      telemetry: widget.config.telemetry ?? TelemetryRecorder.noop,
       onClose: () {
         entry.remove();
         chatController.dispose();
@@ -64,6 +96,34 @@ extension ChatWithNotesWiring on _FlueraCanvasScreenState {
       },
     ));
     overlay.insert(entry);
+  }
+
+  /// 🔍 Open the first available PDF preview card on the canvas for
+  /// source-comparison from the chat. Surfaces a snackbar if none.
+  ///
+  /// Coerent with feedback_pdf_is_source_not_ai_input.md: the PDF is the
+  /// student's source of verification, not an input fed back into the AI.
+  void _openFirstPdfForChatCompare() {
+    PdfPreviewCardNode? firstCard;
+    for (final layer in _layerController.layers) {
+      final cards = layer.node.childrenOfType<PdfPreviewCardNode>();
+      if (cards.isNotEmpty) {
+        firstCard = cards.first;
+        break;
+      }
+    }
+
+    if (firstCard == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Nessuna fonte PDF collegata a questo canvas.'),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Color(0xFF1A1A2E),
+        ));
+      }
+      return;
+    }
+    _enterPdfReader(firstCard);
   }
 
   /// Get cluster IDs that overlap with selected nodes.

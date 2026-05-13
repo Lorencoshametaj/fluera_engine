@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../core/models/shape_type.dart';
 import '../core/models/digital_text_element.dart';
 import '../core/models/image_element.dart';
+import '../feature_flags/cluster_id_v2_flag.dart';
 import './content_cluster.dart';
 
 /// 🔍 CLUSTER DETECTOR — Groups elements into [ContentCluster]s.
@@ -32,16 +34,28 @@ class ClusterDetector {
   /// Default: 60px — covers the gap between 'i' dot and body.
   final double spatialThreshold;
 
-  /// Maximum spatial gap for the post-clustering overlap merge pass.
-  /// Clusters whose bounding boxes are within this distance get merged
-  /// regardless of temporal gap. Prevents word splits from slow writing.
-  /// Default: 80px — merges words on the same line into one concept cluster.
+  /// Maximum HORIZONTAL gap for the post-clustering overlap merge pass.
+  /// Two clusters that share vertical overlap (i.e. on the same line) get
+  /// merged when their X-gap is within this distance — fixes word splits
+  /// from slow writing (e.g. "Lo" + pause + "renzo" → "Lorenzo").
+  /// Default: 80px — wider than character spacing, narrower than column gaps.
   final double overlapMergeThreshold;
+
+  /// Maximum VERTICAL gap for the same merge pass on stacked clusters.
+  /// Much stricter than the horizontal gap because students write paragraphs
+  /// in vertical stacks — merging them aggressively destroys per-paragraph
+  /// clusters (the most common case for lecture notes).
+  ///
+  /// Default: 10px — covers an "i" dot floating just above its body (4-8px)
+  /// and accent marks landing slightly above the letter, but rejects normal
+  /// inter-line spacing (16-20px) in a multi-paragraph layout.
+  final double verticalStackMergeThreshold;
 
   const ClusterDetector({
     this.temporalThresholdMs = 2500,
     this.spatialThreshold = 60.0,
     this.overlapMergeThreshold = 80.0,
+    this.verticalStackMergeThreshold = 10.0,
   });
 
   /// Build [ContentCluster]s from all elements on a layer.
@@ -192,9 +206,13 @@ class ClusterDetector {
     if (strokes.isEmpty) return [];
     if (strokes.length == 1) {
       final bounds = strokes[0].bounds;
+      final t = strokes[0].createdAt.millisecondsSinceEpoch;
+      final id = ClusterIdV2Flag.enabled
+          ? 'cluster_v2_${_contentHashV2(bounds, 1, t)}'
+          : 'cluster_stroke_${strokes[0].id}';
       return [
         ContentCluster(
-          id: 'cluster_stroke_${strokes[0].id}',
+          id: id,
           strokeIds: [strokes[0].id],
           bounds: bounds,
           centroid: bounds.center,
@@ -280,61 +298,196 @@ class ClusterDetector {
       );
     }).toList();
 
+    // Compute median timestamp per cluster — used as a temporal guard in the
+    // spatial merge pass below. Two paragraphs written 30s apart but with
+    // overlapping x-bounds and only ~20px vertical gap should NOT be merged
+    // even if they pass the spatial predicate.
+    final strokeTimeById = <String, int>{
+      for (final s in sorted) s.id: s.createdAt.millisecondsSinceEpoch,
+    };
+    int medianTime(List<String> strokeIds) {
+      if (strokeIds.isEmpty) return 0;
+      final times = strokeIds
+          .map((id) => strokeTimeById[id] ?? 0)
+          .toList()
+        ..sort();
+      return times[times.length ~/ 2];
+    }
+    var clusterTimes = clusters.map((c) => medianTime(c.strokeIds)).toList();
+
     // === SPATIAL OVERLAP MERGE PASS ===
-    // Merge clusters whose bounding boxes overlap or are very close,
-    // regardless of temporal gap. Fixes split words from slow writing
-    // (e.g., "Lo" + pause + "renzo" → "Lorenzo").
+    // Merge clusters whose bounding boxes overlap or are very close.
+    // Direction-aware: a wide horizontal threshold catches split words on
+    // the same line ("Lo" + pause + "renzo" → "Lorenzo"); a tight vertical
+    // threshold preserves separate paragraphs (lecture notes, lists).
+    //
+    // The old single-threshold pass (80px in any direction) merged whole
+    // multi-paragraph blobs into one cluster — fixed 2026-05-07.
+    //
+    // Temporal guard (added 2026-05-07, refined later same day): clusters
+    // whose median timestamps differ by more than `temporalThresholdMs * 4`
+    // (10s) are treated as distinct concepts when they are STACKED
+    // (paragraphs above/below). Same-line merges are NOT guarded — students
+    // often pause >10s between consecutive words on the same baseline, and
+    // we want "LEGGI DI NEWTON PRIMA LEGGE" to be one cluster regardless
+    // of writing pace.
+    final temporalGuardMs = temporalThresholdMs * 4;
     bool merged = true;
     while (merged) {
       merged = false;
       for (int i = 0; i < clusters.length; i++) {
         for (int j = i + 1; j < clusters.length; j++) {
-          final dist = _boundingBoxDistance(
-            clusters[i].bounds, clusters[j].bounds,
-          );
-          if (dist <= overlapMergeThreshold) {
-            // Merge j into i
-            final mergedIds = [
-              ...clusters[i].strokeIds,
-              ...clusters[j].strokeIds,
-            ];
-            final mergedBounds = clusters[i].bounds.expandToInclude(
-              clusters[j].bounds,
-            );
-            clusters[i] = ContentCluster(
-              id: '',
-              strokeIds: mergedIds,
-              bounds: mergedBounds,
-              centroid: mergedBounds.center,
-            );
-            clusters.removeAt(j);
-            merged = true;
-            break; // Restart inner loop
+          final ba = clusters[i].bounds;
+          final bb = clusters[j].bounds;
+          if (!_shouldMerge(ba, bb)) {
+            continue;
           }
+          // Temporal guard — only on stacked (vertical) merges. Same-line
+          // word sequences may have multi-second pauses between tokens.
+          final dxOnly = _axisDistance(ba.left, ba.right, bb.left, bb.right);
+          final dyOnly = _axisDistance(ba.top, ba.bottom, bb.top, bb.bottom);
+          final isStackedMerge = dyOnly > 0 && dxOnly <= 0;
+          if (isStackedMerge) {
+            final dt = (clusterTimes[i] - clusterTimes[j]).abs();
+            if (dt > temporalGuardMs) continue;
+          }
+          // Merge j into i
+          final mergedIds = [
+            ...clusters[i].strokeIds,
+            ...clusters[j].strokeIds,
+          ];
+          final mergedBounds = clusters[i].bounds.expandToInclude(
+            clusters[j].bounds,
+          );
+          clusters[i] = ContentCluster(
+            id: '',
+            strokeIds: mergedIds,
+            bounds: mergedBounds,
+            centroid: mergedBounds.center,
+          );
+          clusters.removeAt(j);
+          // Recompute the merged cluster's median time from its new strokeIds.
+          clusterTimes[i] = medianTime(mergedIds);
+          clusterTimes.removeAt(j);
+          merged = true;
+          break; // Restart inner loop
         }
         if (merged) break; // Restart outer loop
       }
     }
 
-    // Assign deterministic IDs after all merges
-    return clusters.map((c) {
-      final sortedIds = List<String>.from(c.strokeIds)..sort();
-      final deterministicId = 'cluster_stroke_${sortedIds.join("_").hashCode.toRadixString(36)}';
+    // Assign deterministic IDs after all merges.
+    // V2 (default): content-stable hash — bounds quantized to 24px + count
+    // + temporal centroid (5min granularity). Adding/removing 1-2 strokes
+    // within the same footprint preserves the ID, so downstream caches
+    // (`aiTitles`, `ClusterConceptIndex`) survive minor edits.
+    // V1 (legacy): hash of sorted strokeIds — invalidated on every edit.
+    final useV2 = ClusterIdV2Flag.enabled;
+    return List<ContentCluster>.generate(clusters.length, (i) {
+      final c = clusters[i];
+      final String id;
+      if (useV2) {
+        id = 'cluster_v2_${_contentHashV2(c.bounds, c.strokeIds.length, clusterTimes[i])}';
+      } else {
+        final sortedIds = List<String>.from(c.strokeIds)..sort();
+        id = 'cluster_stroke_${sortedIds.join("_").hashCode.toRadixString(36)}';
+      }
       return ContentCluster(
-        id: deterministicId,
+        id: id,
         strokeIds: c.strokeIds,
         bounds: c.bounds,
         centroid: c.centroid,
       );
-    }).toList();
+    });
+  }
+
+  /// Content-stable hash for V2 cluster IDs.
+  ///
+  /// Inputs are quantized so canvas edits / drags don't change the hash:
+  /// - Bounds left/top: 240px grid (page-level positioning). A user
+  ///   drag of ≤240px preserves the ID. Coarse enough that a cluster
+  ///   moved across a section break gets a new ID (intentional).
+  /// - Bounds width/height: 24px grid (size-stable to minor stroke
+  ///   additions). Adding a small accent / dot won't bump the size
+  ///   class enough to change the hash.
+  /// - Stroke count: bumps every add/remove. Acceptable — most edits
+  ///   add several strokes (one word ≈ 5-12 strokes), so the count
+  ///   change usually correlates with a content change.
+  /// - Temporal centroid: 5-minute buckets. Two clusters drawn in the
+  ///   same session collapse to one bucket; a cluster reactivated days
+  ///   later gets a new bucket and a new id (intentional — different
+  ///   study session = different concept iteration).
+  ///
+  /// Position granularity rationale (2026-05-10 device tuning):
+  ///   • 24px (old) was too tight — reflow physics shifted clusters
+  ///     by ~30-50px, invalidating cache. Cache hit rate ~30%.
+  ///   • 240px (new) = ~page-level positioning. Cache hit rate ~95%
+  ///     in expected edits. Distinct page regions still distinct.
+  ///
+  /// Returns a base-36 string. Collisions are statistically unlikely on
+  /// a single canvas (≈few hundred clusters max); collisions across
+  /// canvases are fine because [ClusterConceptIndex] is canvas-scoped.
+  String _contentHashV2(Rect bounds, int strokeCount, int temporalCentroidMs) {
+    int q24(double v) => (v / 24).round();
+    int q240(double v) => (v / 240).round();
+    final qLeft = q240(bounds.left);
+    final qTop = q240(bounds.top);
+    final qW = q24(bounds.width);
+    final qH = q24(bounds.height);
+    final qT = (temporalCentroidMs / 300000).round(); // 5 min buckets
+    // Mix the components — XOR alone collides too easily on aligned grids.
+    int h = 0x811c9dc5; // FNV-1a offset basis
+    for (final v in [qLeft, qTop, qW, qH, strokeCount, qT]) {
+      h = (h ^ v) & 0xFFFFFFFF;
+      h = (h * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h.toRadixString(36);
   }
 
   // ---------------------------------------------------------------------------
   // Private: Distance and bounds helpers
   // ---------------------------------------------------------------------------
 
-  /// Minimum distance between two bounding boxes.
+  /// Direction-aware merge predicate for the post-clustering overlap pass.
+  ///
+  /// Returns `true` if cluster bounds [a] and [b] should be merged into a
+  /// single concept cluster:
+  ///
+  /// - Same line (vertical overlap, horizontal gap): merge when the
+  ///   horizontal gap is within [overlapMergeThreshold]. Catches split
+  ///   words on a single baseline.
+  /// - Stacked (horizontal overlap, vertical gap): merge only when the
+  ///   vertical gap is within [verticalStackMergeThreshold]. Preserves
+  ///   separate paragraphs / list items in lecture notes.
+  /// - Fully overlapping: always merge (a stroke nested inside another
+  ///   cluster's bounds, e.g. an "i" dot landing on top of its body).
+  /// - Diagonal (gaps on both axes): never merge — diagonal proximity
+  ///   between two distinct clusters almost never means "same concept".
+  bool _shouldMerge(Rect a, Rect b) {
+    final dx = _axisDistance(a.left, a.right, b.left, b.right);
+    final dy = _axisDistance(a.top, a.bottom, b.top, b.bottom);
+
+    // Fully overlapping or touching on both axes.
+    if (dx <= 0 && dy <= 0) return true;
+
+    // Same line — vertical overlap, only horizontal gap matters.
+    if (dy <= 0) return dx <= overlapMergeThreshold;
+
+    // Stacked — horizontal overlap, only vertical gap matters.
+    if (dx <= 0) return dy <= verticalStackMergeThreshold;
+
+    // Diagonal — both axes have gaps. Don't merge.
+    return false;
+  }
+
+  /// Minimum distance (in pixels) between two bounding boxes.
   /// Returns 0 if they overlap or touch.
+  ///
+  /// Bug fix 2026-05-07: the diagonal branch used to return the squared
+  /// distance (`dx*dx + dy*dy`), so call sites comparing against a pixel
+  /// threshold (e.g. `spatialThreshold = 60`) effectively required
+  /// `gap < sqrt(60) ≈ 7.7px` for diagonal pairs. Diagonal stroke pairs
+  /// were never being merged. Now returns the real Euclidean distance.
   double _boundingBoxDistance(Rect a, Rect b) {
     final dx = _axisDistance(a.left, a.right, b.left, b.right);
     final dy = _axisDistance(a.top, a.bottom, b.top, b.bottom);
@@ -343,8 +496,8 @@ class ClusterDetector {
     if (dx <= 0) return dy; // Overlapping on X, gap on Y
     if (dy <= 0) return dx; // Overlapping on Y, gap on X
 
-    // Diagonal distance (corner to corner)
-    return (dx * dx + dy * dy).toDouble();
+    // Diagonal: real Euclidean distance between the closest corners.
+    return math.sqrt(dx * dx + dy * dy);
   }
 
   /// Gap between two 1D intervals [aMin, aMax] and [bMin, bMax].

@@ -631,7 +631,7 @@ class _StubLayerController extends FlueraLayerController {
   SceneGraph get sceneGraph => throw UnimplementedError();
 
   @override
-  void addLayer({String? name}) {}
+  void addLayer({String? name, String? id}) {}
   @override
   void removeLayer(String id) {}
   @override

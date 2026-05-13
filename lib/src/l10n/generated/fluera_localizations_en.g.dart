@@ -536,6 +536,24 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get proCanvas_colorLabel => 'Color';
 
   @override
+  String get pasteWarning_title => 'You\'re pasting text';
+
+  @override
+  String pasteWarning_body(Object count) {
+    return '$count characters pasted. Rewriting them by hand activates the Generation Effect: you encode 10× more deeply than reading prewritten text.';
+  }
+
+  @override
+  String get pasteWarning_citation =>
+      'Slamecka & Graf (1978) · Generation Effect';
+
+  @override
+  String get pasteWarning_rewrite => 'Rewrite by hand';
+
+  @override
+  String get pasteWarning_pasteAnyway => 'Paste anyway';
+
+  @override
   String get proCanvas_canvasMode => 'Canvas Mode';
 
   @override
@@ -711,7 +729,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_conceptToDeepen => 'Concept to deepen';
 
   @override
-  String get ghostMap_whatIsMissing => 'What\'s missing here?';
+  String get ghostMap_whatIsMissing => 'Which fragment fits here?';
 
   @override
   String get ghostMap_typeText => 'Type text';
@@ -724,7 +742,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_writeMissingConcept =>
-      'Write the concept you think is missing...';
+      'Write the fragment you think fits here...';
 
   @override
   String get ghostMap_drawHereHint => 'Draw here with your finger or pen ✍️';
@@ -759,7 +777,8 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_correctAttempt => 'Great! You were close!';
 
   @override
-  String get ghostMap_incorrectAttempt => 'Here\'s what was missing';
+  String get ghostMap_incorrectAttempt =>
+      'Here\'s the fragment that completes the picture';
 
   @override
   String get ghostMap_selfEvalQuestion => 'Was your answer correct?';
@@ -797,29 +816,29 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMap_wellDone => 'Well done!';
 
   @override
-  String get ghostMap_weakPoint => 'Weak point detected';
+  String get ghostMap_weakPoint => 'Fragment to consolidate';
 
   @override
   String ghostMap_progressExplored(int revealed, int total) {
-    return '$revealed/$total gaps explored';
+    return '$revealed/$total fragments explored';
   }
 
   @override
-  String get ghostMap_closeGhostMap => 'Close gap map';
+  String get ghostMap_closeGhostMap => 'Close concept map';
 
   @override
-  String get ghostMap_showMoreGaps => 'Show more gaps';
+  String get ghostMap_showMoreGaps => 'Show more fragments';
 
   @override
   String get ghostMap_ocrFailed => 'Handwriting recognition failed';
 
   @override
   String get ghostMap_hypercorrectionExplanation =>
-      '⚡ You were very confident but got it wrong in the quiz. This \"cognitive shock\" makes the correction 3× more effective! Try writing the correct concept.';
+      '⚡ You were very confident on a fragment that needs recontextualizing. This \"cognitive shock\" makes the integration 3× more effective! Try writing how the concept fits.';
 
   @override
   String get ghostMap_writeAtLeastTwoGroups =>
-      'Write at least 2 note groups for the gap map.';
+      'Write at least 2 note groups for the concept map.';
 
   @override
   String get ghostMap_trySocraticFirst => 'Try questioning your notes first!';
@@ -876,7 +895,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_emptyResultError =>
-      'Not enough content found for the gap map.';
+      'Not enough content found for the concept map.';
 
   @override
   String get ghostMap_edgeCaseNearlyPerfect =>
@@ -888,7 +907,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String ghostMap_activationGapsFound(Object count) {
-    return '$count gaps found';
+    return '$count fragments to discover';
   }
 
   @override
@@ -928,12 +947,12 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String ghostMap_summaryMissing(Object count) {
-    return '❓ $count missing';
+    return '❓ $count to discover';
   }
 
   @override
   String ghostMap_summaryGrowth(Object percent) {
-    return '📈 $percent% gaps filled';
+    return '📈 $percent% fragments integrated';
   }
 
   @override
@@ -943,7 +962,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String ghostMap_activationHeader(Object details) {
-    return '🗺️ Gap map active — $details';
+    return '🗺️ Concept map active — $details';
   }
 
   @override
@@ -953,6 +972,280 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMap_yourAttempt => '✍️ Your attempt';
+
+  @override
+  String get flueraMethodInfo_title => 'The Fluera Method';
+
+  @override
+  String get flueraMethodInfo_heroTitle => 'Cognitive Loop';
+
+  @override
+  String get flueraMethodInfo_heroBody =>
+      '4 phases, 12 steps, one science: turning notes into learning that lasts.';
+
+  @override
+  String get flueraMethodInfo_whyItWorks =>
+      'Every step is a cognitive mechanism proven in the lab.';
+
+  @override
+  String get flueraMethodInfo_phasesTitle => 'The 4 phases of the Loop';
+
+  @override
+  String get flueraMethodInfo_scienceTitle => 'The science behind Fluera';
+
+  @override
+  String get flueraMethodInfo_phase1Title => 'CAPTURE';
+
+  @override
+  String get flueraMethodInfo_phase1Subtitle =>
+      'Turn lectures into active traces';
+
+  @override
+  String get flueraMethodInfo_phase2Title => 'GENERATE';
+
+  @override
+  String get flueraMethodInfo_phase2Subtitle =>
+      'Force your mind to reconstruct';
+
+  @override
+  String get flueraMethodInfo_phase3Title => 'CONSOLIDATE';
+
+  @override
+  String get flueraMethodInfo_phase3Subtitle => 'Let time cement memory';
+
+  @override
+  String get flueraMethodInfo_phase4Title => 'TRANSFER';
+
+  @override
+  String get flueraMethodInfo_phase4Subtitle =>
+      'Connect and apply beyond context';
+
+  @override
+  String get flueraMethodInfo_tapToExpand => 'Tap for steps';
+
+  @override
+  String get flueraMethodInfo_step1Title => 'Handwritten capture';
+
+  @override
+  String get flueraMethodInfo_step1Body =>
+      'Write on the canvas during the lecture. The pen activates motor and spatial channels the keyboard cannot reach.';
+
+  @override
+  String get flueraMethodInfo_step1Citation => 'Mueller & Oppenheimer, 2014';
+
+  @override
+  String get flueraMethodInfo_step2Title => 'Blind reconstruction';
+
+  @override
+  String get flueraMethodInfo_step2Body =>
+      'Within 2 hours reopen the canvas in an empty zone. Rewrite without looking at your notes. Gaps are valuable information.';
+
+  @override
+  String get flueraMethodInfo_step2Citation =>
+      'Slamecka & Graf, 1978 — Generation Effect';
+
+  @override
+  String get flueraMethodInfo_step3Title => 'Socratic interrogation';
+
+  @override
+  String get flueraMethodInfo_step3Body =>
+      'Set your confidence before answering. The AI asks questions, never gives answers. The most powerful metacognitive exercise.';
+
+  @override
+  String get flueraMethodInfo_step3Citation =>
+      'Roediger & Karpicke, 2006 — Test Effect';
+
+  @override
+  String get flueraMethodInfo_step4Title => 'Centaur Comparison';
+
+  @override
+  String get flueraMethodInfo_step4Body =>
+      'Discover which fragments to integrate. Errors made with high confidence imprint 3 times more deeply.';
+
+  @override
+  String get flueraMethodInfo_step4Citation =>
+      'Butterfield & Metcalfe, 2001 — Hypercorrection';
+
+  @override
+  String get flueraMethodInfo_step5Title => 'Sleep (7-8 hours)';
+
+  @override
+  String get flueraMethodInfo_step5Body =>
+      'Consolidation happens while you sleep. Without deep sleep, Steps 1-4 vanish in a few days.';
+
+  @override
+  String get flueraMethodInfo_step5Citation =>
+      'Walker, 2017 — Sleep & Memory Consolidation';
+
+  @override
+  String get flueraMethodInfo_step6Title => 'First return at 24h';
+
+  @override
+  String get flueraMethodInfo_step6Body =>
+      'Fluera blurs nodes proportionally to your confidence. An audio cue from the professor appears as a hint.';
+
+  @override
+  String get flueraMethodInfo_step6Citation =>
+      'Ebbinghaus, 1885 — Forgetting Curve';
+
+  @override
+  String get flueraMethodInfo_step7Title => 'Solidale Learning';
+
+  @override
+  String get flueraMethodInfo_step7Body =>
+      'Teaching a peer is the fastest way to discover what you don\'t really know. Canvas visits, recall duels.';
+
+  @override
+  String get flueraMethodInfo_step7Citation =>
+      'Chase et al., 2009 — Protégé Effect';
+
+  @override
+  String get flueraMethodInfo_step8Title =>
+      'Adaptive review (3, 7, 14, 30+ days)';
+
+  @override
+  String get flueraMethodInfo_step8Body =>
+      'Increasing intervals calibrated by FSRS-5. Subjects interleaved, not blocked: interleaving trains pattern recognition.';
+
+  @override
+  String get flueraMethodInfo_step8Citation =>
+      'Rohrer & Taylor, 2007 — Interleaving';
+
+  @override
+  String get flueraMethodInfo_step9Title => 'Bridges across subjects';
+
+  @override
+  String get flueraMethodInfo_step9Body =>
+      'Maximum zoom out. You draw the connections between different canvas zones. This is where knowledge applies to new contexts.';
+
+  @override
+  String get flueraMethodInfo_step9Citation =>
+      'Perkins & Salomon, 1992 — Far Transfer';
+
+  @override
+  String get flueraMethodInfo_step10Title => 'Exam simulation';
+
+  @override
+  String get flueraMethodInfo_step10Body =>
+      'Fog of War mode: rebuild an entire zone blind. The test that truly predicts how you\'ll perform.';
+
+  @override
+  String get flueraMethodInfo_step10Citation =>
+      'Bjork, 1994 — Desirable Difficulties';
+
+  @override
+  String get flueraMethodInfo_step11Title => 'The exam';
+
+  @override
+  String get flueraMethodInfo_step11Body =>
+      'The canvas is already in your head.';
+
+  @override
+  String get flueraMethodInfo_step11Citation => '(external validation)';
+
+  @override
+  String get flueraMethodInfo_step12Title => 'Stays forever';
+
+  @override
+  String get flueraMethodInfo_step12Body =>
+      'The canvas doesn\'t close at the end of the course. It grows with you, lecture after lecture, year after year. Temporal replay to relive how it grew.';
+
+  @override
+  String get flueraMethodInfo_step12Citation =>
+      'Clark & Chalmers, 1998 — Extended Cognition';
+
+  @override
+  String get flueraMethodInfo_proBadge => 'Pro';
+
+  @override
+  String get flueraMethodInfo_v15Badge => 'Soon';
+
+  @override
+  String get flueraMethodInfo_scienceFooter =>
+      'Based on 50+ years of research in cognitive psychology and learning neuroscience.';
+
+  @override
+  String get flueraMethodInfo_learnMoreCta => 'Discover Fluera';
+
+  @override
+  String get flueraMethodInfo_offlineError =>
+      'Couldn\'t open browser. Visit fluera.dev';
+
+  @override
+  String get flueraMethodInfo_settingsTile => 'The Fluera Method';
+
+  @override
+  String get flueraMethodInfo_settingsSubtitle =>
+      'How it works: 4 phases, 12 steps, the science';
+
+  @override
+  String get flueraMethodInfo_demoTitle => 'Try it: the Centaur Comparison';
+
+  @override
+  String get flueraMethodInfo_demoIntro =>
+      'Set your confidence, then reveal the answer. Feel the Hypercorrection Effect in 10 seconds.';
+
+  @override
+  String get flueraMethodInfo_demoQuestion =>
+      'What happens in the brain during REM sleep vs NREM sleep?';
+
+  @override
+  String get flueraMethodInfo_demoAnswer =>
+      'During REM sleep, neural activity is wake-like: vivid dreams and emotional consolidation. During NREM (especially SWS), the hippocampus "replays" episodic memories to the cortex for declarative consolidation. Both types are essential.';
+
+  @override
+  String get flueraMethodInfo_demoCitation => 'Walker, 2017 — Why We Sleep';
+
+  @override
+  String get flueraMethodInfo_demoConfidence1 => 'No idea';
+
+  @override
+  String get flueraMethodInfo_demoConfidence2 => 'Unsure';
+
+  @override
+  String get flueraMethodInfo_demoConfidence3 => 'I think I know';
+
+  @override
+  String get flueraMethodInfo_demoConfidence4 => 'I\'m certain';
+
+  @override
+  String get flueraMethodInfo_demoFeedbackLow =>
+      '👍 Honest. The Centaur will compare your guess against fragments to integrate.';
+
+  @override
+  String get flueraMethodInfo_demoFeedbackMid =>
+      '⚡ Hypercorrection zone active. If you were wrong, you\'ll remember this 3× better.';
+
+  @override
+  String get flueraMethodInfo_demoFeedbackHigh =>
+      '🎯 High confidence. If you were wrong, you just triggered maximum Hypercorrection Effect.';
+
+  @override
+  String get flueraMethodInfo_demoCtaReveal => 'Reveal answer';
+
+  @override
+  String get flueraMethodInfo_demoCtaTryAgain => 'Try again';
+
+  @override
+  String get flueraMethodInfo_teaseStepTitle => 'How Fluera works';
+
+  @override
+  String get flueraMethodInfo_teaseStepBody =>
+      '4 phases, 12 steps, lasting science. Turn notes into permanent learning.';
+
+  @override
+  String get flueraMethodInfo_teaseStepCta => 'Go to canvas';
+
+  @override
+  String get flueraMethodInfo_teaseStepSecondary => 'Discover the method';
+
+  @override
+  String get flueraMethodInfo_coachmark =>
+      'Here\'s your method. Tap to explore the 12 steps.';
+
+  @override
+  String get flueraMethodInfo_proBadgeTooltip =>
+      'Solidale Learning is Pro. Go to Settings → Account to upgrade.';
 
   @override
   String get recall_modeFree => 'Free mode';
@@ -980,7 +1273,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   }
 
   @override
-  String get recall_noGaps => 'No gaps.';
+  String get recall_noGaps => 'Fully consolidated.';
 
   @override
   String get recall_viewComparison => 'Comparison';
@@ -1229,7 +1522,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   }
 
   @override
-  String get socratic_feedbackKnownGapTitle => 'Known gap';
+  String get socratic_feedbackKnownGapTitle => 'Known fragment';
 
   @override
   String get socratic_feedbackKnownGapMsg =>
@@ -1257,7 +1550,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get socratic_summaryCorrect => 'Correct';
 
   @override
-  String get socratic_summaryWrong => 'Wrong';
+  String get socratic_summaryWrong => 'To review';
 
   @override
   String get socratic_summaryHypercorrections => 'Hypercorrections';
@@ -1276,7 +1569,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get socratic_insightGaps =>
-      'There are several gaps — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.';
+      'There are several fragments to integrate — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.';
 
   @override
   String get socratic_insightBalanced =>
@@ -1287,7 +1580,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'You\'ve used your 3 sessions this week. With Pro, AI is always ready when you are. €3.33/month.';
 
   @override
-  String get socratic_typeLacuna => 'Gap';
+  String get socratic_typeLacuna => 'Bridge fragment';
 
   @override
   String get socratic_typeChallenge => 'Challenge';
@@ -1560,14 +1853,14 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get socraticInfo_howItWorks => 'How it works';
 
   @override
-  String get socraticInfo_typeLacunaTitle => 'Gap';
+  String get socraticInfo_typeLacunaTitle => 'Bridge fragment';
 
   @override
   String get socraticInfo_typeLacunaSubtitle => 'Recall 1-2';
 
   @override
   String get socraticInfo_typeLacunaBody =>
-      'Creates a \"cognitive gap\" you feel the need to fill. Asks what CONNECTS two concepts or what\'s MISSING.';
+      'Creates a \"cognitive tension\" you feel the need to resolve. Asks what CONNECTS two concepts or which BRIDGE FRAGMENT fits between them.';
 
   @override
   String get socraticInfo_typeLacunaPrinciple =>
@@ -1716,7 +2009,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get socraticInfo_fsrsCorrectEffect => 'Interval increases';
 
   @override
-  String get socraticInfo_fsrsWrong => 'Wrong';
+  String get socraticInfo_fsrsWrong => 'To review';
 
   @override
   String get socraticInfo_fsrsWrongEffect => 'Interval decreases';
@@ -1752,10 +2045,11 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'You knew more than you thought!';
 
   @override
-  String get socraticInfo_matrixGap => 'Didn\'t know + Low conf.';
+  String get socraticInfo_matrixGap => 'To integrate + Low conf.';
 
   @override
-  String get socraticInfo_matrixGapMsg => 'Gap identified — review will help.';
+  String get socraticInfo_matrixGapMsg =>
+      'Fragment to integrate — review will help.';
 
   @override
   String get socraticInfo_matrixHyper => 'Didn\'t know + High conf.';
@@ -1792,17 +2086,17 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'High-confidence errors (⚡ hypercorrection) produce the most LASTING corrections.';
 
   @override
-  String get ghostMapInfo_title => 'Gap map';
+  String get ghostMapInfo_title => 'Concept map';
 
   @override
-  String get ghostMapInfo_a11yLabel => 'Gap map informational screen';
+  String get ghostMapInfo_a11yLabel => 'Concept map informational screen';
 
   @override
   String get ghostMapInfo_heroTitle => 'The Centaur Comparison';
 
   @override
   String get ghostMapInfo_heroDescription =>
-      'Fluera generates a \"ghost\" concept map based on your notes and overlays it on the canvas. You can compare what you wrote with what the AI thinks is missing, discovering gaps and confirming mastery.';
+      'Fluera generates a \"ghost\" concept map based on your notes and overlays it on the canvas. You can compare what you wrote with what the AI thinks should be integrated, discovering fragments to connect and confirming mastery.';
 
   @override
   String get ghostMapInfo_heroPrinciple =>
@@ -1868,7 +2162,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_flowAttemptDesc =>
-      'Tap a node and try to write the missing concept';
+      'Tap a node and try to write the fragment to integrate';
 
   @override
   String get ghostMapInfo_flowCompare => 'Comparison';
@@ -1886,14 +2180,14 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_attemptIntro =>
-      'When you tap a missing node (❓), a window opens where you can:';
+      'When you tap a node to discover (❓), a window opens where you can:';
 
   @override
   String get ghostMapInfo_attemptType => 'Type';
 
   @override
   String get ghostMapInfo_attemptTypeDesc =>
-      'Write the concept you think is missing';
+      'Write the fragment you think fits here';
 
   @override
   String get ghostMapInfo_attemptDraw => 'Draw';
@@ -1919,7 +2213,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_hypercorrectionDesc =>
-      'When you are very confident about something but wrong, the surprise focuses attention on the error and deeply imprints it in long-term memory.';
+      'When you are very confident about something but the fragment needs recontextualizing, the surprise focuses attention on the reconfiguration and deeply imprints it in long-term memory.';
 
   @override
   String get ghostMapInfo_hypercorrectionCitation =>
@@ -1931,14 +2225,14 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_hypercorrectionVisual =>
-      'The gap map marks these nodes with ⚡ and a wavy red border.';
+      'The concept map marks these nodes with ⚡ and a wavy red border.';
 
   @override
   String get ghostMapInfo_zpdTitle => 'ZPD — Vygotsky (1978)';
 
   @override
   String get ghostMapInfo_zpdDesc =>
-      'Some concepts might be TOO advanced for your current level. The gap map identifies them as \"below ZPD\" and shows them in grey — not because they aren\'t important, but because there are foundational concepts to consolidate first.';
+      'Some concepts might be TOO advanced for your current level. The concept map identifies them as \"below ZPD\" and shows them in grey — not because they aren\'t important, but because there are foundational concepts to consolidate first.';
 
   @override
   String get ghostMapInfo_zpdComfort => 'Comfort Zone';
@@ -1966,18 +2260,18 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'A floating bar at the bottom lets you navigate between nodes:';
 
   @override
-  String get ghostMapInfo_navMissing => '🔴 Missing';
+  String get ghostMapInfo_navMissing => '🔴 To discover';
 
   @override
   String get ghostMapInfo_navMissingDesc =>
-      'Concepts completely missing — highest priority';
+      'Fragments not yet integrated into the map — highest priority';
 
   @override
-  String get ghostMapInfo_navWeak => '🟡 Weak/Wrong';
+  String get ghostMapInfo_navWeak => '🟡 To consolidate';
 
   @override
   String get ghostMapInfo_navWeakDesc =>
-      'Concepts present but imprecise or incorrectly connected';
+      'Concepts present but imprecise or connections to recontextualize';
 
   @override
   String get ghostMapInfo_navArrows => '⬅ ➡ Navigation';
@@ -1996,7 +2290,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMapInfo_fsrsCorrectEffect => 'Interval lengthens';
 
   @override
-  String get ghostMapInfo_fsrsWrong => 'Wrong attempt';
+  String get ghostMapInfo_fsrsWrong => 'Attempt to review';
 
   @override
   String get ghostMapInfo_fsrsWrongEffect => 'Interval shortens';
@@ -2030,7 +2324,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_growthIntro =>
-      'When closing the gap map, you see a summary with:';
+      'When closing the concept map, you see a summary with:';
 
   @override
   String get ghostMapInfo_growthCorrect => 'Correct';
@@ -2045,10 +2339,11 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMapInfo_growthImproveDesc => 'Imprecise or weak concepts';
 
   @override
-  String get ghostMapInfo_growthMissing => 'Missing';
+  String get ghostMapInfo_growthMissing => 'To discover';
 
   @override
-  String get ghostMapInfo_growthMissingDesc => 'Concepts you hadn\'t written';
+  String get ghostMapInfo_growthMissingDesc =>
+      'Fragments you hadn\'t written yet';
 
   @override
   String get ghostMapInfo_growthAttempts => 'Attempts';
@@ -2061,7 +2356,8 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get ghostMapInfo_growthPercent => 'Growth %';
 
   @override
-  String get ghostMapInfo_growthPercentDesc => 'Gaps filled after interaction';
+  String get ghostMapInfo_growthPercentDesc =>
+      'Fragments integrated after interaction';
 
   @override
   String ghostMapInfo_growthExplored(int percent) {
@@ -2073,7 +2369,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_sleepDesc =>
-      'After the session, your brain continues to process during sleep (memory consolidation). On next access, revisited concepts will be more stable and Fluera will automatically adapt review intervals.\n\nThis is the cycle: gap exploration → overnight interval computation → gradual review.';
+      'After the session, your brain continues to process during sleep (memory consolidation). On next access, revisited concepts will be more stable and Fluera will automatically adapt review intervals.\n\nThis is the cycle: fragment exploration → overnight interval computation → gradual review.';
 
   @override
   String get ghostMapInfo_sleepCitation =>
@@ -2091,11 +2387,11 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
       'Tap a node to discover its meaning:';
 
   @override
-  String get ghostMapInfo_nodeMissingTitle => 'Missing';
+  String get ghostMapInfo_nodeMissingTitle => 'To discover';
 
   @override
   String get ghostMapInfo_nodeMissingDesc =>
-      'A concept NOT on your canvas that the AI deems important. You can attempt to write it or reveal what the AI suggested.';
+      'A fragment not yet on your canvas that the AI deems important to integrate. You can attempt to write it or reveal what the AI suggested.';
 
   @override
   String get ghostMapInfo_nodeMissingPrinciple =>
@@ -2106,7 +2402,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_nodeWeakDesc =>
-      'A concept present but imprecise, incomplete, or incorrectly connected. The AI explains what to improve.';
+      'A concept present but imprecise, incomplete, or to recontextualize. The AI explains how to integrate it better.';
 
   @override
   String get ghostMapInfo_nodeWeakPrinciple =>
@@ -2139,7 +2435,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_nodeHyperDesc =>
-      'You were very confident but wrong — the wavy red border signals the most powerful learning opportunity.';
+      'You were very confident but the fragment needed recontextualizing — the wavy red border signals the most powerful learning opportunity.';
 
   @override
   String get ghostMapInfo_nodeHyperPrinciple =>
@@ -2175,7 +2471,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_demoWrong =>
-      'Hypercorrection! The error imprints in memory.';
+      'Hypercorrection! The recontextualization imprints in memory.';
 
   @override
   String get ghostMapInfo_demoFsrsUp => 'FSRS: interval ↑ (consolidation)';
@@ -2198,7 +2494,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get ghostMapInfo_beforeAfterResultBefore =>
-      '3 isolated concepts — connections missing';
+      '3 isolated concepts — connections to build';
 
   @override
   String get paywall_featureRecall => 'Test me';
@@ -2712,4 +3008,364 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get logout_exit => 'Sign out';
+
+  @override
+  String get exam_iniziaCta => 'Start exam →';
+
+  @override
+  String get exam_iniziaPreparing => 'Preparing…';
+
+  @override
+  String get exam_iniziaSelectAtLeastOne => 'Select at least one topic';
+
+  @override
+  String get exam_answer_writeByHand => 'Answer by hand';
+
+  @override
+  String get exam_answer_editAnswer => 'Edit answer';
+
+  @override
+  String get exam_answer_writeByHandSubtitle =>
+      'Opens fullscreen for stylus writing';
+
+  @override
+  String get exam_answer_writeFormulaHint => 'Write the formula (e.g. F = ma)…';
+
+  @override
+  String get exam_answer_writeAnswerHint => 'Write your answer…';
+
+  @override
+  String get exam_answer_emptyValidation => '✍️ Write an answer before sending';
+
+  @override
+  String exam_answer_minLengthValidation(int min, int current) {
+    return '✍️ At least $min characters needed (you\'re at $current)';
+  }
+
+  @override
+  String get exam_answer_discardTitle => 'Discard answer?';
+
+  @override
+  String get exam_answer_discardBody =>
+      'You have an unsent answer. Closing now will discard it.';
+
+  @override
+  String get exam_answer_keepWriting => 'Keep writing';
+
+  @override
+  String get exam_answer_discard => 'Discard';
+
+  @override
+  String get exam_answer_send => 'Send answer';
+
+  @override
+  String get exam_answer_confirm => 'Confirm';
+
+  @override
+  String get exam_answer_cancel => 'Cancel';
+
+  @override
+  String get exam_answer_pageTitleOpen => 'Open answer';
+
+  @override
+  String get exam_answer_pageTitleFormula => 'Formula';
+
+  @override
+  String exam_answer_words(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count words',
+      one: '1 word',
+      zero: 'No words',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get exam_answer_yourAnswerLabel => 'Your answer';
+
+  @override
+  String get exam_answer_writeFormulaLabel => 'Write the formula / calculation';
+
+  @override
+  String get exam_loading_phaseRead => 'Reading your notes…';
+
+  @override
+  String get exam_loading_phaseAnalyze => 'Analyzing key concepts…';
+
+  @override
+  String get exam_loading_phaseGenerate => 'Generating questions…';
+
+  @override
+  String get exam_loading_phaseValidate => 'Verifying pedagogical quality…';
+
+  @override
+  String get exam_loading_phaseReady => 'Ready!';
+
+  @override
+  String get exam_loading_atlasWorking => '🌌 Atlas at work…';
+
+  @override
+  String get exam_loading_generating => '🌌 Generating questions…';
+
+  @override
+  String get exam_elaboration_writeByHand => 'Elaborate by hand';
+
+  @override
+  String exam_elaboration_editElaboration(int chars) {
+    return 'Edit elaboration ($chars characters)';
+  }
+
+  @override
+  String get exam_elaboration_save => 'Save';
+
+  @override
+  String get exam_elaboration_promptOverconfident =>
+      'Rewrite in your own words. High-confidence errors stick 3× better when you re-elaborate the concept.';
+
+  @override
+  String exam_elaboration_promptStandard(String question, String answer) {
+    return 'Rewrite in your own words to consolidate.\n\nQuestion: $question\n\nCorrect answer: $answer';
+  }
+
+  @override
+  String get exam_elaboration_cardOverconfident =>
+      '⚡ Rewrite in your own words — high-confidence errors stick 3× better when re-elaborated!';
+
+  @override
+  String get exam_elaboration_cardStandard =>
+      '✍️ Rewrite in your own words to consolidate:';
+
+  @override
+  String get exam_error_quotaExceeded =>
+      'You\'ve hit today\'s AI limit. Try again later or upgrade to Pro for more quota.';
+
+  @override
+  String get exam_error_offline =>
+      'No connection. Exam mode requires internet — reconnect and try again.';
+
+  @override
+  String get exam_error_timeout =>
+      'AI is taking too long. Try again in a moment.';
+
+  @override
+  String exam_error_unexpected(String detail) {
+    return 'Unexpected error: $detail';
+  }
+
+  @override
+  String get exam_error_emptyContent => 'Not enough content. Add more notes!';
+
+  @override
+  String get exam_error_replayFailed => 'Can\'t generate variants. Try again!';
+
+  @override
+  String exam_error_evaluationFailed(String answer) {
+    return '\n⚠️ Error. Correct answer: $answer';
+  }
+
+  @override
+  String exam_error_openFullscreenFailed(String error) {
+    return 'Couldn\'t open answer page: $error';
+  }
+
+  @override
+  String exam_error_openElaborationFailed(String error) {
+    return 'Couldn\'t open elaboration: $error';
+  }
+
+  @override
+  String get exam_hint_fallback => '💡 Think about the fundamental concepts!';
+
+  @override
+  String get exam_difficultyBoosted => '🎯 Level up — harder questions!';
+
+  @override
+  String get exam_evaluating => 'Evaluating answer…';
+
+  @override
+  String get exam_replayLoading => '🔄 Generating review variants…';
+
+  @override
+  String get exam_emptyClustersHint =>
+      '📝 Write some notes before starting the exam!';
+
+  @override
+  String get exam_noBlindSpots =>
+      '🌫️ No blind spots to test. You remembered everything!';
+
+  @override
+  String get exam_noRecognizableText =>
+      '🔍 No recognizable text. Add written or digital text!';
+
+  @override
+  String get exam_topicGroup_orphan => 'Other notes';
+
+  @override
+  String get exam_antiCramming_title => 'You\'ve studied recently';
+
+  @override
+  String exam_antiCramming_body(String when) {
+    return 'You completed an exam on this topic $when.';
+  }
+
+  @override
+  String get exam_antiCramming_explainer =>
+      'Memory consolidates BETTER with spaced practice (spacing effect, Ebbinghaus 1885). Re-running the exam now feels like mastery but reduces long-term retention.';
+
+  @override
+  String get exam_antiCramming_cancel => 'Cancel';
+
+  @override
+  String get exam_antiCramming_proceed => 'Run anyway';
+
+  @override
+  String exam_scopeBanner_viewport(int preselected) {
+    return '📍 $preselected topics pre-selected from the visible area · Tap to edit';
+  }
+
+  @override
+  String exam_scopeBanner_lasso(int preselected) {
+    return '🎯 $preselected topics pre-selected from the selection · Tap to edit';
+  }
+
+  @override
+  String get exam_scopeBanner_showAll => 'Show all';
+
+  @override
+  String get exam_scopeBanner_deselectAll => 'Deselect all';
+
+  @override
+  String get exam_dashboardMenu => '📊 Exam dashboard';
+
+  @override
+  String get relativeTime_secondsAgo => 'a few seconds ago';
+
+  @override
+  String relativeTime_minutesAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count minutes ago',
+      one: '1 minute ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String relativeTime_hoursAgo(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count hours ago',
+      one: '1 hour ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get relativeTime_yesterday => 'yesterday';
+
+  @override
+  String relativeTime_daysAgo(int count) {
+    return '$count days ago';
+  }
+
+  @override
+  String get chat_emptyTitle => 'Fluera AI challenges you on your notes';
+
+  @override
+  String get chat_emptySubtitle =>
+      'The more you write first, the better it asks.';
+
+  @override
+  String get chat_inputPlaceholder => 'What do you want it to ask you?';
+
+  @override
+  String get chat_quickFindGaps => '🗺 Find my fragments';
+
+  @override
+  String get chat_quickStartQuiz => '🎯 Quiz me';
+
+  @override
+  String get chat_quickStartSocratic => '🤺 Challenge me';
+
+  @override
+  String get chat_quickCompareSource => '🔍 Compare with source';
+
+  @override
+  String get chat_refusalSoft =>
+      'I won\'t summarize your notes — you\'ll remember them better if I quiz you. Shall we?';
+
+  @override
+  String chat_costBadge(int seconds, int retention) {
+    return 'Read in ${seconds}s · 7-day recall ~$retention%';
+  }
+
+  @override
+  String get atlasMenu_commandsTitle => 'Atlas commands';
+
+  @override
+  String get atlasMenu_commandsSubtitle =>
+      'Free-form prompt or actions on selected nodes';
+
+  @override
+  String get atlasMenu_chatTitle => 'Ask Fluera AI';
+
+  @override
+  String get atlasMenu_chatSubtitle => 'Talk about your notes';
+
+  @override
+  String get atlasPrompt_title => 'Commands';
+
+  @override
+  String get atlasPrompt_hintNoSelection =>
+      'What do you want to do on the canvas?';
+
+  @override
+  String get atlasPrompt_hintWithSelection =>
+      'What do you want to do with these nodes?';
+
+  @override
+  String get atlasPrompt_helpTooltip => 'What does this tool do?';
+
+  @override
+  String get atlasPrompt_helpTitle => 'Atlas commands';
+
+  @override
+  String get atlasPrompt_helpIntro =>
+      'Atlas reshapes the canvas — it does not produce content to read. To ask questions or get quizzed, use \"Ask Fluera AI\".';
+
+  @override
+  String get atlasPrompt_helpDefaults =>
+      'Without a selection, the quick commands (🗺️ Organize, 📐 Layout, 🔗 Connect, 🎨 Color) work on concept CLUSTERS, not on individual strokes — handwriting stays intact.';
+
+  @override
+  String get atlasPrompt_helpHow =>
+      'With a lasso selection, type-specific commands appear:';
+
+  @override
+  String get atlasPrompt_help_text => '📝 Text — Translate.';
+
+  @override
+  String get atlasPrompt_help_latex => '🧮 Formulas — Solve, Graph.';
+
+  @override
+  String get atlasPrompt_help_image => '🖼️ Images — Describe.';
+
+  @override
+  String get atlasPrompt_help_pdf => '📄 PDF — Connect to notes.';
+
+  @override
+  String get atlasPrompt_help_stroke =>
+      '✍️ Handwriting — Convert to text, Analyze.';
+
+  @override
+  String get atlasPrompt_helpFooter =>
+      'You can also write a free-form command in the text box above (e.g. \"group the yellow nodes\").';
+
+  @override
+  String get atlasPrompt_emptySelectionHint =>
+      'Select nodes with the lasso to see available commands.';
 }

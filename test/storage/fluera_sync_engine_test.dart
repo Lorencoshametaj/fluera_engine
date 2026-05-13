@@ -210,6 +210,27 @@ class MockCloudAdapter implements FlueraCloudStorageAdapter {
 
   @override
   void disposeRealtime() {}
+
+  @override
+  Future<void> uploadOp(
+    String canvasId, {
+    required String opId,
+    required String peerId,
+    required int tsMs,
+    required int counter,
+    required String opType,
+    required String? nodeId,
+    required Map<String, dynamic> payloadJson,
+  }) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> opsSince({
+    required String canvasId,
+    required int tsMs,
+    required int counter,
+    String peerIdTieBreak = '',
+    int limit = 10000,
+  }) async => const [];
 }
 
 void main() {

@@ -265,6 +265,44 @@ abstract class FlueraCloudStorageAdapter {
     'quotaBytes': 52428800, // 50 MB
   };
 
+  // ─── CRDT Operations Log (incremental catch-up) ──────────────────
+
+  /// Append a single CRDT op to the cloud-side operations log.
+  ///
+  /// Producers call this fire-and-forget after a successful broadcast,
+  /// so a peer that was offline can pull the missed ops on reconnect via
+  /// [opsSince]. The implementation MUST be idempotent on `op_id`
+  /// (PRIMARY KEY). Default is a no-op for adapters that haven't wired
+  /// the `operations_log` table yet — the in-memory CRDT pipeline still
+  /// works, only long-offline catch-up degrades to snapshot-only.
+  Future<void> uploadOp(
+    String canvasId, {
+    required String opId,
+    required String peerId,
+    required int tsMs,
+    required int counter,
+    required String opType,
+    required String? nodeId,
+    required Map<String, dynamic> payloadJson,
+  }) async {}
+
+  /// Fetch every cloud-stored op strictly newer (HLC ordering) than
+  /// `(tsMs, counter, peerIdTieBreak)`. Used at canvas open and on
+  /// reconnect to catch up with peers' changes that didn't reach us
+  /// through the live broadcast channel (intermittent offline, force
+  /// quit, etc).
+  ///
+  /// Returns a list of raw `payload_json` maps in HLC order. Caller
+  /// hands them to `CRDTOperation.fromJson` and replays through the
+  /// applier. Default returns empty.
+  Future<List<Map<String, dynamic>>> opsSince({
+    required String canvasId,
+    required int tsMs,
+    required int counter,
+    String peerIdTieBreak = '',
+    int limit = 10000,
+  }) async => const [];
+
   // ─── Realtime Sync ──────────────────────────────────────────────
 
   /// Stream of canvas IDs that were changed remotely (UPDATE on `canvases`).

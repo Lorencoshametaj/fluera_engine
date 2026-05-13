@@ -1124,6 +1124,36 @@ abstract class FlueraLocalizations {
   /// **'Color'**
   String get proCanvas_colorLabel;
 
+  /// No description provided for @pasteWarning_title.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re pasting text'**
+  String get pasteWarning_title;
+
+  /// No description provided for @pasteWarning_body.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} characters pasted. Rewriting them by hand activates the Generation Effect: you encode 10× more deeply than reading prewritten text.'**
+  String pasteWarning_body(Object count);
+
+  /// No description provided for @pasteWarning_citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Slamecka & Graf (1978) · Generation Effect'**
+  String get pasteWarning_citation;
+
+  /// No description provided for @pasteWarning_rewrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewrite by hand'**
+  String get pasteWarning_rewrite;
+
+  /// No description provided for @pasteWarning_pasteAnyway.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste anyway'**
+  String get pasteWarning_pasteAnyway;
+
   /// No description provided for @proCanvas_canvasMode.
   ///
   /// In en, this message translates to:
@@ -1469,7 +1499,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_whatIsMissing.
   ///
   /// In en, this message translates to:
-  /// **'What\'s missing here?'**
+  /// **'Which fragment fits here?'**
   String get ghostMap_whatIsMissing;
 
   /// No description provided for @ghostMap_typeText.
@@ -1493,7 +1523,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_writeMissingConcept.
   ///
   /// In en, this message translates to:
-  /// **'Write the concept you think is missing...'**
+  /// **'Write the fragment you think fits here...'**
   String get ghostMap_writeMissingConcept;
 
   /// No description provided for @ghostMap_drawHereHint.
@@ -1559,7 +1589,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_incorrectAttempt.
   ///
   /// In en, this message translates to:
-  /// **'Here\'s what was missing'**
+  /// **'Here\'s the fragment that completes the picture'**
   String get ghostMap_incorrectAttempt;
 
   /// No description provided for @ghostMap_selfEvalQuestion.
@@ -1631,25 +1661,25 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_weakPoint.
   ///
   /// In en, this message translates to:
-  /// **'Weak point detected'**
+  /// **'Fragment to consolidate'**
   String get ghostMap_weakPoint;
 
   /// No description provided for @ghostMap_progressExplored.
   ///
   /// In en, this message translates to:
-  /// **'{revealed}/{total} gaps explored'**
+  /// **'{revealed}/{total} fragments explored'**
   String ghostMap_progressExplored(int revealed, int total);
 
   /// No description provided for @ghostMap_closeGhostMap.
   ///
   /// In en, this message translates to:
-  /// **'Close gap map'**
+  /// **'Close concept map'**
   String get ghostMap_closeGhostMap;
 
   /// No description provided for @ghostMap_showMoreGaps.
   ///
   /// In en, this message translates to:
-  /// **'Show more gaps'**
+  /// **'Show more fragments'**
   String get ghostMap_showMoreGaps;
 
   /// No description provided for @ghostMap_ocrFailed.
@@ -1661,13 +1691,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_hypercorrectionExplanation.
   ///
   /// In en, this message translates to:
-  /// **'⚡ You were very confident but got it wrong in the quiz. This \"cognitive shock\" makes the correction 3× more effective! Try writing the correct concept.'**
+  /// **'⚡ You were very confident on a fragment that needs recontextualizing. This \"cognitive shock\" makes the integration 3× more effective! Try writing how the concept fits.'**
   String get ghostMap_hypercorrectionExplanation;
 
   /// No description provided for @ghostMap_writeAtLeastTwoGroups.
   ///
   /// In en, this message translates to:
-  /// **'Write at least 2 note groups for the gap map.'**
+  /// **'Write at least 2 note groups for the concept map.'**
   String get ghostMap_writeAtLeastTwoGroups;
 
   /// No description provided for @ghostMap_trySocraticFirst.
@@ -1763,7 +1793,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_emptyResultError.
   ///
   /// In en, this message translates to:
-  /// **'Not enough content found for the gap map.'**
+  /// **'Not enough content found for the concept map.'**
   String get ghostMap_emptyResultError;
 
   /// No description provided for @ghostMap_edgeCaseNearlyPerfect.
@@ -1781,7 +1811,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_activationGapsFound.
   ///
   /// In en, this message translates to:
-  /// **'{count} gaps found'**
+  /// **'{count} fragments to discover'**
   String ghostMap_activationGapsFound(Object count);
 
   /// No description provided for @ghostMap_activationConfirmed.
@@ -1829,13 +1859,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_summaryMissing.
   ///
   /// In en, this message translates to:
-  /// **'❓ {count} missing'**
+  /// **'❓ {count} to discover'**
   String ghostMap_summaryMissing(Object count);
 
   /// No description provided for @ghostMap_summaryGrowth.
   ///
   /// In en, this message translates to:
-  /// **'📈 {percent}% gaps filled'**
+  /// **'📈 {percent}% fragments integrated'**
   String ghostMap_summaryGrowth(Object percent);
 
   /// No description provided for @ghostMap_summaryAttempts.
@@ -1847,7 +1877,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMap_activationHeader.
   ///
   /// In en, this message translates to:
-  /// **'🗺️ Gap map active — {details}'**
+  /// **'🗺️ Concept map active — {details}'**
   String ghostMap_activationHeader(Object details);
 
   /// No description provided for @ghostMap_errorGeneric.
@@ -1861,6 +1891,240 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'✍️ Your attempt'**
   String get ghostMap_yourAttempt;
+
+  /// No description provided for @flueraMethodInfo_title.
+  String get flueraMethodInfo_title;
+
+  /// No description provided for @flueraMethodInfo_heroTitle.
+  String get flueraMethodInfo_heroTitle;
+
+  /// No description provided for @flueraMethodInfo_heroBody.
+  String get flueraMethodInfo_heroBody;
+
+  /// No description provided for @flueraMethodInfo_whyItWorks.
+  String get flueraMethodInfo_whyItWorks;
+
+  /// No description provided for @flueraMethodInfo_phasesTitle.
+  String get flueraMethodInfo_phasesTitle;
+
+  /// No description provided for @flueraMethodInfo_scienceTitle.
+  String get flueraMethodInfo_scienceTitle;
+
+  /// No description provided for @flueraMethodInfo_phase1Title.
+  String get flueraMethodInfo_phase1Title;
+
+  /// No description provided for @flueraMethodInfo_phase1Subtitle.
+  String get flueraMethodInfo_phase1Subtitle;
+
+  /// No description provided for @flueraMethodInfo_phase2Title.
+  String get flueraMethodInfo_phase2Title;
+
+  /// No description provided for @flueraMethodInfo_phase2Subtitle.
+  String get flueraMethodInfo_phase2Subtitle;
+
+  /// No description provided for @flueraMethodInfo_phase3Title.
+  String get flueraMethodInfo_phase3Title;
+
+  /// No description provided for @flueraMethodInfo_phase3Subtitle.
+  String get flueraMethodInfo_phase3Subtitle;
+
+  /// No description provided for @flueraMethodInfo_phase4Title.
+  String get flueraMethodInfo_phase4Title;
+
+  /// No description provided for @flueraMethodInfo_phase4Subtitle.
+  String get flueraMethodInfo_phase4Subtitle;
+
+  /// No description provided for @flueraMethodInfo_tapToExpand.
+  String get flueraMethodInfo_tapToExpand;
+
+  /// No description provided for @flueraMethodInfo_step1Title.
+  String get flueraMethodInfo_step1Title;
+
+  /// No description provided for @flueraMethodInfo_step1Body.
+  String get flueraMethodInfo_step1Body;
+
+  /// No description provided for @flueraMethodInfo_step1Citation.
+  String get flueraMethodInfo_step1Citation;
+
+  /// No description provided for @flueraMethodInfo_step2Title.
+  String get flueraMethodInfo_step2Title;
+
+  /// No description provided for @flueraMethodInfo_step2Body.
+  String get flueraMethodInfo_step2Body;
+
+  /// No description provided for @flueraMethodInfo_step2Citation.
+  String get flueraMethodInfo_step2Citation;
+
+  /// No description provided for @flueraMethodInfo_step3Title.
+  String get flueraMethodInfo_step3Title;
+
+  /// No description provided for @flueraMethodInfo_step3Body.
+  String get flueraMethodInfo_step3Body;
+
+  /// No description provided for @flueraMethodInfo_step3Citation.
+  String get flueraMethodInfo_step3Citation;
+
+  /// No description provided for @flueraMethodInfo_step4Title.
+  String get flueraMethodInfo_step4Title;
+
+  /// No description provided for @flueraMethodInfo_step4Body.
+  String get flueraMethodInfo_step4Body;
+
+  /// No description provided for @flueraMethodInfo_step4Citation.
+  String get flueraMethodInfo_step4Citation;
+
+  /// No description provided for @flueraMethodInfo_step5Title.
+  String get flueraMethodInfo_step5Title;
+
+  /// No description provided for @flueraMethodInfo_step5Body.
+  String get flueraMethodInfo_step5Body;
+
+  /// No description provided for @flueraMethodInfo_step5Citation.
+  String get flueraMethodInfo_step5Citation;
+
+  /// No description provided for @flueraMethodInfo_step6Title.
+  String get flueraMethodInfo_step6Title;
+
+  /// No description provided for @flueraMethodInfo_step6Body.
+  String get flueraMethodInfo_step6Body;
+
+  /// No description provided for @flueraMethodInfo_step6Citation.
+  String get flueraMethodInfo_step6Citation;
+
+  /// No description provided for @flueraMethodInfo_step7Title.
+  String get flueraMethodInfo_step7Title;
+
+  /// No description provided for @flueraMethodInfo_step7Body.
+  String get flueraMethodInfo_step7Body;
+
+  /// No description provided for @flueraMethodInfo_step7Citation.
+  String get flueraMethodInfo_step7Citation;
+
+  /// No description provided for @flueraMethodInfo_step8Title.
+  String get flueraMethodInfo_step8Title;
+
+  /// No description provided for @flueraMethodInfo_step8Body.
+  String get flueraMethodInfo_step8Body;
+
+  /// No description provided for @flueraMethodInfo_step8Citation.
+  String get flueraMethodInfo_step8Citation;
+
+  /// No description provided for @flueraMethodInfo_step9Title.
+  String get flueraMethodInfo_step9Title;
+
+  /// No description provided for @flueraMethodInfo_step9Body.
+  String get flueraMethodInfo_step9Body;
+
+  /// No description provided for @flueraMethodInfo_step9Citation.
+  String get flueraMethodInfo_step9Citation;
+
+  /// No description provided for @flueraMethodInfo_step10Title.
+  String get flueraMethodInfo_step10Title;
+
+  /// No description provided for @flueraMethodInfo_step10Body.
+  String get flueraMethodInfo_step10Body;
+
+  /// No description provided for @flueraMethodInfo_step10Citation.
+  String get flueraMethodInfo_step10Citation;
+
+  /// No description provided for @flueraMethodInfo_step11Title.
+  String get flueraMethodInfo_step11Title;
+
+  /// No description provided for @flueraMethodInfo_step11Body.
+  String get flueraMethodInfo_step11Body;
+
+  /// No description provided for @flueraMethodInfo_step11Citation.
+  String get flueraMethodInfo_step11Citation;
+
+  /// No description provided for @flueraMethodInfo_step12Title.
+  String get flueraMethodInfo_step12Title;
+
+  /// No description provided for @flueraMethodInfo_step12Body.
+  String get flueraMethodInfo_step12Body;
+
+  /// No description provided for @flueraMethodInfo_step12Citation.
+  String get flueraMethodInfo_step12Citation;
+
+  /// No description provided for @flueraMethodInfo_proBadge.
+  String get flueraMethodInfo_proBadge;
+
+  /// No description provided for @flueraMethodInfo_v15Badge.
+  String get flueraMethodInfo_v15Badge;
+
+  /// No description provided for @flueraMethodInfo_scienceFooter.
+  String get flueraMethodInfo_scienceFooter;
+
+  /// No description provided for @flueraMethodInfo_learnMoreCta.
+  String get flueraMethodInfo_learnMoreCta;
+
+  /// No description provided for @flueraMethodInfo_offlineError.
+  String get flueraMethodInfo_offlineError;
+
+  /// No description provided for @flueraMethodInfo_settingsTile.
+  String get flueraMethodInfo_settingsTile;
+
+  /// No description provided for @flueraMethodInfo_settingsSubtitle.
+  String get flueraMethodInfo_settingsSubtitle;
+
+  /// No description provided for @flueraMethodInfo_demoTitle.
+  String get flueraMethodInfo_demoTitle;
+
+  /// No description provided for @flueraMethodInfo_demoIntro.
+  String get flueraMethodInfo_demoIntro;
+
+  /// No description provided for @flueraMethodInfo_demoQuestion.
+  String get flueraMethodInfo_demoQuestion;
+
+  /// No description provided for @flueraMethodInfo_demoAnswer.
+  String get flueraMethodInfo_demoAnswer;
+
+  /// No description provided for @flueraMethodInfo_demoCitation.
+  String get flueraMethodInfo_demoCitation;
+
+  /// No description provided for @flueraMethodInfo_demoConfidence1.
+  String get flueraMethodInfo_demoConfidence1;
+
+  /// No description provided for @flueraMethodInfo_demoConfidence2.
+  String get flueraMethodInfo_demoConfidence2;
+
+  /// No description provided for @flueraMethodInfo_demoConfidence3.
+  String get flueraMethodInfo_demoConfidence3;
+
+  /// No description provided for @flueraMethodInfo_demoConfidence4.
+  String get flueraMethodInfo_demoConfidence4;
+
+  /// No description provided for @flueraMethodInfo_demoFeedbackLow.
+  String get flueraMethodInfo_demoFeedbackLow;
+
+  /// No description provided for @flueraMethodInfo_demoFeedbackMid.
+  String get flueraMethodInfo_demoFeedbackMid;
+
+  /// No description provided for @flueraMethodInfo_demoFeedbackHigh.
+  String get flueraMethodInfo_demoFeedbackHigh;
+
+  /// No description provided for @flueraMethodInfo_demoCtaReveal.
+  String get flueraMethodInfo_demoCtaReveal;
+
+  /// No description provided for @flueraMethodInfo_demoCtaTryAgain.
+  String get flueraMethodInfo_demoCtaTryAgain;
+
+  /// No description provided for @flueraMethodInfo_teaseStepTitle.
+  String get flueraMethodInfo_teaseStepTitle;
+
+  /// No description provided for @flueraMethodInfo_teaseStepBody.
+  String get flueraMethodInfo_teaseStepBody;
+
+  /// No description provided for @flueraMethodInfo_teaseStepCta.
+  String get flueraMethodInfo_teaseStepCta;
+
+  /// No description provided for @flueraMethodInfo_teaseStepSecondary.
+  String get flueraMethodInfo_teaseStepSecondary;
+
+  /// No description provided for @flueraMethodInfo_coachmark.
+  String get flueraMethodInfo_coachmark;
+
+  /// No description provided for @flueraMethodInfo_proBadgeTooltip.
+  String get flueraMethodInfo_proBadgeTooltip;
 
   /// No description provided for @recall_modeFree.
   ///
@@ -1907,7 +2171,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @recall_noGaps.
   ///
   /// In en, this message translates to:
-  /// **'No gaps.'**
+  /// **'Fully consolidated.'**
   String get recall_noGaps;
 
   /// No description provided for @recall_viewComparison.
@@ -2351,7 +2615,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socratic_feedbackKnownGapTitle.
   ///
   /// In en, this message translates to:
-  /// **'Known gap'**
+  /// **'Known fragment'**
   String get socratic_feedbackKnownGapTitle;
 
   /// No description provided for @socratic_feedbackKnownGapMsg.
@@ -2399,7 +2663,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socratic_summaryWrong.
   ///
   /// In en, this message translates to:
-  /// **'Wrong'**
+  /// **'To review'**
   String get socratic_summaryWrong;
 
   /// No description provided for @socratic_summaryHypercorrections.
@@ -2429,7 +2693,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socratic_insightGaps.
   ///
   /// In en, this message translates to:
-  /// **'There are several gaps — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.'**
+  /// **'There are several fragments to integrate — now is the best time to re-read your notes. Retrieval activated the right circuits, so reinforcement will be more effective now.'**
   String get socratic_insightGaps;
 
   /// No description provided for @socratic_insightBalanced.
@@ -2447,7 +2711,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socratic_typeLacuna.
   ///
   /// In en, this message translates to:
-  /// **'Gap'**
+  /// **'Bridge fragment'**
   String get socratic_typeLacuna;
 
   /// No description provided for @socratic_typeChallenge.
@@ -2908,7 +3172,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socraticInfo_typeLacunaTitle.
   ///
   /// In en, this message translates to:
-  /// **'Gap'**
+  /// **'Bridge fragment'**
   String get socraticInfo_typeLacunaTitle;
 
   /// No description provided for @socraticInfo_typeLacunaSubtitle.
@@ -2920,7 +3184,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socraticInfo_typeLacunaBody.
   ///
   /// In en, this message translates to:
-  /// **'Creates a \"cognitive gap\" you feel the need to fill. Asks what CONNECTS two concepts or what\'s MISSING.'**
+  /// **'Creates a \"cognitive tension\" you feel the need to resolve. Asks what CONNECTS two concepts or which BRIDGE FRAGMENT fits between them.'**
   String get socraticInfo_typeLacunaBody;
 
   /// No description provided for @socraticInfo_typeLacunaPrinciple.
@@ -3178,7 +3442,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @socraticInfo_fsrsWrong.
   ///
   /// In en, this message translates to:
-  /// **'Wrong'**
+  /// **'To review'**
   String get socraticInfo_fsrsWrong;
 
   /// No description provided for @socraticInfo_fsrsWrongEffect.
@@ -3244,13 +3508,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @socraticInfo_matrixGap.
   ///
   /// In en, this message translates to:
-  /// **'Didn\'t know + Low conf.'**
+  /// **'To integrate + Low conf.'**
   String get socraticInfo_matrixGap;
 
   /// No description provided for @socraticInfo_matrixGapMsg.
   ///
   /// In en, this message translates to:
-  /// **'Gap identified — review will help.'**
+  /// **'Fragment to integrate — review will help.'**
   String get socraticInfo_matrixGapMsg;
 
   /// No description provided for @socraticInfo_matrixHyper.
@@ -3316,13 +3580,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_title.
   ///
   /// In en, this message translates to:
-  /// **'Gap map'**
+  /// **'Concept map'**
   String get ghostMapInfo_title;
 
   /// No description provided for @ghostMapInfo_a11yLabel.
   ///
   /// In en, this message translates to:
-  /// **'Gap map informational screen'**
+  /// **'Concept map informational screen'**
   String get ghostMapInfo_a11yLabel;
 
   /// No description provided for @ghostMapInfo_heroTitle.
@@ -3334,7 +3598,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_heroDescription.
   ///
   /// In en, this message translates to:
-  /// **'Fluera generates a \"ghost\" concept map based on your notes and overlays it on the canvas. You can compare what you wrote with what the AI thinks is missing, discovering gaps and confirming mastery.'**
+  /// **'Fluera generates a \"ghost\" concept map based on your notes and overlays it on the canvas. You can compare what you wrote with what the AI thinks should be integrated, discovering fragments to connect and confirming mastery.'**
   String get ghostMapInfo_heroDescription;
 
   /// No description provided for @ghostMapInfo_heroPrinciple.
@@ -3454,7 +3718,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_flowAttemptDesc.
   ///
   /// In en, this message translates to:
-  /// **'Tap a node and try to write the missing concept'**
+  /// **'Tap a node and try to write the fragment to integrate'**
   String get ghostMapInfo_flowAttemptDesc;
 
   /// No description provided for @ghostMapInfo_flowCompare.
@@ -3484,7 +3748,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_attemptIntro.
   ///
   /// In en, this message translates to:
-  /// **'When you tap a missing node (❓), a window opens where you can:'**
+  /// **'When you tap a node to discover (❓), a window opens where you can:'**
   String get ghostMapInfo_attemptIntro;
 
   /// No description provided for @ghostMapInfo_attemptType.
@@ -3496,7 +3760,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_attemptTypeDesc.
   ///
   /// In en, this message translates to:
-  /// **'Write the concept you think is missing'**
+  /// **'Write the fragment you think fits here'**
   String get ghostMapInfo_attemptTypeDesc;
 
   /// No description provided for @ghostMapInfo_attemptDraw.
@@ -3538,7 +3802,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_hypercorrectionDesc.
   ///
   /// In en, this message translates to:
-  /// **'When you are very confident about something but wrong, the surprise focuses attention on the error and deeply imprints it in long-term memory.'**
+  /// **'When you are very confident about something but the fragment needs recontextualizing, the surprise focuses attention on the reconfiguration and deeply imprints it in long-term memory.'**
   String get ghostMapInfo_hypercorrectionDesc;
 
   /// No description provided for @ghostMapInfo_hypercorrectionCitation.
@@ -3556,7 +3820,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_hypercorrectionVisual.
   ///
   /// In en, this message translates to:
-  /// **'The gap map marks these nodes with ⚡ and a wavy red border.'**
+  /// **'The concept map marks these nodes with ⚡ and a wavy red border.'**
   String get ghostMapInfo_hypercorrectionVisual;
 
   /// No description provided for @ghostMapInfo_zpdTitle.
@@ -3568,7 +3832,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_zpdDesc.
   ///
   /// In en, this message translates to:
-  /// **'Some concepts might be TOO advanced for your current level. The gap map identifies them as \"below ZPD\" and shows them in grey — not because they aren\'t important, but because there are foundational concepts to consolidate first.'**
+  /// **'Some concepts might be TOO advanced for your current level. The concept map identifies them as \"below ZPD\" and shows them in grey — not because they aren\'t important, but because there are foundational concepts to consolidate first.'**
   String get ghostMapInfo_zpdDesc;
 
   /// No description provided for @ghostMapInfo_zpdComfort.
@@ -3616,25 +3880,25 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_navMissing.
   ///
   /// In en, this message translates to:
-  /// **'🔴 Missing'**
+  /// **'🔴 To discover'**
   String get ghostMapInfo_navMissing;
 
   /// No description provided for @ghostMapInfo_navMissingDesc.
   ///
   /// In en, this message translates to:
-  /// **'Concepts completely missing — highest priority'**
+  /// **'Fragments not yet integrated into the map — highest priority'**
   String get ghostMapInfo_navMissingDesc;
 
   /// No description provided for @ghostMapInfo_navWeak.
   ///
   /// In en, this message translates to:
-  /// **'🟡 Weak/Wrong'**
+  /// **'🟡 To consolidate'**
   String get ghostMapInfo_navWeak;
 
   /// No description provided for @ghostMapInfo_navWeakDesc.
   ///
   /// In en, this message translates to:
-  /// **'Concepts present but imprecise or incorrectly connected'**
+  /// **'Concepts present but imprecise or connections to recontextualize'**
   String get ghostMapInfo_navWeakDesc;
 
   /// No description provided for @ghostMapInfo_navArrows.
@@ -3670,7 +3934,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_fsrsWrong.
   ///
   /// In en, this message translates to:
-  /// **'Wrong attempt'**
+  /// **'Attempt to review'**
   String get ghostMapInfo_fsrsWrong;
 
   /// No description provided for @ghostMapInfo_fsrsWrongEffect.
@@ -3730,7 +3994,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_growthIntro.
   ///
   /// In en, this message translates to:
-  /// **'When closing the gap map, you see a summary with:'**
+  /// **'When closing the concept map, you see a summary with:'**
   String get ghostMapInfo_growthIntro;
 
   /// No description provided for @ghostMapInfo_growthCorrect.
@@ -3760,13 +4024,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_growthMissing.
   ///
   /// In en, this message translates to:
-  /// **'Missing'**
+  /// **'To discover'**
   String get ghostMapInfo_growthMissing;
 
   /// No description provided for @ghostMapInfo_growthMissingDesc.
   ///
   /// In en, this message translates to:
-  /// **'Concepts you hadn\'t written'**
+  /// **'Fragments you hadn\'t written yet'**
   String get ghostMapInfo_growthMissingDesc;
 
   /// No description provided for @ghostMapInfo_growthAttempts.
@@ -3790,7 +4054,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_growthPercentDesc.
   ///
   /// In en, this message translates to:
-  /// **'Gaps filled after interaction'**
+  /// **'Fragments integrated after interaction'**
   String get ghostMapInfo_growthPercentDesc;
 
   /// No description provided for @ghostMapInfo_growthExplored.
@@ -3808,7 +4072,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_sleepDesc.
   ///
   /// In en, this message translates to:
-  /// **'After the session, your brain continues to process during sleep (memory consolidation). On next access, revisited concepts will be more stable and Fluera will automatically adapt review intervals.\n\nThis is the cycle: gap exploration → overnight interval computation → gradual review.'**
+  /// **'After the session, your brain continues to process during sleep (memory consolidation). On next access, revisited concepts will be more stable and Fluera will automatically adapt review intervals.\n\nThis is the cycle: fragment exploration → overnight interval computation → gradual review.'**
   String get ghostMapInfo_sleepDesc;
 
   /// No description provided for @ghostMapInfo_sleepCitation.
@@ -3838,13 +4102,13 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_nodeMissingTitle.
   ///
   /// In en, this message translates to:
-  /// **'Missing'**
+  /// **'To discover'**
   String get ghostMapInfo_nodeMissingTitle;
 
   /// No description provided for @ghostMapInfo_nodeMissingDesc.
   ///
   /// In en, this message translates to:
-  /// **'A concept NOT on your canvas that the AI deems important. You can attempt to write it or reveal what the AI suggested.'**
+  /// **'A fragment not yet on your canvas that the AI deems important to integrate. You can attempt to write it or reveal what the AI suggested.'**
   String get ghostMapInfo_nodeMissingDesc;
 
   /// No description provided for @ghostMapInfo_nodeMissingPrinciple.
@@ -3862,7 +4126,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_nodeWeakDesc.
   ///
   /// In en, this message translates to:
-  /// **'A concept present but imprecise, incomplete, or incorrectly connected. The AI explains what to improve.'**
+  /// **'A concept present but imprecise, incomplete, or to recontextualize. The AI explains how to integrate it better.'**
   String get ghostMapInfo_nodeWeakDesc;
 
   /// No description provided for @ghostMapInfo_nodeWeakPrinciple.
@@ -3916,7 +4180,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_nodeHyperDesc.
   ///
   /// In en, this message translates to:
-  /// **'You were very confident but wrong — the wavy red border signals the most powerful learning opportunity.'**
+  /// **'You were very confident but the fragment needed recontextualizing — the wavy red border signals the most powerful learning opportunity.'**
   String get ghostMapInfo_nodeHyperDesc;
 
   /// No description provided for @ghostMapInfo_nodeHyperPrinciple.
@@ -3982,7 +4246,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_demoWrong.
   ///
   /// In en, this message translates to:
-  /// **'Hypercorrection! The error imprints in memory.'**
+  /// **'Hypercorrection! The recontextualization imprints in memory.'**
   String get ghostMapInfo_demoWrong;
 
   /// No description provided for @ghostMapInfo_demoFsrsUp.
@@ -4024,7 +4288,7 @@ abstract class FlueraLocalizations {
   /// No description provided for @ghostMapInfo_beforeAfterResultBefore.
   ///
   /// In en, this message translates to:
-  /// **'3 isolated concepts — connections missing'**
+  /// **'3 isolated concepts — connections to build'**
   String get ghostMapInfo_beforeAfterResultBefore;
 
   /// No description provided for @paywall_featureRecall.
@@ -4938,6 +5202,582 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Sign out'**
   String get logout_exit;
+
+  /// No description provided for @exam_iniziaCta.
+  ///
+  /// In en, this message translates to:
+  /// **'Start exam →'**
+  String get exam_iniziaCta;
+
+  /// No description provided for @exam_iniziaPreparing.
+  ///
+  /// In en, this message translates to:
+  /// **'Preparing…'**
+  String get exam_iniziaPreparing;
+
+  /// No description provided for @exam_iniziaSelectAtLeastOne.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one topic'**
+  String get exam_iniziaSelectAtLeastOne;
+
+  /// No description provided for @exam_answer_writeByHand.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer by hand'**
+  String get exam_answer_writeByHand;
+
+  /// No description provided for @exam_answer_editAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit answer'**
+  String get exam_answer_editAnswer;
+
+  /// No description provided for @exam_answer_writeByHandSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Opens fullscreen for stylus writing'**
+  String get exam_answer_writeByHandSubtitle;
+
+  /// No description provided for @exam_answer_writeFormulaHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write the formula (e.g. F = ma)…'**
+  String get exam_answer_writeFormulaHint;
+
+  /// No description provided for @exam_answer_writeAnswerHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write your answer…'**
+  String get exam_answer_writeAnswerHint;
+
+  /// No description provided for @exam_answer_emptyValidation.
+  ///
+  /// In en, this message translates to:
+  /// **'✍️ Write an answer before sending'**
+  String get exam_answer_emptyValidation;
+
+  /// No description provided for @exam_answer_minLengthValidation.
+  ///
+  /// In en, this message translates to:
+  /// **'✍️ At least {min} characters needed (you\'re at {current})'**
+  String exam_answer_minLengthValidation(int min, int current);
+
+  /// No description provided for @exam_answer_discardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard answer?'**
+  String get exam_answer_discardTitle;
+
+  /// No description provided for @exam_answer_discardBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You have an unsent answer. Closing now will discard it.'**
+  String get exam_answer_discardBody;
+
+  /// No description provided for @exam_answer_keepWriting.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep writing'**
+  String get exam_answer_keepWriting;
+
+  /// No description provided for @exam_answer_discard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get exam_answer_discard;
+
+  /// No description provided for @exam_answer_send.
+  ///
+  /// In en, this message translates to:
+  /// **'Send answer'**
+  String get exam_answer_send;
+
+  /// No description provided for @exam_answer_confirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get exam_answer_confirm;
+
+  /// No description provided for @exam_answer_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get exam_answer_cancel;
+
+  /// No description provided for @exam_answer_pageTitleOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open answer'**
+  String get exam_answer_pageTitleOpen;
+
+  /// No description provided for @exam_answer_pageTitleFormula.
+  ///
+  /// In en, this message translates to:
+  /// **'Formula'**
+  String get exam_answer_pageTitleFormula;
+
+  /// No description provided for @exam_answer_words.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{No words} =1{1 word} other{{count} words}}'**
+  String exam_answer_words(int count);
+
+  /// No description provided for @exam_answer_yourAnswerLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Your answer'**
+  String get exam_answer_yourAnswerLabel;
+
+  /// No description provided for @exam_answer_writeFormulaLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Write the formula / calculation'**
+  String get exam_answer_writeFormulaLabel;
+
+  /// No description provided for @exam_loading_phaseRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading your notes…'**
+  String get exam_loading_phaseRead;
+
+  /// No description provided for @exam_loading_phaseAnalyze.
+  ///
+  /// In en, this message translates to:
+  /// **'Analyzing key concepts…'**
+  String get exam_loading_phaseAnalyze;
+
+  /// No description provided for @exam_loading_phaseGenerate.
+  ///
+  /// In en, this message translates to:
+  /// **'Generating questions…'**
+  String get exam_loading_phaseGenerate;
+
+  /// No description provided for @exam_loading_phaseValidate.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying pedagogical quality…'**
+  String get exam_loading_phaseValidate;
+
+  /// No description provided for @exam_loading_phaseReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready!'**
+  String get exam_loading_phaseReady;
+
+  /// No description provided for @exam_loading_atlasWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'🌌 Atlas at work…'**
+  String get exam_loading_atlasWorking;
+
+  /// No description provided for @exam_loading_generating.
+  ///
+  /// In en, this message translates to:
+  /// **'🌌 Generating questions…'**
+  String get exam_loading_generating;
+
+  /// No description provided for @exam_elaboration_writeByHand.
+  ///
+  /// In en, this message translates to:
+  /// **'Elaborate by hand'**
+  String get exam_elaboration_writeByHand;
+
+  /// No description provided for @exam_elaboration_editElaboration.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit elaboration ({chars} characters)'**
+  String exam_elaboration_editElaboration(int chars);
+
+  /// No description provided for @exam_elaboration_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get exam_elaboration_save;
+
+  /// No description provided for @exam_elaboration_promptOverconfident.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewrite in your own words. High-confidence errors stick 3× better when you re-elaborate the concept.'**
+  String get exam_elaboration_promptOverconfident;
+
+  /// No description provided for @exam_elaboration_promptStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewrite in your own words to consolidate.\n\nQuestion: {question}\n\nCorrect answer: {answer}'**
+  String exam_elaboration_promptStandard(String question, String answer);
+
+  /// No description provided for @exam_elaboration_cardOverconfident.
+  ///
+  /// In en, this message translates to:
+  /// **'⚡ Rewrite in your own words — high-confidence errors stick 3× better when re-elaborated!'**
+  String get exam_elaboration_cardOverconfident;
+
+  /// No description provided for @exam_elaboration_cardStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'✍️ Rewrite in your own words to consolidate:'**
+  String get exam_elaboration_cardStandard;
+
+  /// No description provided for @exam_error_quotaExceeded.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve hit today\'s AI limit. Try again later or upgrade to Pro for more quota.'**
+  String get exam_error_quotaExceeded;
+
+  /// No description provided for @exam_error_offline.
+  ///
+  /// In en, this message translates to:
+  /// **'No connection. Exam mode requires internet — reconnect and try again.'**
+  String get exam_error_offline;
+
+  /// No description provided for @exam_error_timeout.
+  ///
+  /// In en, this message translates to:
+  /// **'AI is taking too long. Try again in a moment.'**
+  String get exam_error_timeout;
+
+  /// No description provided for @exam_error_unexpected.
+  ///
+  /// In en, this message translates to:
+  /// **'Unexpected error: {detail}'**
+  String exam_error_unexpected(String detail);
+
+  /// No description provided for @exam_error_emptyContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough content. Add more notes!'**
+  String get exam_error_emptyContent;
+
+  /// No description provided for @exam_error_replayFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t generate variants. Try again!'**
+  String get exam_error_replayFailed;
+
+  /// No description provided for @exam_error_evaluationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'\n⚠️ Error. Correct answer: {answer}'**
+  String exam_error_evaluationFailed(String answer);
+
+  /// No description provided for @exam_error_openFullscreenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open answer page: {error}'**
+  String exam_error_openFullscreenFailed(String error);
+
+  /// No description provided for @exam_error_openElaborationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open elaboration: {error}'**
+  String exam_error_openElaborationFailed(String error);
+
+  /// No description provided for @exam_hint_fallback.
+  ///
+  /// In en, this message translates to:
+  /// **'💡 Think about the fundamental concepts!'**
+  String get exam_hint_fallback;
+
+  /// No description provided for @exam_difficultyBoosted.
+  ///
+  /// In en, this message translates to:
+  /// **'🎯 Level up — harder questions!'**
+  String get exam_difficultyBoosted;
+
+  /// No description provided for @exam_evaluating.
+  ///
+  /// In en, this message translates to:
+  /// **'Evaluating answer…'**
+  String get exam_evaluating;
+
+  /// No description provided for @exam_replayLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'🔄 Generating review variants…'**
+  String get exam_replayLoading;
+
+  /// No description provided for @exam_emptyClustersHint.
+  ///
+  /// In en, this message translates to:
+  /// **'📝 Write some notes before starting the exam!'**
+  String get exam_emptyClustersHint;
+
+  /// No description provided for @exam_noBlindSpots.
+  ///
+  /// In en, this message translates to:
+  /// **'🌫️ No blind spots to test. You remembered everything!'**
+  String get exam_noBlindSpots;
+
+  /// No description provided for @exam_noRecognizableText.
+  ///
+  /// In en, this message translates to:
+  /// **'🔍 No recognizable text. Add written or digital text!'**
+  String get exam_noRecognizableText;
+
+  /// No description provided for @exam_topicGroup_orphan.
+  ///
+  /// In en, this message translates to:
+  /// **'Other notes'**
+  String get exam_topicGroup_orphan;
+
+  /// No description provided for @exam_antiCramming_title.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve studied recently'**
+  String get exam_antiCramming_title;
+
+  /// No description provided for @exam_antiCramming_body.
+  ///
+  /// In en, this message translates to:
+  /// **'You completed an exam on this topic {when}.'**
+  String exam_antiCramming_body(String when);
+
+  /// No description provided for @exam_antiCramming_explainer.
+  ///
+  /// In en, this message translates to:
+  /// **'Memory consolidates BETTER with spaced practice (spacing effect, Ebbinghaus 1885). Re-running the exam now feels like mastery but reduces long-term retention.'**
+  String get exam_antiCramming_explainer;
+
+  /// No description provided for @exam_antiCramming_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get exam_antiCramming_cancel;
+
+  /// No description provided for @exam_antiCramming_proceed.
+  ///
+  /// In en, this message translates to:
+  /// **'Run anyway'**
+  String get exam_antiCramming_proceed;
+
+  /// No description provided for @exam_scopeBanner_viewport.
+  ///
+  /// In en, this message translates to:
+  /// **'📍 {preselected} topics pre-selected from the visible area · Tap to edit'**
+  String exam_scopeBanner_viewport(int preselected);
+
+  /// No description provided for @exam_scopeBanner_lasso.
+  ///
+  /// In en, this message translates to:
+  /// **'🎯 {preselected} topics pre-selected from the selection · Tap to edit'**
+  String exam_scopeBanner_lasso(int preselected);
+
+  /// No description provided for @exam_scopeBanner_showAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all'**
+  String get exam_scopeBanner_showAll;
+
+  /// No description provided for @exam_scopeBanner_deselectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Deselect all'**
+  String get exam_scopeBanner_deselectAll;
+
+  /// No description provided for @exam_dashboardMenu.
+  ///
+  /// In en, this message translates to:
+  /// **'📊 Exam dashboard'**
+  String get exam_dashboardMenu;
+
+  /// No description provided for @relativeTime_secondsAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'a few seconds ago'**
+  String get relativeTime_secondsAgo;
+
+  /// No description provided for @relativeTime_minutesAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 minute ago} other{{count} minutes ago}}'**
+  String relativeTime_minutesAgo(int count);
+
+  /// No description provided for @relativeTime_hoursAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 hour ago} other{{count} hours ago}}'**
+  String relativeTime_hoursAgo(int count);
+
+  /// No description provided for @relativeTime_yesterday.
+  ///
+  /// In en, this message translates to:
+  /// **'yesterday'**
+  String get relativeTime_yesterday;
+
+  /// No description provided for @relativeTime_daysAgo.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} days ago'**
+  String relativeTime_daysAgo(int count);
+
+  /// No description provided for @chat_emptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fluera AI challenges you on your notes'**
+  String get chat_emptyTitle;
+
+  /// No description provided for @chat_emptySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The more you write first, the better it asks.'**
+  String get chat_emptySubtitle;
+
+  /// No description provided for @chat_inputPlaceholder.
+  ///
+  /// In en, this message translates to:
+  /// **'What do you want it to ask you?'**
+  String get chat_inputPlaceholder;
+
+  /// No description provided for @chat_quickFindGaps.
+  ///
+  /// In en, this message translates to:
+  /// **'🗺 Find my fragments'**
+  String get chat_quickFindGaps;
+
+  /// No description provided for @chat_quickStartQuiz.
+  ///
+  /// In en, this message translates to:
+  /// **'🎯 Quiz me'**
+  String get chat_quickStartQuiz;
+
+  /// No description provided for @chat_quickStartSocratic.
+  ///
+  /// In en, this message translates to:
+  /// **'🤺 Challenge me'**
+  String get chat_quickStartSocratic;
+
+  /// No description provided for @chat_quickCompareSource.
+  ///
+  /// In en, this message translates to:
+  /// **'🔍 Compare with source'**
+  String get chat_quickCompareSource;
+
+  /// No description provided for @chat_refusalSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'I won\'t summarize your notes — you\'ll remember them better if I quiz you. Shall we?'**
+  String get chat_refusalSoft;
+
+  /// No description provided for @chat_costBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Read in {seconds}s · 7-day recall ~{retention}%'**
+  String chat_costBadge(int seconds, int retention);
+
+  /// No description provided for @atlasMenu_commandsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Atlas commands'**
+  String get atlasMenu_commandsTitle;
+
+  /// No description provided for @atlasMenu_commandsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Free-form prompt or actions on selected nodes'**
+  String get atlasMenu_commandsSubtitle;
+
+  /// No description provided for @atlasMenu_chatTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask Fluera AI'**
+  String get atlasMenu_chatTitle;
+
+  /// No description provided for @atlasMenu_chatSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Talk about your notes'**
+  String get atlasMenu_chatSubtitle;
+
+  /// No description provided for @atlasPrompt_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Commands'**
+  String get atlasPrompt_title;
+
+  /// No description provided for @atlasPrompt_hintNoSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'What do you want to do on the canvas?'**
+  String get atlasPrompt_hintNoSelection;
+
+  /// No description provided for @atlasPrompt_hintWithSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'What do you want to do with these nodes?'**
+  String get atlasPrompt_hintWithSelection;
+
+  /// No description provided for @atlasPrompt_helpTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'What does this tool do?'**
+  String get atlasPrompt_helpTooltip;
+
+  /// No description provided for @atlasPrompt_helpTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Atlas commands'**
+  String get atlasPrompt_helpTitle;
+
+  /// No description provided for @atlasPrompt_helpIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Atlas reshapes the canvas — it does not produce content to read. To ask questions or get quizzed, use \"Ask Fluera AI\".'**
+  String get atlasPrompt_helpIntro;
+
+  /// No description provided for @atlasPrompt_helpDefaults.
+  ///
+  /// In en, this message translates to:
+  /// **'Without a selection, the quick commands (🗺️ Organize, 📐 Layout, 🔗 Connect, 🎨 Color) work on concept CLUSTERS, not on individual strokes — handwriting stays intact.'**
+  String get atlasPrompt_helpDefaults;
+
+  /// No description provided for @atlasPrompt_helpHow.
+  ///
+  /// In en, this message translates to:
+  /// **'With a lasso selection, type-specific commands appear:'**
+  String get atlasPrompt_helpHow;
+
+  /// No description provided for @atlasPrompt_help_text.
+  ///
+  /// In en, this message translates to:
+  /// **'📝 Text — Translate.'**
+  String get atlasPrompt_help_text;
+
+  /// No description provided for @atlasPrompt_help_latex.
+  ///
+  /// In en, this message translates to:
+  /// **'🧮 Formulas — Solve, Graph.'**
+  String get atlasPrompt_help_latex;
+
+  /// No description provided for @atlasPrompt_help_image.
+  ///
+  /// In en, this message translates to:
+  /// **'🖼️ Images — Describe.'**
+  String get atlasPrompt_help_image;
+
+  /// No description provided for @atlasPrompt_help_pdf.
+  ///
+  /// In en, this message translates to:
+  /// **'📄 PDF — Connect to notes.'**
+  String get atlasPrompt_help_pdf;
+
+  /// No description provided for @atlasPrompt_help_stroke.
+  ///
+  /// In en, this message translates to:
+  /// **'✍️ Handwriting — Convert to text, Analyze.'**
+  String get atlasPrompt_help_stroke;
+
+  /// No description provided for @atlasPrompt_helpFooter.
+  ///
+  /// In en, this message translates to:
+  /// **'You can also write a free-form command in the text box above (e.g. \"group the yellow nodes\").'**
+  String get atlasPrompt_helpFooter;
+
+  /// No description provided for @atlasPrompt_emptySelectionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Select nodes with the lasso to see available commands.'**
+  String get atlasPrompt_emptySelectionHint;
 }
 
 class _FlueraLocalizationsDelegate

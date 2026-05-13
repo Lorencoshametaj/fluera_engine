@@ -6,13 +6,23 @@ import 'package:flutter/material.dart';
 ///
 /// Receives a ValueNotifier of Map (userId → cursorData) from RTDB.
 /// Each cursorData contains: x, y, isDrawing, displayName, cursorColor,
-/// penType, penColor, isTyping, vx, vy, vs (viewport for follow mode).
+/// penType, penColor, isTyping, vx, vy, vs (viewport for follow mode),
+/// and `s`/`selection` (List<String> of node ids the peer has selected).
 class CanvasPresenceOverlay extends StatelessWidget {
   final ValueNotifier<Map<String, Map<String, dynamic>>> cursors;
   final Offset canvasOffset;
   final double canvasScale;
   final String? followingUserId;
   final void Function(String userId)? onFollowUser;
+
+  /// Optional lookup that turns a CRDT node id into its bounding rect in
+  /// canvas coordinates. When provided, the overlay paints a dashed
+  /// rectangle (in the peer's cursor color) around every node the peer
+  /// currently has selected — the standard "selection awareness" UX in
+  /// collaborative tools (Figma / Notion). Returning `null` for an id
+  /// silently skips that one (element since deleted, not yet replicated,
+  /// etc.).
+  final Rect? Function(String nodeId)? nodeBoundsLookup;
 
   const CanvasPresenceOverlay({
     super.key,
@@ -21,6 +31,7 @@ class CanvasPresenceOverlay extends StatelessWidget {
     required this.canvasScale,
     this.followingUserId,
     this.onFollowUser,
+    this.nodeBoundsLookup,
   });
 
   @override
@@ -32,8 +43,23 @@ class CanvasPresenceOverlay extends StatelessWidget {
 
         return Stack(
           clipBehavior: Clip.none,
-          children:
-              cursorMap.entries.map((entry) {
+          children: [
+            // Selection rects sit BEHIND the cursor markers so the tip
+            // remains tappable when the rect overlaps the cursor.
+            if (nodeBoundsLookup != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _RemoteSelectionsPainter(
+                      cursorMap: cursorMap,
+                      canvasOffset: canvasOffset,
+                      canvasScale: canvasScale,
+                      lookup: nodeBoundsLookup!,
+                    ),
+                  ),
+                ),
+              ),
+            ...cursorMap.entries.map((entry) {
                 final data = entry.value;
                 final x = (data['x'] as num?)?.toDouble() ?? 0;
                 final y = (data['y'] as num?)?.toDouble() ?? 0;
@@ -86,7 +112,8 @@ class CanvasPresenceOverlay extends StatelessWidget {
                     ),
                   ),
                 );
-              }).toList(),
+              }),
+          ],
         );
       },
     );
@@ -330,5 +357,88 @@ class _RemoteTouchIndicatorState extends State<_RemoteTouchIndicator>
         ),
       ],
     );
+  }
+}
+
+/// Paints a dashed rectangle around every node currently selected by a
+/// remote peer, in the peer's cursor color.
+///
+/// Selection ids travel inside the cursor payload (compact key `s`). The
+/// painter resolves them to canvas-coordinate bounds via [lookup] and
+/// projects each into screen space using the same camera transform as
+/// the cursor markers — so the boxes stay locked to the selected
+/// elements during pan & zoom.
+class _RemoteSelectionsPainter extends CustomPainter {
+  final Map<String, Map<String, dynamic>> cursorMap;
+  final Offset canvasOffset;
+  final double canvasScale;
+  final Rect? Function(String nodeId) lookup;
+
+  const _RemoteSelectionsPainter({
+    required this.cursorMap,
+    required this.canvasOffset,
+    required this.canvasScale,
+    required this.lookup,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final entry in cursorMap.entries) {
+      final data = entry.value;
+      final selectionRaw = data['s'] ?? data['selection'];
+      if (selectionRaw is! List || selectionRaw.isEmpty) continue;
+
+      final colorValue =
+          (data['c'] ?? data['cursorColor']) as int? ?? 0xFF42A5F5;
+      final paint = Paint()
+        ..color = Color(colorValue)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6;
+
+      for (final raw in selectionRaw) {
+        final id = raw is String ? raw : raw?.toString();
+        if (id == null || id.isEmpty) continue;
+        final bounds = lookup(id);
+        if (bounds == null) continue;
+
+        final rect = Rect.fromLTRB(
+          bounds.left * canvasScale + canvasOffset.dx,
+          bounds.top * canvasScale + canvasOffset.dy,
+          bounds.right * canvasScale + canvasOffset.dx,
+          bounds.bottom * canvasScale + canvasOffset.dy,
+        ).inflate(2);
+
+        _drawDashedRect(canvas, rect, paint);
+      }
+    }
+  }
+
+  /// Draw a rounded dashed rectangle. Dash length scales mildly with the
+  /// camera scale so we don't get a solid line at extreme zoom-in.
+  void _drawDashedRect(Canvas canvas, Rect rect, Paint paint) {
+    const dash = 5.0;
+    const gap = 4.0;
+    final path = Path()
+      ..addRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)));
+    final metrics = path.computeMetrics();
+    for (final metric in metrics) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final next = (distance + dash).clamp(0.0, metric.length);
+        canvas.drawPath(
+          metric.extractPath(distance, next),
+          paint,
+        );
+        distance = next + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RemoteSelectionsPainter old) {
+    return old.cursorMap != cursorMap ||
+        old.canvasOffset != canvasOffset ||
+        old.canvasScale != canvasScale ||
+        old.lookup != lookup;
   }
 }

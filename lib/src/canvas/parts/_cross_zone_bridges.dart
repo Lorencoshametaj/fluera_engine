@@ -36,6 +36,13 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
       return;
     }
 
+    // 💳 Tier gate: Free is view-only (0/week), Pro is unlimited.
+    // Gate check AFTER aiProvider readiness to avoid wasting a usage credit
+    // on an environment where the AI is unreachable.
+    if (!_checkTierGate(GatedFeature.crossDomainInteractive)) {
+      return;
+    }
+
     // Haptic feedback: starting
     HapticFeedback.mediumImpact();
 
@@ -55,6 +62,8 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
       clusters: _clusterCache,
       clusterTexts: _clusterTextCache,
       clusterTitles: titleCache,
+      index: _clusterConceptIndex,
+      tier: _tierGateController.tier.name,
     );
 
     debugPrint('🌉 [CrossZone] AI returned $count bridge suggestions');
@@ -62,6 +71,24 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
     if (count > 0) {
       // Gentle haptic confirmation
       HapticFeedback.lightImpact();
+    } else if (mounted && _clusterCache.length >= 2) {
+      // Zero-result UX: the AI returned nothing despite ≥2 zones.
+      // Most common cause: not enough content depth, or all candidate
+      // pairs were dismissed before. Nudge the student instead of going silent.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Continua a disegnare in nuove zone — Atlas troverà '
+            'connessioni quando il contenuto cresce.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
 
     if (mounted) setState(() {});
@@ -72,10 +99,57 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
   /// Called when the student taps a ghost dashed golden line.
   /// Returns the materialized connection for optional navigation.
   KnowledgeConnection? acceptCrossZoneBridge(String suggestionId) {
+    // 💳 Tier gate: Free cannot materialize bridges (view-only).
+    // Defense-in-depth — request gate already blocks suggestions, but a
+    // downgrade-from-Pro user could still have ghost suggestions in flight.
+    // No recordUsage here: the credit is consumed at request time.
+    final result = _tierGateController.checkFeature(
+      GatedFeature.crossDomainInteractive,
+    );
+    if (!result.allowed) {
+      if (mounted && result.upgradeMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.upgradeMessage!),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+            duration: const Duration(seconds: 5),
+            backgroundColor: const Color(0xFF6A1B9A),
+          ),
+        );
+      }
+      return null;
+    }
     final conn = _crossZoneBridgeController?.acceptBridge(suggestionId);
     if (conn != null) {
       HapticFeedback.lightImpact();
       debugPrint('🌉 [CrossZone] Bridge accepted: ${conn.id}');
+
+      // 🧩 F9: materialize the bridge as a stroke connector so it lives in
+      // the scene-graph (exportable, undoable as 1 entry, survives reload).
+      // The KnowledgeConnection above stays — it's the LOGICAL layer for
+      // FSRS / Socratic seed / cross-session persistence. The connector is
+      // the VISUAL layer. Fire-and-forget: never block the UI on
+      // materialization, accept feedback (the haptic) already fired.
+      final byId = {for (final c in _clusterCache) c.id: c};
+      unawaited(_crossZoneBridgeController!
+          .materializeAsStrokeConnector(
+        bridge: conn,
+        layerController: _layerController,
+        clusterResolver: (id) => byId[id],
+      )
+          .then((_) {
+        if (!mounted) return;
+        _layerController.sceneGraph.bumpVersion();
+        DrawingPainter.invalidateAllTiles();
+        _canvasController.markNeedsPaint();
+        setState(() {});
+      }).catchError((e) {
+        debugPrint('🌉 [CrossZone] Materialize failed: $e');
+      }));
     }
     if (mounted) setState(() {});
     return conn;
@@ -198,6 +272,56 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
   int get crossZoneBridgeCount =>
       _knowledgeFlowController?.crossZoneBridgeCount ?? 0;
 
+  /// 🌉 Seed the active Socratic session with `transfer`-type questions
+  /// derived from recently accepted Cross-Zone Bridges (last 7 days).
+  ///
+  /// Returns the number of seeds added — `0` when there is no active
+  /// Socratic session, no qualifying bridges, or every bridge has an
+  /// empty `bridgeSocraticQuestion`. Surfaces a SnackBar on success so
+  /// the student sees the connection between "Approfondisci ponte" and
+  /// the new questions appearing in the Socratic queue.
+  int seedSocraticFromRecentBridges({int withinDays = 7}) {
+    final ctrl = _crossZoneBridgeController;
+    if (ctrl == null) return 0;
+    if (!_socraticController.isActive) return 0;
+
+    final bridges = ctrl.recentAcceptedBridges(withinDays: withinDays);
+    if (bridges.isEmpty) return 0;
+
+    final seeds = <({String clusterId, Offset anchorPosition, String question})>[];
+    for (final b in bridges) {
+      final q = b.bridgeSocraticQuestion?.trim() ?? '';
+      if (q.isEmpty) continue;
+      // Anchor at the midpoint of the bridge so the bubble materializes
+      // near the visual ponte the student already saw.
+      final src = b.sourceAnchor ?? Offset.zero;
+      final tgt = b.targetAnchor ?? Offset.zero;
+      final anchor = Offset((src.dx + tgt.dx) / 2, (src.dy + tgt.dy) / 2);
+      seeds.add((clusterId: b.sourceClusterId, anchorPosition: anchor, question: q));
+    }
+    if (seeds.isEmpty) return 0;
+
+    final added = _socraticController.seedFromBridges(seeds);
+    if (added > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Aggiunti $added ponti recenti alla sessione Socratica.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.only(bottom: 80, left: 20, right: 20),
+          duration: const Duration(seconds: 3),
+          backgroundColor: const Color(0xFFF9A825), // golden accent
+        ),
+      );
+      setState(() {});
+    }
+    return added;
+  }
+
   /// Whether Step 9 is available (≥2 zones with sufficient content).
   bool get canActivateCrossZoneBridges {
     final gate = _stepGateController.evaluateGate(
@@ -217,7 +341,57 @@ extension CrossZoneBridgesExtension on _FlueraCanvasScreenState {
     _crossZoneBridgeController = CrossZoneBridgeController(
       flowController: flowCtrl,
       telemetry: widget.config.telemetry,
+      canvasId: _canvasId,
+      onBridgeAccepted: _applyBridgeFsrsBump,
     );
+  }
+
+  /// Apply an FSRS consolidation bump on both clusters of an accepted bridge.
+  ///
+  /// Pedagogical rationale: Bjork (1994) "desirable difficulty" — a concept
+  /// successfully transferred across domains has demonstrated retrievability
+  /// in a novel context, which is a stronger memory consolidation signal
+  /// than a straight rote review. Modeled as `quality=2` (correct recall)
+  /// on the cluster's SRS card via the standard FSRS formula.
+  void _applyBridgeFsrsBump({
+    required String sourceClusterId,
+    required String targetClusterId,
+    required CrossZoneBridgeType bridgeType,
+    required String socraticQuestion,
+  }) {
+    final today = DateTime.now();
+    final todayKey = DateTime(today.year, today.month, today.day);
+
+    // 🎓 Triennial-scale: opportunistic cleanup of the bump-tracking map.
+    // Entries older than 30 days serve no purpose (cap is 1×/cluster/day,
+    // so anything past today is non-functional). Pruning here keeps the
+    // map small on a 3-year canvas without needing a scheduled job.
+    final cutoff = today.subtract(const Duration(days: 30));
+    _bridgeFsrsBumpLastDay
+        .removeWhere((_, lastBump) => lastBump.isBefore(cutoff));
+
+    for (final clusterId in [sourceClusterId, targetClusterId]) {
+      final lastBump = _bridgeFsrsBumpLastDay[clusterId];
+      if (lastBump != null && !todayKey.isAfter(lastBump)) {
+        // Already bumped this cluster today — skip (gaming guard).
+        continue;
+      }
+
+      final concept = _clusterConceptIndex?.peek(clusterId);
+      if (concept == null || concept.concepts.isEmpty) continue;
+
+      bool didBump = false;
+      for (final conceptName in concept.concepts) {
+        final card = _reviewSchedule[conceptName];
+        if (card == null) continue;
+        _reviewSchedule[conceptName] =
+            FsrsScheduler.review(card, quality: 2);
+        didBump = true;
+      }
+      if (didBump) {
+        _bridgeFsrsBumpLastDay[clusterId] = todayKey;
+      }
+    }
   }
 
   /// 🌉 Show a Socratic confirmation dialog for an AI bridge suggestion.

@@ -51,6 +51,13 @@ class SelectionTransformOverlay extends StatefulWidget {
 
 class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
     with TickerProviderStateMixin {
+  // 🤏 Live pointer count for the drag area. When a 2nd finger touches
+  // down on (or near) the selection, we MUST yield the in-flight pan so
+  // the canvas-level ScaleGestureRecognizer can claim both pointers and
+  // route them to the selection-pinch handler instead of letting pan keep
+  // dragging the selection with one finger.
+  int _activePointers = 0;
+
   // Handle attualmente trascinato
   _HandleType? _activeHandle;
   Offset? _dragStart;
@@ -160,8 +167,30 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
             : _settleOpacity;
     final activeLayer = widget.lassoTool.layerController.activeLayer;
 
-    return Stack(
-      children: [
+    return Listener(
+      // 🤏 Track live pointer count so we can yield to 2-finger pinch
+      // on the selection. Without this the GestureDetector below claims
+      // pointer 1 for `onPanStart` (drags the selection with 1 finger),
+      // and the 2nd finger never reaches the canvas-level scale recognizer.
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (_) {
+        _activePointers++;
+        // 2nd finger arrived mid-drag → end the drag NOW so scale takes over.
+        if (_activePointers >= 2 && widget.lassoTool.isDragging) {
+          widget.lassoTool.endDrag(skipReflow: true);
+          DrawingPainter.forceDirectRender = false;
+          DrawingPainter.invalidateAllTiles();
+          if (mounted) setState(() {});
+        }
+      },
+      onPointerUp: (_) {
+        if (_activePointers > 0) _activePointers--;
+      },
+      onPointerCancel: (_) {
+        if (_activePointers > 0) _activePointers--;
+      },
+      child: Stack(
+        children: [
         // 🌊 REFLOW: Ghost preview — always in tree to avoid gesture disruption
         Positioned.fill(
           child: IgnorePointer(
@@ -187,6 +216,10 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onPanStart: (details) {
+              // 🤏 If 2 fingers are already down, this is a pinch — don't
+              // claim the gesture as a drag. Returning before startDrag
+              // leaves both pointers free for the canvas scale recognizer.
+              if (_activePointers >= 2) return;
               // 🌊 FLING/SNAP: Cancel any active animation on new touch
               if (_isFlingActive || _isSnapSpringActive) {
                 _flingController.stop();
@@ -206,6 +239,8 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
               DrawingPainter.forceDirectRender = true;
             },
             onPanUpdate: (details) {
+              // 🤏 Mid-drag a 2nd finger touched down → bail.
+              if (_activePointers >= 2) return;
               final canvasPos = widget.canvasController.screenToCanvas(
                 details.globalPosition,
               );
@@ -292,6 +327,7 @@ class _SelectionTransformOverlayState extends State<SelectionTransformOverlay>
           _buildEdgeZone(screenBounds, _HandleType.middleRight, center),
         ],
       ],
+      ),
     );
   }
 

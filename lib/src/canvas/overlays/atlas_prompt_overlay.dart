@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 
 /// 🌌 ATLAS PROMPT OVERLAY — Floating AI command input.
 ///
@@ -20,7 +21,12 @@ class AtlasPromptOverlay extends StatefulWidget {
   final int selectedNodeCount;
 
   /// Called when the user submits a prompt.
-  final ValueChanged<String> onSubmit;
+  ///
+  /// [forceCluster] is true when the prompt comes from a preset chip
+  /// (Organizza / Layout / Collega / Colora) that must operate on
+  /// concept clusters rather than individual nodes. When false the
+  /// caller may infer mode from canvas state. See F8.
+  final void Function(String prompt, {bool forceCluster}) onSubmit;
 
   /// Called when the user dismisses the overlay.
   final VoidCallback onDismiss;
@@ -93,13 +99,13 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
     });
   }
 
-  void _doSubmit([String? overrideText]) {
+  void _doSubmit([String? overrideText, bool forceCluster = false]) {
     if (_submitted || widget.isLoading) return;
     final text = (overrideText ?? _controller.text).trim();
     if (text.isEmpty) return;
     _submitted = true;
     HapticFeedback.mediumImpact();
-    widget.onSubmit(text);
+    widget.onSubmit(text, forceCluster: forceCluster);
   }
 
   void _dismiss() {
@@ -108,6 +114,116 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
     widget.onDismiss();
     _animController.reverse();
   }
+
+  /// Bottom sheet that explains the default command chips. Surfaced from
+  /// the (i) icon in the header. Users frequently confuse this overlay
+  /// with the conversational "Chiedi a Fluera AI" surface; the footer of
+  /// the sheet points them there for content questions.
+  void _showHelpSheet() {
+    HapticFeedback.selectionClick();
+    final l10n = FlueraLocalizations.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF12122A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 18),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                l10n?.atlasPrompt_helpTitle ?? 'Atlas commands',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                l10n?.atlasPrompt_helpIntro ??
+                    'Atlas reshapes the canvas — it does not produce content to read.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                l10n?.atlasPrompt_helpDefaults ??
+                    'Without a selection, the quick commands work on concept CLUSTERS.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                l10n?.atlasPrompt_helpHow ??
+                    'With a lasso selection, type-specific commands appear:',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _helpRow(l10n?.atlasPrompt_help_text
+                  ?? '📝 Text — Translate.'),
+              _helpRow(l10n?.atlasPrompt_help_latex
+                  ?? '🧮 Formulas — Solve, Graph.'),
+              _helpRow(l10n?.atlasPrompt_help_image
+                  ?? '🖼️ Images — Describe.'),
+              _helpRow(l10n?.atlasPrompt_help_pdf
+                  ?? '📄 PDF — Connect to notes.'),
+              _helpRow(l10n?.atlasPrompt_help_stroke
+                  ?? '✍️ Handwriting — Convert to text, Analyze.'),
+              const SizedBox(height: 12),
+              Text(
+                l10n?.atlasPrompt_helpFooter ??
+                    'You can also write a free-form command in the text box above.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _helpRow(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.85),
+            fontSize: 13,
+            height: 1.5,
+          ),
+        ),
+      );
 
   @override
   void dispose() {
@@ -126,12 +242,38 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
     final items = <_SuggestionItem>[];
 
     if (!widget.hasSelection || types.isEmpty) {
-      // No selection — general-purpose suggestions
+      // No selection → CLUSTER-mode preset chips.
+      //
+      // These chips dispatch in cluster mode (F8) so commands like
+      // "Organizza" operate on concept groups rather than individual
+      // strokes — fixing the scatter-the-handwriting bug. Each chip's
+      // prompt is phrased in terms of "cluster" so the AI's response
+      // stays aligned with the cluster system prompt.
       return const [
-        _SuggestionItem('💡', 'Brainstorm', 'generate new ideas and expand on concepts'),
-        _SuggestionItem('🗺️', 'Organizza', 'organize these nodes into a concept map'),
-        _SuggestionItem('📐', 'Layout', 'arrange and align nodes neatly'),
-        _SuggestionItem('📋', 'Riassumi', 'summarize the visible content'),
+        _SuggestionItem(
+          '🗺️',
+          'Organizza',
+          'organizza i cluster visibili in una mappa concettuale per topic',
+          forceCluster: true,
+        ),
+        _SuggestionItem(
+          '📐',
+          'Layout',
+          'allinea e distribuisci i cluster in modo pulito',
+          forceCluster: true,
+        ),
+        _SuggestionItem(
+          '🔗',
+          'Collega',
+          'connetti cluster con relazioni semantiche evidenti',
+          forceCluster: true,
+        ),
+        _SuggestionItem(
+          '🎨',
+          'Colora',
+          'colora i cluster per topic',
+          forceCluster: true,
+        ),
       ];
     }
 
@@ -141,17 +283,19 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
       items.add(const _SuggestionItem('🔍', 'Analizza', '_ANALYZE_'));
     }
 
-    // Text-specific
+    // Text-specific. "Riassumi" removed: would produce a passive read of
+    // AI-generated content (§3 Generation, §11 Fluency).
     if (types.contains('text')) {
       items.add(const _SuggestionItem('🌐', 'Traduci', 'translate the selected text to English'));
-      items.add(const _SuggestionItem('📋', 'Riassumi', 'summarize the selected content'));
     }
 
-    // LaTeX-specific
+    // LaTeX-specific. "Spiega" removed: explanation is passive consumption
+    // (§6 Levels of Processing). "Risolvi" kept as a workflow utility but
+    // worth revisiting — solving for the student trades short-term help for
+    // long-term Productive Failure (T4).
     if (types.contains('latex')) {
       items.add(const _SuggestionItem('🧮', 'Risolvi', 'solve this equation step by step'));
       items.add(const _SuggestionItem('📊', 'Grafica', 'graph this function'));
-      items.add(const _SuggestionItem('🔍', 'Spiega', 'explain this formula in detail'));
     }
 
     // Image-specific
@@ -159,17 +303,20 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
       items.add(const _SuggestionItem('🏷️', 'Descrivi', 'describe what is in this image'));
     }
 
-    // PDF-specific
+    // PDF-specific. "Riassumi sul PDF" removed: violates
+    // feedback_pdf_is_source_not_ai_input — the PDF is the source, not an
+    // input the AI feeds back as a digested summary.
     if (types.contains('pdf')) {
-      items.add(const _SuggestionItem('📋', 'Riassumi', 'summarize the key points of this document'));
+      items.add(const _SuggestionItem('🔗', 'Collega', 'find connections between this PDF and the visible notes'));
     }
 
-    // Universal actions (always available when selection exists)
+    // Universal actions (always available when selection exists).
+    // "Brainstorm" removed: the AI would generate ideas the student reads
+    // passively (§3 Generation Effect).
     if (!items.any((i) => i.label == 'Analizza')) {
       items.add(const _SuggestionItem('🔍', 'Analizza', '_ANALYZE_'));
     }
     items.add(const _SuggestionItem('🔗', 'Connetti', 'find and create connections between these nodes'));
-    items.add(const _SuggestionItem('💡', 'Brainstorm', 'generate new ideas related to this content'));
 
     // Deduplicate by label (keep first)
     final seen = <String>{};
@@ -249,9 +396,13 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                 ),
               ),
               const SizedBox(width: 8),
-              // Title — neutral voice, no brand character
+              // Title — neutral voice, no brand character.
+              // "Comandi" (was "Chiedi") makes the action-only nature of this
+              // overlay explicit: it sends commands that act on canvas nodes,
+              // not conversational questions (those live in the Chiedi a
+              // Fluera AI chat overlay).
               Text(
-                'Chiedi',
+                FlueraLocalizations.of(context)?.atlasPrompt_title ?? 'Commands',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -260,6 +411,24 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                 ),
               ),
               const Spacer(),
+              // Info button — explains what the command chips do.
+              // Added because the chips ("Organizza", "Layout", "Collega",
+              // "Colora") read as commands of unclear scope; the bottom
+              // sheet clarifies that Atlas reshapes the canvas vs the
+              // separate "Chiedi a Fluera AI" surface that converses.
+              Tooltip(
+                message: FlueraLocalizations.of(context)?.atlasPrompt_helpTooltip
+                    ?? 'What do these commands do?',
+                child: GestureDetector(
+                  onTap: _showHelpSheet,
+                  child: Icon(
+                    Icons.info_outline_rounded,
+                    size: 16,
+                    color: Colors.white.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               // Selection badge
               if (widget.hasSelection)
                 Container(
@@ -340,8 +509,8 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
                     isDense: true,
                     isCollapsed: true,
                     hintText: widget.hasSelection
-                        ? 'Cosa vuoi fare con questi nodi?'
-                        : 'Chiedi qualcosa\u2026',
+                        ? (FlueraLocalizations.of(context)?.atlasPrompt_hintWithSelection ?? 'What do you want to do with these nodes?')
+                        : (FlueraLocalizations.of(context)?.atlasPrompt_hintNoSelection ?? 'What do you want to do on the canvas?'),
                     hintStyle: TextStyle(
                       fontSize: 14,
                       color: Colors.white.withValues(alpha: 0.55),
@@ -400,7 +569,7 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: const Color(0x990D0D14),
             borderRadius: BorderRadius.circular(14),
@@ -409,14 +578,32 @@ class _AtlasPromptOverlayState extends State<AtlasPromptOverlay>
               width: 0.5,
             ),
           ),
-          child: Wrap(
+          child: suggestions.isEmpty
+              ? Row(children: [
+                  Icon(Icons.touch_app_rounded,
+                      size: 14, color: Colors.white.withValues(alpha: 0.4)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      FlueraLocalizations.of(context)
+                              ?.atlasPrompt_emptySelectionHint ??
+                          'Select nodes with the lasso to see commands.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white.withValues(alpha: 0.55),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ),
+                ])
+              : Wrap(
             spacing: 5,
             runSpacing: 4,
             children: suggestions.map((item) {
               return GestureDetector(
                 onTap: () {
                   HapticFeedback.selectionClick();
-                  _doSubmit(item.prompt);
+                  _doSubmit(item.prompt, item.forceCluster);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -562,7 +749,18 @@ class _SuggestionItem {
   final String icon;
   final String label;
   final String prompt;
-  const _SuggestionItem(this.icon, this.label, this.prompt);
+
+  /// When true, the prompt is dispatched in CLUSTER mode regardless of
+  /// the current selection. Default false: existing chips operate on
+  /// the user's lasso selection at node granularity.
+  final bool forceCluster;
+
+  const _SuggestionItem(
+    this.icon,
+    this.label,
+    this.prompt, {
+    this.forceCluster = false,
+  });
 }
 
 // =============================================================================

@@ -1,5 +1,13 @@
 part of '../fluera_canvas_screen.dart';
 
+/// 💾 Op-log threshold above which the CRDT snapshot is rotated.
+///
+/// Picked as a balance between rehydration cost (linear in ops since the
+/// last snapshot) and snapshot write cost (quadratic-ish in node count).
+/// Multi-hour drawing sessions will fold ~every 500 mutations into a fresh
+/// snapshot, capping cold-start replay at well under a second.
+const int _kCrdtSnapshotEveryOps = 500;
+
 /// 📦 Collaboration & Sync — generic SDK implementation.
 ///
 /// Checks permissions and presence via [FlueraCanvasConfig] providers.
@@ -17,16 +25,36 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     if (userId == null) return;
 
     try {
-      // Check permissions via config provider
+      // Check permissions via config provider.
+      //
+      // The permission provider is wired unconditionally (every canvas in a
+      // signed-in session, not only the shared ones), so we can't infer
+      // "this canvas is shared" from `permissions != null`. The contract is:
+      //
+      //   • canEdit returns true  → owner, or editor-role share, or local-
+      //                              only canvas not yet in cloud. Treat as
+      //                              non-shared from the UI standpoint
+      //                              unless the host has tagged it via
+      //                              `permissions.currentUserRole`.
+      //   • canEdit returns false → explicit viewer share (the only case
+      //                              where we engage view-only mode).
       if (_config.permissions != null) {
         final permissionCheckId = widget.infiniteCanvasId ?? _canvasId;
         final canEdit = await _config.permissions!.canEdit(permissionCheckId);
+        final role = _config.permissions!.currentUserRole;
+        // Canvas is "shared" — i.e. has at least one peer that may show up
+        // on the realtime channel — when:
+        //   • we are an editor or viewer recipient, OR
+        //   • we own the canvas AND have already invited at least one peer.
+        // 'owner' (no shares yet) and 'none' / unknown stay non-shared.
+        final isShared = role == 'editor' ||
+            role == 'viewer' ||
+            role == 'owner-shared';
 
         if (mounted) {
           setState(() {
-            _isSharedCanvas =
-                true; // If permissions provider is set, canvas is shared
-            _isViewerMode = !canEdit;
+            _isSharedCanvas = isShared;
+            _isViewerMode = (role == 'viewer' || role == 'editor') && !canEdit;
           });
         }
       }
@@ -37,11 +65,66 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         _config.presence!.joinCanvas(permissionCheckId);
       }
 
-      // 🔴 Initialize real-time engine if adapter is available
-      if (_hasRealtimeCollab && _config.realtimeAdapter != null) {
+      // 🔒 Live permission watch. The provider may emit role changes
+      // mid-session (owner revokes our editor share, downgrades us to
+      // viewer, etc). Without this we only re-check on canvas reopen,
+      // letting a revoked editor keep broadcasting until they close
+      // and reopen the canvas. Implementations may opt out by returning
+      // null — the legacy "check-once" behavior.
+      if (_config.permissions != null) {
+        final permissionCheckId = widget.infiniteCanvasId ?? _canvasId;
+        final stream =
+            _config.permissions!.canEditChanges(permissionCheckId);
+        _permissionSubscription?.cancel();
+        _permissionSubscription =
+            stream?.listen(_onPermissionChanged);
+      }
+
+      // 🔴 Initialize real-time engine only when:
+      //   • the tier permits collaboration AND a transport adapter is wired,
+      //   • AND the canvas is actually shared (a non-shared canvas has no
+      //     remote peers, so subscribing to its broadcast channel just
+      //     burns Supabase bandwidth and surfaces a misleading "Live" badge).
+      if (_hasRealtimeCollab &&
+          _config.realtimeAdapter != null &&
+          _isSharedCanvas) {
+        // 🔄 Resolve the local peer identity FIRST — the engine uses it as
+        // its broadcast `senderId` (and self-echo filter), so two windows
+        // of the same auth user must produce distinct broadcast ids or
+        // they'll filter each other's events as own-echo and never see
+        // remote strokes.
+        //
+        // Multi-device installs override `config.getDeviceId` with a
+        // stable per-device UUID so two phones for the same user don't
+        // collapse to one peerId at HLC tie-break time. We then append
+        // a per-process session nonce ("{deviceId}-{nonce}") so the same
+        // device opening the canvas in two windows / two app instances
+        // doesn't produce colliding opIds either: the CRDT generates
+        // opIds as `${peerId}_${counter}` and `_opCounter` is in-memory,
+        // so without the nonce two processes would each emit counter
+        // 0,1,2,… and the remote dedup (`_appliedOps.contains`) would
+        // silently drop the second one. base36 24-bit nonce → collision
+        // risk negligible per session; the per-canvas counter resume via
+        // `maxOpCounterForPeer` still works because the new peerId is
+        // unique to this session.
+        final deviceId = (await _config.getDeviceId?.call()) ?? userId;
+        final sessionNonce =
+            math.Random().nextInt(1 << 24).toRadixString(36);
+        final resolvedPeerId = '$deviceId-$sessionNonce';
+        _crdtPeerId = resolvedPeerId;
+
+        // Stamp every mutation we author with this peerId so the undo
+        // manager can filter "mine" vs "teammate's" — `Ctrl+Z` reverts
+        // only deltas whose actorId matches localActorId.
+        _layerController.localActorId = resolvedPeerId;
+
         _realtimeEngine = FlueraRealtimeEngine(
           adapter: _config.realtimeAdapter!,
-          localUserId: userId,
+          // The engine's `localUserId` is semantically "broadcast id":
+          // it's stamped onto every outbound senderId and used to drop
+          // self-echoes. Pass the peerId, not the auth userId, so two
+          // browsers for the same user don't filter each other.
+          localUserId: resolvedPeerId,
           conflictResolver: ConflictResolver(
             onUnresolved: (conflict) {
               // Show conflict resolution dialog when auto-resolve fails
@@ -61,6 +144,177 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
           _onRemoteRealtimeEvent,
         );
 
+        // 💾 Bind the CRDT persistence layer. We re-use the same SQLite
+        // database that owns the canvas tables (the only adapter that
+        // currently exposes a Database is SqliteStorageAdapter); other
+        // backends keep working in pure-online mode (persistence == null).
+        final adapter = _config.storageAdapter;
+        if (adapter is SqliteStorageAdapter && adapter.isInitialized) {
+          _crdtPersistence = CRDTPersistence(adapter.database);
+        }
+
+        // 🔄 Wire the CRDT capture/apply pipeline. Every LayerController
+        // mutation produces a CRDTOperation that broadcasts via the realtime
+        // engine; every incoming op is replayed on the local LayerController
+        // inside the observer's runSilently window so we never re-broadcast
+        // a remote change.
+        final crdt = CRDTSceneGraph(localPeerId: resolvedPeerId);
+        final persistence = _crdtPersistence;
+        final canvasId = _canvasId;
+        final engine = _realtimeEngine!;
+        final observer = CRDTLayerControllerObserver(
+          crdt,
+          onLocalOperation: (op) async {
+            // Try to persist BEFORE broadcasting (write-then-send) so a
+            // crash between the two doesn't lose the mutation. If the DB
+            // is briefly contended (SQLITE_BUSY past `busy_timeout`) we
+            // still broadcast — peers prefer a momentarily-unpersisted
+            // duplicate over a silently-dropped stroke. The CRDT layer
+            // dedups by opId on either side.
+            bool persisted = false;
+            if (persistence != null) {
+              try {
+                await persistence.insertOp(canvasId, op);
+                if (mounted) _crdtPendingOpsNotifier.value++;
+                persisted = true;
+              } catch (_) {
+                // Local persistence failed — continue to broadcast anyway.
+              }
+            }
+            // Await the actual wire send. broadcastCRDTOperation returns
+            // true ONLY after `_adapter.broadcast` resolved cleanly. When
+            // it returns false the engine has parked the event in its
+            // in-memory offline queue, but we keep `sent_at` NULL so the
+            // SQLite outbox + periodic drain can retry until the network
+            // accepts it (Supabase Broadcast has no ack channel — without
+            // this, transient packet loss silently drops strokes).
+            final delivered = await engine.broadcastCRDTOperation(op);
+            if (persistence != null && persisted && delivered) {
+              try {
+                await persistence.markBroadcast(op.opId);
+              } catch (_) {}
+              if (mounted) {
+                _crdtPendingOpsNotifier.value =
+                    (_crdtPendingOpsNotifier.value - 1).clamp(0, 1 << 31);
+              }
+            }
+            // 📜 Server-side op log: fire-and-forget after the wire send
+            // succeeded. Lets a peer that comes back online after a long
+            // offline window catch up incrementally via opsSince(...) on
+            // canvas open instead of waiting for the next snapshot diff.
+            // Only push when we actually delivered — otherwise the
+            // broadcast catch-up flow already handles re-emission.
+            final cloud = _config.cloudAdapter;
+            if (delivered && cloud != null) {
+              unawaited(
+                cloud
+                    .uploadOp(
+                      canvasId,
+                      opId: op.opId,
+                      peerId: op.peerId,
+                      tsMs: op.timestamp.physicalMs,
+                      counter: op.timestamp.counter,
+                      opType: op.type.name,
+                      nodeId: op.nodeId.isEmpty ? null : op.nodeId,
+                      payloadJson: op.toJson(),
+                    )
+                    .catchError((_) {}),
+              );
+            }
+          },
+        );
+        _crdtSceneGraph = crdt;
+        _crdtMutationObserver = observer;
+        _crdtApplier = CRDTToLayerControllerApplier(
+          crdt: crdt,
+          layerController: _layerController,
+          observer: observer,
+        );
+
+        // 💾 Hybrid rehydration: load the snapshot as a baseline, then apply
+        // only the ops produced strictly after the snapshot HLC. Falls back
+        // to a full op-log replay when no snapshot exists (first session).
+        // Runs inside `runSilently` so the observer doesn't re-broadcast.
+        if (persistence != null) {
+          await observer.runSilently(() async {
+            final snap = await persistence.loadSnapshot(canvasId);
+            final List<CRDTOperation> opsToReplay;
+            if (snap != null) {
+              _crdtSceneGraph!.mergeState(
+                CRDTSceneGraph.fromJson(snap.graphJson),
+              );
+              opsToReplay = await persistence.opsSinceHlc(
+                canvasId: canvasId,
+                tsMs: snap.hlc.physicalMs,
+                counter: snap.hlc.counter,
+                peerIdTieBreak: snap.hlc.peerId,
+              );
+            } else {
+              opsToReplay = await persistence.loadAllOps(canvasId);
+            }
+            for (final op in opsToReplay) {
+              _crdtApplier!.applyRemote(op);
+            }
+          });
+
+          // 🔄 Resume the local op-counter past anything we have already
+          // produced on this canvas. The CRDT's _opCounter resets to 0
+          // each process start; without this, the first op of a new
+          // session reuses an opId from the previous session and remote
+          // peers silently dedup it (their _appliedOps already contains
+          // the id, restored from THEIR persistent log).
+          final maxCounter = await persistence.maxOpCounterForPeer(
+            canvasId: canvasId,
+            peerId: resolvedPeerId,
+          );
+          crdt.advanceOpCounterTo(maxCounter + 1);
+        }
+
+        // Initialize the pending-ops badge from the persisted outbox: any
+        // op produced offline in a previous session is still NULL until the
+        // first reconnect drain.
+        if (persistence != null) {
+          final pending = await persistence.unsentOps(canvasId);
+          if (mounted) _crdtPendingOpsNotifier.value = pending.length;
+        }
+
+        // 📜 Server-side catch-up: ask the cloud for every op the local
+        // CRDT graph hasn't seen. This is the recovery path for a peer
+        // that was offline while another peer was actively editing — the
+        // live broadcast they missed is replayed from `operations_log`.
+        // Runs after local rehydration so we know our own high-water HLC,
+        // and before observer registration so the catch-up replay doesn't
+        // bounce back through onLocalOperation.
+        await _catchUpFromCloudOpsLog(crdt, canvasId);
+
+        // Now that local replay is complete, start observing user mutations.
+        _crdtMutationUnsubscribe =
+            _layerController.addMutationObserver(observer.onMutation);
+
+        // Subscribe to remote ops AFTER replay so we never apply the same
+        // op twice (the persisted log already contains them).
+        //
+        // Apply to the in-memory LayerController FIRST, persist second:
+        // the user's main feedback loop is "see the stroke appear", and
+        // SQLite contention (busy_timeout exhaustion under load) must not
+        // be allowed to drop visible strokes. The CRDT graph dedups by
+        // opId so a future restart-driven replay won't double-apply.
+        //
+        // Coalesce ops arriving in the same microtask burst: the pixel
+        // eraser sends `removeNode` immediately followed by 1-2 `addNode`
+        // ops for the surviving fragments. Applying each op separately
+        // triggers a paint frame between the remove and the adds → user
+        // sees the parent stroke briefly disappear (visible "flash").
+        // Batching with `beginBatch`/`endBatch` defers `notifyListeners`
+        // until every op in the burst has been applied, so the swap is
+        // atomic from the renderer's POV.
+        _crdtOpSubscription = engine.incomingCRDTOperations.listen((op) {
+          _pendingRemoteOps.add(op);
+          _pendingRemoteOpsTimer?.cancel();
+          _pendingRemoteOpsTimer =
+              Timer(Duration.zero, _flushPendingRemoteOps);
+        });
+
         // Connect cursor stream → CanvasPresenceOverlay ValueNotifier
         _realtimeEngine!.remoteCursors.addListener(_onRemoteCursorsChanged);
 
@@ -69,13 +323,40 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
         // 🔄 #2 Auto-retry pending recording downloads on reconnect
         // 📡 #8 Auto-upload queued offline recordings
+        // 💾 Drain CRDT outbox: any local op produced while offline is
+        //    rebroadcast in HLC order on reconnect.
         _realtimeEngine!.connectionState.addListener(() {
           if (_realtimeEngine!.connectionState.value ==
               RealtimeConnectionState.connected) {
             _retryPendingRecordingDownloads();
             _syncOfflineUploads();
+            _drainCRDTOutbox().then((_) => _maybeRotateCrdtSnapshot());
           }
         });
+
+        // 💾 Initial drain: the listener above fires only on STATE
+        // CHANGES, but `engine.connect()` already set the state to
+        // `connected` synchronously above. Without this kick, ops
+        // produced offline in a previous session would have to wait
+        // for the next 5s periodic timer or a disconnect-reconnect
+        // cycle. Cheap (no-op when outbox is empty).
+        if (_realtimeEngine!.connectionState.value ==
+            RealtimeConnectionState.connected) {
+          unawaited(_drainCRDTOutbox());
+        }
+
+        // 💾 Periodic safety net for transient broadcast failures. Supabase
+        // Broadcast has no ack channel: when the wire send raises (timeout,
+        // backpressure, brief network blip) the op stays NULL in `sent_at`
+        // and would otherwise wait until the next reconnect to flush. Five
+        // seconds is short enough to feel "instant" on the receiver under
+        // typical drops, long enough to coalesce naturally with the
+        // observer-driven drain so we don't shadow-flood the channel.
+        _crdtOutboxDrainTimer?.cancel();
+        _crdtOutboxDrainTimer = Timer.periodic(
+          const Duration(seconds: 5),
+          (_) => _drainCRDTOutbox(),
+        );
 
       }
     } catch (e) {
@@ -86,101 +367,33 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
   // ─── Remote Event Dispatch ─────────────────────────────────────────
 
   /// Handle incoming real-time events from other collaborators.
+  ///
+  /// Scene-graph state (strokes / shapes / texts / images / layers) is
+  /// replicated through the dedicated [RealtimeEventType.crdtOperation]
+  /// channel — the realtime engine routes those events to
+  /// `incomingCRDTOperations`, where [CRDTToLayerControllerApplier] applies
+  /// them. Self-echo suppression and idempotency are handled by the CRDT
+  /// layer (opId dedup + observer suspend), so this dispatcher is now
+  /// concerned only with three categories of event:
+  ///
+  ///   1. Live, ephemeral streams that don't fit a CRDT (live stroke points).
+  ///   2. PDF and recording orchestration (asset transfer, not state).
+  ///   3. Element locks (handled internally by the engine, observed here
+  ///      only to keep the lock table in sync).
   void _onRemoteRealtimeEvent(CanvasRealtimeEvent event) {
     if (!mounted) return;
 
-    // 🚀 SELF-ECHO SUPPRESSION: Skip events originating from THIS device.
-    // Firebase RTDB echoes all writes back to all listeners, including
-    // the sender. Without this guard, every local stroke was fully
-    // re-processed (deep cast + JSON deser + addStroke + invalidateAllTiles
-    // + setState) — causing 50-100ms UI thread spikes with 300+ strokes.
-    final isSelfEcho =
-        _realtimeEngine != null &&
-        event.senderId == _realtimeEngine!.localUserId;
-    if (isSelfEcho) {
-      // Only skip data-mutation events; UI-only events (cursor, presence)
-      // are handled internally by the engine and don't reach here.
-      switch (event.type) {
-        case RealtimeEventType.strokeAdded:
-        case RealtimeEventType.strokeRemoved:
-        case RealtimeEventType.strokePointsStreamed:
-        case RealtimeEventType.imageAdded:
-        case RealtimeEventType.imageUpdated:
-        case RealtimeEventType.imageRemoved:
-        case RealtimeEventType.textChanged:
-        case RealtimeEventType.textRemoved:
-        case RealtimeEventType.layerChanged:
-        case RealtimeEventType.canvasSettingsChanged:
-        case RealtimeEventType.pdfAdded:
-        case RealtimeEventType.pdfBlankCreated:
-        case RealtimeEventType.pdfUpdated:
-        case RealtimeEventType.pdfRemoved:
-        case RealtimeEventType.pdfLoading:
-        case RealtimeEventType.pdfProgress:
-        case RealtimeEventType.pdfLoadingFailed:
-        case RealtimeEventType.recordingAdded:
-        case RealtimeEventType.recordingRemoved:
-        case RealtimeEventType.recordingRenamed:
-        case RealtimeEventType.recordingPinAdded:
-        case RealtimeEventType.recordingPinRemoved:
-          return; // Skip — already applied locally
-        case RealtimeEventType.elementLocked:
-        case RealtimeEventType.elementUnlocked:
-          break; // Process normally (lock table needs sync)
-      }
+    // Skip events that this device produced. CRDT ops do not flow here
+    // (the engine peels them off into incomingCRDTOperations), and the few
+    // remaining event types either are idempotent or carry no scene-graph
+    // mutation — but the existing PDF/recording handlers were designed
+    // assuming self-echo had been filtered, so keep the guard.
+    if (_realtimeEngine != null &&
+        event.senderId == _realtimeEngine!.localUserId) {
+      return;
     }
 
     switch (event.type) {
-      case RealtimeEventType.strokeAdded:
-        _applyRemoteStroke(event.payload);
-        // 🎨 Clear ALL live stroke previews when a final stroke arrives
-        _remoteLiveStrokes.clear();
-        _remoteLiveStrokeColors.clear();
-        _remoteLiveStrokeWidths.clear();
-        _remoteLiveStrokeTimestamps.clear();
-
-        // 🐛 FIX: Suppress live points from this sender for 2s
-        //    (late-arriving network packets would re-populate the cleared map)
-        _suppressedLiveStrokeSenders[event.senderId] =
-            DateTime.now().millisecondsSinceEpoch + 2000;
-
-        setState(() {}); // Force repaint AFTER clearing live strokes
-        break;
-
-      case RealtimeEventType.strokeRemoved:
-        _applyRemoteStrokeRemoval(event.payload);
-        break;
-
-      case RealtimeEventType.imageAdded:
-      case RealtimeEventType.imageUpdated:
-        _applyRemoteImageUpdate(event.payload);
-        break;
-
-      case RealtimeEventType.imageRemoved:
-        _applyRemoteImageRemoval(event.payload);
-        break;
-
-      case RealtimeEventType.textChanged:
-        _applyRemoteTextChange(event.payload);
-        break;
-
-      case RealtimeEventType.textRemoved:
-        _applyRemoteTextRemoval(event.payload);
-        break;
-
-      case RealtimeEventType.layerChanged:
-        _applyRemoteLayerChange(event.payload);
-        break;
-
-      case RealtimeEventType.canvasSettingsChanged:
-        _applyRemoteSettingsChange(event.payload);
-        break;
-
-      case RealtimeEventType.elementLocked:
-      case RealtimeEventType.elementUnlocked:
-        // Handled internally by FlueraRealtimeEngine (lock table)
-        break;
-
       case RealtimeEventType.strokePointsStreamed:
         // 🐛 FIX: Skip live points from senders who just finished a stroke
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -228,10 +441,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         _applyRemoteRecordingRemoved(event.payload);
         break;
 
-      case RealtimeEventType.recordingRenamed:
-        _applyRemoteRecordingRenamed(event.payload);
-        break;
-
       case RealtimeEventType.recordingPinAdded:
         _applyRemoteRecordingPinAdded(event.payload);
         break;
@@ -239,37 +448,38 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
       case RealtimeEventType.recordingPinRemoved:
         _applyRemoteRecordingPinRemoved(event.payload);
         break;
+
+      case RealtimeEventType.elementLocked:
+      case RealtimeEventType.elementUnlocked:
+        // Handled internally by FlueraRealtimeEngine (lock table).
+        break;
+
+      case RealtimeEventType.strokeAdded:
+      case RealtimeEventType.strokeRemoved:
+      case RealtimeEventType.imageAdded:
+      case RealtimeEventType.imageUpdated:
+      case RealtimeEventType.imageRemoved:
+      case RealtimeEventType.textChanged:
+      case RealtimeEventType.textRemoved:
+      case RealtimeEventType.layerChanged:
+      case RealtimeEventType.canvasSettingsChanged:
+        // Replaced by the CRDT pipeline. A peer running an older client may
+        // still emit these — drop them rather than double-applying alongside
+        // the CRDT op.
+        break;
+
+      case RealtimeEventType.crdtOperation:
+        // Routed exclusively to incomingCRDTOperations by the realtime
+        // engine. Listed here only to satisfy exhaustive switch checking.
+        break;
+
+      case RealtimeEventType.recordingRenamed:
+        _applyRemoteRecordingRenamed(event.payload);
+        break;
     }
   }
 
   // ─── Remote Event Handlers ─────────────────────────────────────────
-
-  void _applyRemoteStroke(Map<String, dynamic> payload) {
-    try {
-      // Firebase RTDB returns Map<Object?, Object?> — deep cast needed
-      final safePayload = _deepCastMap(payload);
-      final stroke = ProStroke.fromJson(safePayload);
-      // Disable delta tracking during remote apply to avoid re-broadcasting
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-      _layerController.addStroke(stroke);
-      _layerController.enableDeltaTracking = wasTracking;
-
-      // 📄 Link stroke to overlapping PDF page (same as local draw pipeline)
-      _linkStrokeToPdfPage(stroke);
-
-      // 🚀 PERF #6: Invalidate only tiles overlapping this stroke's bounds
-      // instead of ALL tiles. With 300+ strokes spread across many tiles,
-      // invalidateAllTiles() repaints everything; this repaints only ~1-4 tiles.
-      DrawingPainter.invalidateTilesForStroke(stroke);
-      // 🖼️ Trigger ImagePainter repaint so strokes on images appear on top
-      _imageVersion++;
-      _imageRepaintNotifier.value++;
-      // 🚀 PERF: setState() removed — redundant. DrawingPainter repaints via
-      // ListenableBuilder(listenable: _layerController) when addStroke fires.
-    } catch (e) {
-    }
-  }
 
   /// Deep-cast a Firebase RTDB map to Map<String, dynamic>
   static Map<String, dynamic> _deepCastMap(Map map) {
@@ -292,185 +502,6 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     }).toList();
   }
 
-  void _applyRemoteStrokeRemoval(Map<String, dynamic> payload) {
-    try {
-      final strokeId = payload['strokeId'] as String?;
-      if (strokeId == null) return;
-
-      // 🚀 PERF #6: Capture stroke bounds BEFORE removal for selective
-      // tile invalidation (stroke won't exist after removeStroke).
-      Rect? strokeBounds;
-      final activeLayer = _layerController.activeLayer;
-      if (activeLayer != null) {
-        for (final s in activeLayer.strokes) {
-          if (s.id == strokeId) {
-            strokeBounds = s.bounds;
-            break;
-          }
-        }
-      }
-
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-      _layerController.removeStroke(strokeId);
-      _layerController.enableDeltaTracking = wasTracking;
-
-      // Invalidate only affected tiles (or all if bounds unknown)
-      if (strokeBounds != null) {
-        DrawingPainter.invalidateTilesInBounds(strokeBounds);
-      } else {
-        DrawingPainter.invalidateAllTiles();
-      }
-      _imageVersion++;
-      _imageRepaintNotifier.value++;
-      // 🚀 PERF: setState() removed — redundant. DrawingPainter repaints via
-      // ListenableBuilder(listenable: _layerController) when removeStroke fires.
-    } catch (e) {
-    }
-  }
-
-  void _applyRemoteImageUpdate(Map<String, dynamic> payload) {
-    try {
-      // 🔧 Firebase RTDB returns Map<Object?, Object?> — deep-cast to
-      // Map<String, dynamic> so ImageElement.fromJson type casts succeed
-      // (especially nested maps like position, drawingStrokes, etc.)
-      final safePayload = _deepCastMap(payload);
-      final image = ImageElement.fromJson(safePayload);
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-
-      // 🔧 Use updateImage for existing images to avoid duplicate child
-      // assertion; addImage only for genuinely new images.
-      final idx = _imageElements.indexWhere((e) => e.id == image.id);
-      if (idx != -1) {
-        _imageElements[idx] = image;
-        _layerController.updateImage(image);
-      } else {
-        _imageElements.add(image);
-        _layerController.addImage(image);
-      }
-      _layerController.enableDeltaTracking = wasTracking;
-
-      _imageVersion++;
-      _rebuildImageSpatialIndex();
-      // 🐛 FIX #3: Only preload if image is NOT already in memory
-      if (!_loadedImages.containsKey(image.imagePath)) {
-        _preloadImage(
-          image.imagePath,
-          storageUrl: image.storageUrl,
-          thumbnailUrl: image.thumbnailUrl,
-        );
-      }
-      // 💾 Trigger auto-save so storageUrl persists to local storage
-      _autoSaveCanvas();
-      setState(() {});
-    } catch (e) {
-    }
-  }
-
-  void _applyRemoteImageRemoval(Map<String, dynamic> payload) {
-    try {
-      final imageId = payload['id'] as String?;
-      if (imageId == null) return;
-      // 🐛 FIX #1: Notify layer controller to keep layer data in sync
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-      _layerController.removeImage(imageId);
-      _layerController.enableDeltaTracking = wasTracking;
-
-      // 🐛 FIX E: Clean up memory manager + dispose loaded texture
-      final removed = _imageElements.where((e) => e.id == imageId).toList();
-      for (final img in removed) {
-        _imageMemoryManager.remove(img.imagePath);
-        _loadedImages.remove(img.imagePath)?.dispose();
-      }
-      _imageElements.removeWhere((e) => e.id == imageId);
-      _imageVersion++;
-      _rebuildImageSpatialIndex();
-      // 💾 Auto-save to persist removal
-      _autoSaveCanvas();
-      setState(() {});
-    } catch (e) {
-    }
-  }
-
-  void _applyRemoteTextChange(Map<String, dynamic> payload) {
-    try {
-      final text = DigitalTextElement.fromJson(payload);
-      final idx = _digitalTextElements.indexWhere((e) => e.id == text.id);
-      setState(() {
-        if (idx != -1) {
-          _digitalTextElements[idx] = text;
-        } else {
-          _digitalTextElements.add(text);
-        }
-      });
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-      _layerController.updateText(text);
-      _layerController.enableDeltaTracking = wasTracking;
-      // 🐛 FIX #4: Auto-save so remote text persists across restart
-      _autoSaveCanvas();
-    } catch (e) {
-    }
-  }
-
-  void _applyRemoteTextRemoval(Map<String, dynamic> payload) {
-    try {
-      final textId = payload['id'] as String?;
-      if (textId == null) return;
-      // 🐛 FIX: Notify layer controller (same pattern as image removal)
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-      _layerController.removeText(textId);
-      _layerController.enableDeltaTracking = wasTracking;
-
-      setState(() {
-        _digitalTextElements.removeWhere((e) => e.id == textId);
-      });
-      // 💾 Auto-save to persist removal
-      _autoSaveCanvas();
-    } catch (e) {
-    }
-  }
-
-  void _applyRemoteLayerChange(Map<String, dynamic> payload) {
-    try {
-      final layer = CanvasLayer.fromJson(payload);
-      final wasTracking = _layerController.enableDeltaTracking;
-      _layerController.enableDeltaTracking = false;
-      // Replace matching layer in the current layer list
-      final updatedLayers =
-          _layerController.layers.map((existing) {
-            return existing.id == layer.id ? layer : existing;
-          }).toList();
-      _layerController.clearAllAndLoadLayers(updatedLayers);
-      _layerController.enableDeltaTracking = wasTracking;
-      setState(() {});
-    } catch (e) {
-    }
-  }
-
-  void _applyRemoteSettingsChange(Map<String, dynamic> payload) {
-    try {
-      setState(() {
-        final bgColor = payload['backgroundColor'];
-        if (bgColor != null) {
-          _canvasBackgroundColor = Color(bgColor as int);
-        }
-        final paperType = payload['paperType'] as String?;
-        if (paperType != null) {
-          _paperType = paperType;
-        }
-      });
-      // 🎨 Refresh background layer with new remote settings
-      BackgroundPainter.clearCache();
-      _backgroundVersionNotifier.value++;
-      _layerController.notifyListeners(); // 🚀 LAYER MERGE: rebuild DrawingPainter
-    } catch (e) {
-    }
-  }
-
   // ─── Live Stroke Streaming ─────────────────────────────────────────
 
   /// 🎨 In-progress strokes from remote collaborators.
@@ -487,11 +518,11 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
 
   /// 📄 PDF documents that are being uploaded by a collaborator.
   /// Shown as loading placeholders until the real PDF data arrives.
-  static final Map<String, _PdfLoadingPlaceholder> _pdfLoadingPlaceholders = {};
+  static final Map<String, PdfLoadingPlaceholder> _pdfLoadingPlaceholders = {};
   static final Map<String, Timer> _pdfLoadingTimeouts = {};
 
   /// Get current PDF loading placeholders for rendering.
-  static Map<String, _PdfLoadingPlaceholder> get pdfLoadingPlaceholders =>
+  static Map<String, PdfLoadingPlaceholder> get pdfLoadingPlaceholders =>
       _pdfLoadingPlaceholders;
 
   /// 🔄 Stop loading pulse if no more placeholders are pending.
@@ -508,9 +539,9 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     _pdfLoadingTimeouts.remove(docId);
     _stopPdfPlaceholderPulseIfDone();
     // 🧹 Cleanup decoded thumbnail from painter cache
-    _PdfLoadingPlaceholderPainter._decodedThumbnails.remove(docId);
-    _PdfLoadingPlaceholderPainter._thumbnailDecodeRequested.remove(docId);
-    _PdfLoadingPlaceholderPainter._animatedProgress.remove(docId);
+    PdfLoadingPlaceholderPainter.decodedThumbnails.remove(docId);
+    PdfLoadingPlaceholderPainter.thumbnailDecodeRequested.remove(docId);
+    PdfLoadingPlaceholderPainter.animatedProgress.remove(docId);
   }
 
   /// 🐛 FIX: Timestamp each live stroke for stale cleanup.
@@ -656,6 +687,30 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     return null;
   }
 
+  /// Resolve a CRDT node id to its bounding rect in canvas coordinates.
+  ///
+  /// Used by `CanvasPresenceOverlay` to draw selection awareness rects
+  /// for remote peers. Walks every layer's strokes & shapes in O(N) —
+  /// acceptable because selections are small (1-20 ids typical) and the
+  /// canvas-screen rebuild rate is throttled by the pulse animation.
+  /// Returns `null` when the id isn't resolvable (element not yet
+  /// replicated, deleted while in flight, or a text/image node — those
+  /// types don't expose a precomputed bounds; their selection rects
+  /// stay un-rendered until we wire a layout-aware lookup, Tier 2).
+  Rect? _lookupSelectionBounds(String nodeId) {
+    for (final layer in _layerController.layers) {
+      for (final s in layer.strokes) {
+        if (s.id == nodeId) return s.bounds;
+      }
+      for (final s in layer.shapes) {
+        if (s.id == nodeId) {
+          return Rect.fromPoints(s.startPoint, s.endPoint);
+        }
+      }
+    }
+    return null;
+  }
+
   // ─── Broadcast Helpers (called from drawing handlers) ──────────────
 
   /// Broadcast cursor position during drawing (throttled by engine).
@@ -665,8 +720,18 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     bool isTyping = false,
     bool isRecording = false,
     bool isListening = false,
+    List<String>? selection,
   }) {
     if (_realtimeEngine == null) return;
+
+    // When the caller doesn't explicitly pass selection, fall back to
+    // the lasso tool's current selection so any cursor broadcast (drag,
+    // hover, draw) automatically carries the local user's selection
+    // state to peers. Empty selection collapses to `null` on the wire
+    // (CursorPresenceData.toJson skips empty lists) — keeps idle cursor
+    // updates at the same baseline cost.
+    final effectiveSelection = selection ??
+        (_lassoTool.hasSelection ? _lassoTool.selectedIds.toList() : null);
 
     _realtimeEngine!.updateCursor(
       CursorPresenceData(
@@ -681,34 +746,18 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
         isListening: isListening,
         penType: _effectivePenType.name,
         penColor: _effectiveColor.toARGB32(),
+        selection: effectiveSelection,
       ),
     );
   }
 
-  /// Broadcast a completed stroke to all collaborators.
-  void _broadcastStrokeAdded(ProStroke stroke) {
-    _realtimeEngine?.broadcastStroke(stroke.toJson());
-  }
-
-  /// Broadcast a stroke removal to all collaborators.
-  void _broadcastStrokeRemoved(String strokeId) {
-    _realtimeEngine?.broadcastStrokeRemoved(strokeId);
-  }
-
-  /// Broadcast an image update to all collaborators.
-  void _broadcastImageUpdate(ImageElement image, {bool isNew = false}) {
-    _realtimeEngine?.broadcastImageUpdate(image.toJson(), isNew: isNew);
-  }
-
-  /// Broadcast an image removal to all collaborators.
-  void _broadcastImageRemoved(String imageId) {
-    _realtimeEngine?.broadcastImageRemoved(imageId);
-  }
-
-  /// Broadcast a text change to all collaborators.
-  void _broadcastTextChange(DigitalTextElement text) {
-    _realtimeEngine?.broadcastTextChange(text.toJson());
-  }
+  // Stroke / image / text broadcasts are no longer manually invoked: every
+  // mutation on `_layerController` produces a CanvasDelta that the registered
+  // CRDTLayerControllerObserver translates into a CRDTOperation, which is
+  // broadcast through `_realtimeEngine.broadcastCRDTOperation`. Receivers
+  // apply ops via `CRDTToLayerControllerApplier.applyRemote`. This eliminates
+  // self-echo handling, delta-tracking guards and the stroke/image/text
+  // legacy event types from this dispatcher.
 
   /// ⌨️ Broadcast typing state to show "typing..." on remote cursors.
   void _broadcastTypingState(bool isTyping, Offset position) {
@@ -732,16 +781,258 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
     );
   }
 
+  // ─── Permission revocation handling ───────────────────────────────
+
+  /// React to a live permission change for this canvas.
+  ///
+  /// Provider emits `false` when the local user has been demoted (share
+  /// row deleted, role flipped to `viewer`, etc). We immediately stop
+  /// generating CRDT ops by detaching the LayerController observer so
+  /// further strokes still draw locally but don't reach peers, then
+  /// surface a non-blocking SnackBar. Re-grant is also handled — if the
+  /// owner restores the share, we re-attach the observer.
+  void _onPermissionChanged(bool canEdit) {
+    if (!mounted) return;
+    final wasViewer = _isViewerMode;
+    final isViewer = !canEdit;
+
+    setState(() => _isViewerMode = isViewer);
+
+    if (isViewer && !wasViewer) {
+      // Just lost edit access. Detach the mutation observer so local
+      // edits stop emitting ops; the engine itself stays connected
+      // (we still receive remote updates, just don't send).
+      _crdtMutationUnsubscribe?.call();
+      _crdtMutationUnsubscribe = null;
+
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.lock_outline, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                    'Your edit access was revoked — view only mode.'),
+              ),
+            ],
+          ),
+          duration: Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (!isViewer && wasViewer) {
+      // Edit access restored. Re-attach the mutation observer so user
+      // edits start producing ops again. The CRDT graph and persistence
+      // are still alive — only the LayerController hook was dropped.
+      final observer = _crdtMutationObserver;
+      if (observer != null) {
+        _crdtMutationUnsubscribe =
+            _layerController.addMutationObserver(observer.onMutation);
+      }
+
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.edit, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Expanded(child: Text('Edit access granted.')),
+            ],
+          ),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   // ─── Cleanup ───────────────────────────────────────────────────────
 
   /// Disconnect and dispose real-time engine.
   Future<void> _disposeRealtimeCollaboration() async {
     _realtimeEventSub?.cancel();
     _realtimeEventSub = null;
+
+    await _permissionSubscription?.cancel();
+    _permissionSubscription = null;
+
+    // Tear down the CRDT pipeline before the engine so no in-flight remote
+    // op can land on a stale LayerController.
+    _crdtOutboxDrainTimer?.cancel();
+    _crdtOutboxDrainTimer = null;
+    _pendingRemoteOpsTimer?.cancel();
+    _pendingRemoteOpsTimer = null;
+    _pendingRemoteOps.clear();
+    await _crdtOpSubscription?.cancel();
+    _crdtOpSubscription = null;
+    _crdtMutationUnsubscribe?.call();
+    _crdtMutationUnsubscribe = null;
+    _crdtApplier?.dispose();
+    _crdtApplier = null;
+    _crdtMutationObserver = null;
+    _crdtSceneGraph = null;
+    // [_crdtPersistence] wraps the SqliteStorageAdapter database which is
+    // owned by the host app — we never close it here.
+    _crdtPersistence = null;
+    _crdtPeerId = null;
+    if (mounted) _crdtPendingOpsNotifier.value = 0;
+
     _realtimeEngine?.remoteCursors.removeListener(_onRemoteCursorsChanged);
     await _realtimeEngine?.disconnect();
     _realtimeEngine?.dispose();
     _realtimeEngine = null;
+  }
+
+  /// 💾 Drain the CRDT outbox on reconnect.
+  ///
+  /// Reads every op for the current canvas with `sent_at IS NULL` in HLC
+  /// order and re-broadcasts it. This is the single mechanism by which
+  /// mutations produced offline propagate to peers — the live broadcast
+  /// path already marks `sent_at` immediately, so a healthy session should
+  /// almost always find this queue empty.
+  /// Drain `_pendingRemoteOps` in a single repaint frame.
+  ///
+  /// Called on the next microtask after the first op of a burst arrives,
+  /// so all ops queued by the stream listener in the same event-loop
+  /// tick land together. `LayerController.beginBatch()` defers the
+  /// underlying `notifyListeners` and version bumps until `endBatch()`
+  /// — without that, the pixel eraser's `removeNode + addNode(frag1) +
+  /// addNode(frag2)` sequence would triple-paint the canvas, briefly
+  /// showing a hole between the parent removal and the fragment adds.
+  ///
+  /// Persistence runs after the visual apply, fire-and-forget per op:
+  /// the user-facing feedback (stroke appears / disappears) is what
+  /// matters, the SQLite log catches up in the background.
+  void _flushPendingRemoteOps() {
+    final applier = _crdtApplier;
+    if (applier == null || _pendingRemoteOps.isEmpty) return;
+    final ops = List<CRDTOperation>.of(_pendingRemoteOps);
+    _pendingRemoteOps.clear();
+
+    _layerController.beginBatch();
+    try {
+      for (final op in ops) {
+        applier.applyRemote(op);
+      }
+    } finally {
+      _layerController.endBatch();
+    }
+
+    final persistence = _crdtPersistence;
+    if (persistence != null) {
+      // Fire-and-forget: persistence failures don't block rendering.
+      // CRDT opId dedup guarantees idempotent re-apply on next session.
+      unawaited(() async {
+        for (final op in ops) {
+          try {
+            await persistence.insertOp(_canvasId, op);
+            await persistence.markBroadcast(op.opId);
+          } catch (_) {}
+        }
+      }());
+    }
+  }
+
+  Future<void> _drainCRDTOutbox() async {
+    final persistence = _crdtPersistence;
+    final engine = _realtimeEngine;
+    if (persistence == null || engine == null) return;
+
+    final pending = await persistence.unsentOps(_canvasId);
+    for (final entry in pending) {
+      final delivered = await engine.broadcastCRDTOperation(entry.operation);
+      if (delivered) {
+        await persistence.markBroadcast(entry.operation.opId);
+      }
+      // If delivery still fails, leave sent_at NULL — the next periodic
+      // drain (or reconnect drain) tries again with the same op.
+    }
+    // Re-sync the badge with reality after the drain (also corrects any
+    // accumulated drift from skipped ++/-- in error paths).
+    final remaining = await persistence.unsentOps(_canvasId);
+    if (mounted) _crdtPendingOpsNotifier.value = remaining.length;
+  }
+
+  /// 📜 Pull every op the local CRDT graph hasn't seen from the cloud
+  /// `operations_log`. Runs once at canvas open, after local rehydration,
+  /// before the realtime engine starts emitting live updates — bridges
+  /// the "I was offline while a teammate edited" gap that the live
+  /// Supabase Broadcast channel can't fill (it has no buffering).
+  ///
+  /// The high-water HLC is the highest (ts_ms, counter, peerId) the local
+  /// graph already knows about. We pass it to `cloudAdapter.opsSince`
+  /// which returns ops strictly newer in HLC ordering. Each is replayed
+  /// through the applier inside `runSilently` so it doesn't bounce back
+  /// out via the observer.
+  Future<void> _catchUpFromCloudOpsLog(
+    CRDTSceneGraph crdt,
+    String canvasId,
+  ) async {
+    final cloud = _config.cloudAdapter;
+    final observer = _crdtMutationObserver;
+    final applier = _crdtApplier;
+    if (cloud == null || observer == null || applier == null) return;
+
+    try {
+      // Best-effort cursor: the local HLC clock advances on every applied
+      // op (local + remote), so [localClock] is the highest HLC we've
+      // seen. opsSince(cursor) returns ops STRICTLY greater than the
+      // cursor — the CRDT's opId dedup absorbs any rare duplicates from
+      // an out-of-order frontier. This is intentionally not a vector-
+      // clock-aware cursor: a per-peer frontier would catch every hole
+      // but doubles the catch-up complexity. Acceptable for v1; the
+      // backend op log is bounded in practice (~100KB per canvas).
+      final hwm = crdt.localClock;
+      final raw = await cloud.opsSince(
+        canvasId: canvasId,
+        tsMs: hwm.physicalMs,
+        counter: hwm.counter,
+        peerIdTieBreak: hwm.peerId,
+      );
+      if (raw.isEmpty) return;
+      observer.runSilently(() {
+        for (final entry in raw) {
+          try {
+            applier.applyRemote(CRDTOperation.fromJson(entry));
+          } catch (_) {
+            // Tolerate malformed rows — the live broadcast path will
+            // re-deliver if any corresponding live op still flows.
+          }
+        }
+      });
+    } catch (_) {
+      // Catch-up is best-effort. If cloud is unavailable the live
+      // broadcast + outbox drain still cover the in-session case;
+      // the next canvas open will retry.
+    }
+  }
+
+  /// 💾 Rotate the CRDT snapshot when the op-log grows past
+  /// [_kCrdtSnapshotEveryOps]. The snapshot becomes the new baseline used by
+  /// the hybrid rehydration path on the next process start, capping replay
+  /// time regardless of total session length.
+  ///
+  /// We never delete prior ops here — peers that haven't yet observed them
+  /// rely on the log surviving until they catch up. A future GC pass can
+  /// trim ops whose HLC ≤ the most recent snapshot AND whose `sent_at` is
+  /// non-null for every active peer; that's a separate vector-clock-aware
+  /// step, deliberately out of scope for this rotation.
+  Future<void> _maybeRotateCrdtSnapshot() async {
+    final persistence = _crdtPersistence;
+    final crdt = _crdtSceneGraph;
+    if (persistence == null || crdt == null) return;
+
+    final count = await persistence.opCount(_canvasId);
+    if (count < _kCrdtSnapshotEveryOps) return;
+
+    await persistence.saveSnapshot(
+      canvasId: _canvasId,
+      graph: crdt,
+      hlc: crdt.localClock,
+    );
   }
 
   // ─── Recording Sync ────────────────────────────────────────────────
@@ -1193,49 +1484,8 @@ extension CollaborationExtension on _FlueraCanvasScreenState {
   }
 }
 
-/// 📄 Data class for a PDF loading placeholder shown on remote devices.
-class _PdfLoadingPlaceholder {
-  final String documentId;
-  final String? fileName;
-  final int pageCount;
-  final double pageWidth;
-  final double pageHeight;
-  final Offset position;
-  final double progress; // 0.0 - 1.0
-  final DateTime createdAt;
-  final String? thumbnailBase64;
-
-  _PdfLoadingPlaceholder({
-    required this.documentId,
-    this.fileName,
-    required this.pageCount,
-    required this.pageWidth,
-    required this.pageHeight,
-    required this.position,
-    this.progress = 0.0,
-    this.thumbnailBase64,
-    DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
-
-  /// Create a copy with updated progress.
-  _PdfLoadingPlaceholder copyWith({double? progress}) {
-    return _PdfLoadingPlaceholder(
-      documentId: documentId,
-      fileName: fileName,
-      pageCount: pageCount,
-      pageWidth: pageWidth,
-      pageHeight: pageHeight,
-      position: position,
-      progress: progress ?? this.progress,
-      thumbnailBase64: thumbnailBase64,
-      createdAt: createdAt,
-    );
-  }
-
-  /// Total height of the placeholder (all pages stacked vertically with spacing).
-  double get totalHeight => pageCount * pageHeight + (pageCount - 1) * 20;
-
-  /// Bounding rect in canvas coordinates.
-  Rect get rect =>
-      Rect.fromLTWH(position.dx, position.dy, pageWidth, totalHeight);
-}
+// PdfLoadingPlaceholder moved to
+// `lib/src/rendering/canvas/collab_overlay_painters.dart` as public
+// [PdfLoadingPlaceholder] so [FlueraCanvasView] can render the same
+// loading FX. Same library so all references inside the screen work via
+// the public name.

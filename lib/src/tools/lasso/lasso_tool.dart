@@ -384,8 +384,18 @@ class LassoTool {
   // Element Operations — Delete & Move
   // ===========================================================================
 
+  /// Delete every currently-selected node as a single atomic undo step.
+  ///
+  /// Routes through [FlueraLayerController.deleteNodes] so the operation
+  /// lands as one composite undo entry — one Ctrl+Z restores the entire
+  /// multi-element deletion. The legacy `selectionManager.deleteAll()`
+  /// path generated N separate entries and is now deprecated.
   void deleteSelected() {
-    selectionManager.deleteAll();
+    if (!hasSelection) return;
+    final nodes = selectionManager.selectedNodes.toList();
+    selectionManager.clearSelection();
+    // ignore: discarded_futures
+    layerController.deleteNodes(nodes);
   }
 
   void moveSelected(Offset delta) {

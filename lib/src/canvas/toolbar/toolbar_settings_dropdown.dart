@@ -4,6 +4,7 @@ import '../../l10n/fluera_localizations.dart';
 import '../../../testing/brush_testing.dart';
 import '../../dialogs/handwriting_language_picker.dart';
 import '../../services/digital_ink_service.dart';
+import '../../utils/ai_language_preference.dart';
 
 // ============================================================================
 // TOOLBAR SETTINGS DROPDOWN — Settings menu, rename dialog, OCR, filters
@@ -236,6 +237,65 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
                 ],
               ),
             ),
+            // 🌍 AI Output Language (Socratic / Exam / Chat output)
+            PopupMenuItem<String>(
+              value: 'ai_output_language',
+              height: 48,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.language_rounded,
+                    size: 20,
+                    color: cs.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'AI Output Language',
+                      style: TextStyle(fontSize: 14, color: cs.onSurface),
+                    ),
+                  ),
+                  Builder(
+                    builder: (_) {
+                      final name = AiLanguagePreference.displayName();
+                      final explicit = AiLanguagePreference.hasExplicitOverride();
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!explicit)
+                            Container(
+                              margin: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: cs.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'Auto',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          Text(
+                            name,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
             const PopupMenuDivider(),
             PopupMenuItem<String>(
               value: 'brush_testing',
@@ -326,6 +386,9 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
             break;
           case 'handwriting_languages':
             _showHandwritingLanguagePicker(context);
+            break;
+          case 'ai_output_language':
+            _showAiLanguagePicker(context);
             break;
           case 'brush_testing':
             _openBrushTestingLab(context);
@@ -445,6 +508,99 @@ class _ToolbarSettingsDropdownState extends State<ToolbarSettingsDropdown> {
           }
         }
       },
+    );
+  }
+
+  /// 🌍 Picker for the AI output language preference. Persists via
+  /// `AiLanguagePreference.setPreferred` (KeyValueStore). The "Use device
+  /// locale" option clears the override.
+  void _showAiLanguagePicker(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final supported = AiLanguagePreference.supportedLanguages();
+    final currentCode =
+        AiLanguagePreference.hasExplicitOverride() ? AiLanguagePreference.code() : null;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('AI Output Language'),
+        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            child: Text(
+              'Choose the language Fluera AI uses for Socratic '
+              'questions, Exam questions, and Chat answers. Your notes '
+              'can still be in any language.',
+              style: TextStyle(
+                fontSize: 12,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () async {
+              await AiLanguagePreference.setPreferred(null);
+              if (ctx.mounted) Navigator.of(ctx).pop();
+              if (context.mounted) {
+                HapticFeedback.mediumImpact();
+                setState(() {}); // refresh chip in dropdown
+              }
+            },
+            child: Row(
+              children: [
+                Icon(
+                  currentCode == null
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_unchecked,
+                  size: 18,
+                  color: cs.primary,
+                ),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('Use device locale (auto)')),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          for (final entry in supported.entries)
+            SimpleDialogOption(
+              onPressed: () async {
+                await AiLanguagePreference.setPreferred(entry.key);
+                if (ctx.mounted) Navigator.of(ctx).pop();
+                if (context.mounted) {
+                  HapticFeedback.mediumImpact();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('AI output: ${entry.value} activated. '
+                          'Restart the app to apply to existing models.'),
+                      duration: const Duration(seconds: 3),
+                    ),
+                  );
+                  setState(() {});
+                }
+              },
+              child: Row(
+                children: [
+                  Icon(
+                    currentCode == entry.key
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 18,
+                    color: cs.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text(entry.value)),
+                  Text(
+                    entry.key.toUpperCase(),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 

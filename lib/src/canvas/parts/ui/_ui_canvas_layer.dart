@@ -15,6 +15,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     // 🖥️ Multiview mode — replace single canvas with split panels
     if (_isMultiviewActive && _multiviewLayout != null) {
       return MultiviewOrchestrator(
+        key: _multiviewKey,
         config: _config,
         canvasId: _canvasId,
         title: _noteTitle,
@@ -27,6 +28,34 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           _multiviewLayout = null;
           _multiviewVersionNotifier.value++;
         },
+        // Per zoom-to-enter on a PDF inside a panel: the orchestrator
+        // swaps the panel content to `pdfReader` and invokes this builder
+        // for the body. The closure looks up the document model/provider
+        // owned by the screen wrapper (lives outside the orchestrator).
+        pdfReaderBuilder: _buildEmbeddedPdfReader,
+      );
+    }
+
+    // 🏗️ EXTRACTION PATH (God Object Decomposition Phase 1):
+    // When the flag is on, delegate the viewport to FlueraCanvasView. The
+    // screen still owns _canvasController, so pan/zoom state is shared with
+    // the rest of the screen (toolbar, autosave, sync). The view's gesture
+    // detector replaces the original Stack-based one.
+    //
+    // ⚠️ Known gaps in this path (filled in by Phase 3+):
+    //   - 25 overlay painters (lasso, ruler, smart guides, predicted tail,
+    //     remote live strokes, cognitive overlays, knowledge flow, ...)
+    //   - Inline text editor IME, image transform handles, PDF placeholders
+    //   - Selection radial menu, smart-ink overlay, eraser preview
+    // For visual diff against the legacy path, flip the flag at runtime
+    // and compare strokes/images/PDFs (those should be pixel-equivalent;
+    // overlays will be missing).
+    if (V1FeatureGate.flueraCanvasViewExtraction) {
+      return FlueraCanvasView(
+        canvasController: _canvasController,
+        tier: CanvasViewTier.full,
+        cacheName: 'main',
+        backgroundColor: _canvasBackgroundColor,
       );
     }
 
@@ -62,13 +91,13 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 animation: _canvasController,
                 builder: (context, _) {
                   final _s1 = _canvasController.scale;
-                  // 🚀 RASTER FIX: at tier 2 zoom (scale < 0.25) cluster
-                  // labels / word underlines / pills are pixel-sub-readable
-                  // anyway. Skipping them here cuts ~30–40ms of raster
-                  // encoding when the full overlay stack is active and the
-                  // user zooms out to the overview. Same threshold used by
-                  // TileCacheManager ([lod_config.dart] kLodTier2Threshold).
-                  if (_s1 < 0.25) return const SizedBox.shrink();
+                  // 📚 PEDAGOGICAL OVERVIEW: KnowledgeFlow (clusters,
+                  // monuments, semantic morphing, flashcards) is meant
+                  // to come alive at extreme zoom-out — that's the
+                  // overview mode. The previous `scale<0.25` gate that
+                  // skipped this painter was a raster-fix from before
+                  // R1-R4 made the raster path cheap enough to keep it
+                  // running. Don't re-introduce it without a profile.
                   final m =
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
@@ -91,6 +120,25 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       _semanticMorphController!.flashcardClusterId != null) {
                     _semanticMorphController!.flashcardClusterId = null;
                   }
+                  // 📚 VIEWPORT CULLING: KnowledgeFlowPainter iterates
+                  // EVERY cluster (no internal culling). At extreme
+                  // zoom-out the whole scene-graph is "visible" → 100s
+                  // of clusters drawn each frame. Filter to a 1.5×
+                  // viewport-inflated rect so only clusters that can
+                  // actually appear are painted; cuts the iteration
+                  // cost from O(N) to O(visible) without changing
+                  // visual output.
+                  final _vpSize1 = MediaQuery.sizeOf(context);
+                  final _vpTL1 = _canvasController.screenToCanvas(Offset.zero);
+                  final _vpBR1 = _canvasController.screenToCanvas(
+                    Offset(_vpSize1.width, _vpSize1.height),
+                  );
+                  final _vpInflated1 = Rect.fromPoints(_vpTL1, _vpBR1).inflate(
+                    Rect.fromPoints(_vpTL1, _vpBR1).longestSide * 0.25,
+                  );
+                  final _visibleClusters1 = _clusterCache
+                      .where((c) => c.bounds.overlaps(_vpInflated1))
+                      .toList(growable: false);
                   return Transform(
                     transform: m,
                     child: ValueListenableBuilder<int>(
@@ -98,7 +146,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       builder:
                           (_, __, ___) => CustomPaint(
                             painter: KnowledgeFlowPainter(
-                              clusters: _clusterCache,
+                              clusters: _visibleClusters1,
                               controller: _knowledgeFlowController!,
                               canvasScale: _canvasController.scale,
                               showSuggestions: false,
@@ -114,10 +162,17 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                                   1000.0,
                               clusterTexts: _clusterTextCache,
                               selectedConnectionId: _editingLabelConnectionId,
+                              // 📚 LOW-ZOOM: thumbnails sub-pixel below
+                              // scale 0.30 → drawing them is wasted
+                              // GPU bandwidth. Pass an empty map so the
+                              // painter skips the image draw loop
+                              // entirely without disabling the cluster
+                              // outline + label which ARE useful at
+                              // overview zoom.
                               thumbnails:
-                                  _thumbnailCache != null
+                                  (_thumbnailCache != null && _s1 >= 0.30)
                                       ? {
-                                        for (final c in _clusterCache)
+                                        for (final c in _visibleClusters1)
                                           if (_thumbnailCache!.hasThumbnail(
                                             c.id,
                                           ))
@@ -131,25 +186,6 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                                   _semanticMorphController?.morphProgress ??
                                   0.0,
                               semanticController: _semanticMorphController,
-                              spaceSplitLineY:
-                                  _spaceSplitController.isActive
-                                      ? _spaceSplitController.splitLineY
-                                      : null,
-                              spaceSplitSpreadProgress:
-                                  _spaceSplitController.isActive
-                                      ? (_spaceSplitController.spreadDistance /
-                                              200.0)
-                                          .clamp(0.0, 1.0)
-                                      : 0.0,
-                              spaceSplitGhostDisplacements:
-                                  _spaceSplitController.isActive
-                                      ? _spaceSplitController.ghostDisplacements
-                                      : const {},
-                              spaceSplitIsHorizontal:
-                                  _spaceSplitController.isActive
-                                      ? _spaceSplitController.axis ==
-                                          SplitAxis.horizontal
-                                      : false,
                               flightProgress: _canvasController.flightProgress,
                               flightPhase: _canvasController.flightPhase,
                               flightSourceClusterId:
@@ -421,10 +457,11 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         animation: _canvasController,
                         builder: (context, _) {
                           final gs = _canvasController.scale;
-                          // 🚀 RASTER FIX (tier 2): ghost nodes and gap markers
-                          // are unreadable dots at scale < 0.25; skip the entire
-                          // painter + its viewport culling math.
-                          if (gs < 0.25) return const SizedBox.shrink();
+                          // 📚 PEDAGOGICAL OVERVIEW: GhostMap shows gaps
+                          // and recall opportunities — most useful in
+                          // the overview view. Removed the previous
+                          // `scale<0.25` gate (was a raster-fix, now
+                          // unnecessary).
                           final gmc = _ghostMapController;
                           final gm =
                               Matrix4.identity()..translateByDouble(
@@ -476,6 +513,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                                     revealedNodeIds: gmc.revealedNodeIds,
                                     dismissedNodeIds: gmc.dismissedNodeIds,
                                     clusters: _clusterCache,
+                                    crossZoneConnectedClusterIds:
+                                        _crossZoneBridgeController
+                                            ?.crossZoneConnectedClusters ??
+                                            const {},
                                     canvasScale: gs,
                                     animationTime: _ghostMapAnimTime,
                                     isDarkMode:
@@ -582,12 +623,14 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 ]),
                 builder: (context, _) {
                   final fs = _canvasController.scale;
-                  // 🚀 RASTER FIX (tier 2): fog clip + mastery heatmap path
-                  // operations scale linearly with the number of visible
-                  // clusters; at scale < 0.25 those clusters are all on
-                  // screen simultaneously and the painter's single-frame cost
-                  // jumps to ~20ms. Skip — the user is in overview mode.
-                  if (fs < 0.25) return const SizedBox.shrink();
+                  // 📚 PEDAGOGICAL but EXPENSIVE: FogOfWar uses a
+                  // saveLayer + clipPath for the fog/heatmap, which is
+                  // the single costliest GPU op in the canvas. Active
+                  // in [0.20, 0.30] where the overview is readable; at
+                  // scale<0.20 the heatmap collapses to sub-pixel
+                  // anyway, and the saveLayer cost (~15-20 ms) blows
+                  // the 8.3 ms 120 Hz budget. Cheaper threshold gate.
+                  if (fs < 0.20) return const SizedBox.shrink();
                   final fm =
                       Matrix4.identity()..translateByDouble(
                         _canvasController.offset.dx,
@@ -638,6 +681,72 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 },
               ),
             ),
+
+          // 🩻 Sprint 6.1 — SURGICAL PATH OVERLAY: paints blind-spot
+          // glow + currentQuestion pulse + off-screen arrow whenever an
+          // Atlas exam is mounted in surgicalPath layout (i.e. launched
+          // from the Fog of War mastery summary). Pass-through hit-tests
+          // so the canvas behind keeps responding to pinch / pan / Atlas.
+          if (_surgicalExamController != null &&
+              (_surgicalBlindSpotIds?.isNotEmpty ?? false))
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: Listenable.merge([
+                  _canvasController,
+                  _surgicalExamController!,
+                  _fogOfWarVersionNotifier, // shares 60Hz repaint pulse
+                ]),
+                builder: (context, _) {
+                  final fs = _canvasController.scale;
+                  if (fs < 0.20) return const SizedBox.shrink();
+                  final fm =
+                      Matrix4.identity()..translateByDouble(
+                        _canvasController.offset.dx,
+                        _canvasController.offset.dy,
+                        0.0,
+                        1.0,
+                      );
+                  if (_canvasController.rotation != 0.0) {
+                    fm.rotateZ(_canvasController.rotation);
+                  }
+                  fm.scaleByDouble(fs, fs, 1.0, 1.0);
+
+                  final screenSize = MediaQuery.sizeOf(context);
+                  final vpTL = _canvasController.screenToCanvas(Offset.zero);
+                  final vpBR = _canvasController.screenToCanvas(
+                    Offset(screenSize.width, screenSize.height),
+                  );
+
+                  final session = _surgicalExamController!.session;
+                  final currentQClusterId =
+                      session?.currentQuestion?.sourceClusterId;
+                  // Build a cheap id → cluster lookup. _clusterCache is
+                  // already maintained for the fog flow.
+                  final lookup = {
+                    for (final c in _clusterCache) c.id: c,
+                  };
+                  // Drive the pulse from a 2-second sin loop using the
+                  // same animation time the fog uses, so we don't burn
+                  // a separate AnimationController.
+                  final pulse = (_fogOfWarAnimTime % 2.0) / 2.0;
+
+                  return Transform(
+                    transform: fm,
+                    child: CustomPaint(
+                      painter: SurgicalPathOverlayPainter(
+                        clustersById: lookup,
+                        blindSpotClusterIds: _surgicalBlindSpotIds!,
+                        currentQuestionClusterId: currentQClusterId,
+                        pulse: pulse,
+                        visibleViewport: Rect.fromPoints(vpTL, vpBR),
+                      ),
+                      size: Size.infinite,
+                    ),
+                  );
+                },
+              ),
+            ),
+
           _remoteLiveStrokesHost,
           _pdfPlaceholdersHost,
 
@@ -667,7 +776,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       IgnorePointer(
                         child: RepaintBoundary(
                           child: CustomPaint(
-                            painter: _SectionPreviewPainter(
+                            painter: SectionPreviewPainter(
                               startPoint: _sectionStartPoint!,
                               endPoint: _sectionCurrentEndPoint!,
                               controller: _canvasController,
@@ -684,7 +793,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                       IgnorePointer(
                         child: RepaintBoundary(
                           child: CustomPaint(
-                            painter: _FogZonePreviewPainter(
+                            painter: FogZonePreviewPainter(
                               startPoint: _fogZoneStartPoint!,
                               endPoint: _fogZoneCurrentEndPoint!,
                               controller: _canvasController,
@@ -808,7 +917,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     if (_scratchOutAnimating && _scratchOutParticles.isNotEmpty)
                       Positioned.fill(
                         child: IgnorePointer(
-                          child: _ScratchOutParticleWidget(
+                          child: ScratchOutParticleWidget(
                             particles: _scratchOutParticles,
                             bounds: _scratchOutBounds ?? Rect.zero,
                             canvasController: _canvasController,
@@ -921,14 +1030,21 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                     if (_isPlayingAudio && !isActivelyDrawingFreehand)
                       _buildAudioMiniPlayer(context),
 
-                    // 🎨 Floating Color Disc — always visible in drawing mode
-                    if (!_effectiveIsEraser &&
+                    // 🎨 Floating Color Disc — wheel-mode only.
+                    // Hidden in toolbar mode to keep the canvas chrome unified
+                    // with the toolbar; in wheel mode the disc IS the picker.
+                    if (_useRadialWheel &&
+                        !_effectiveIsEraser &&
                         !_effectiveIsPanMode &&
                         !isActivelyDrawingFreehand)
                       FloatingColorDisc(
                         color: _effectiveSelectedColor,
                         recentColors: _recentColors,
                         strokeSize: _toolController.width,
+                        onFirstGesture: _shouldShowColorWheelTutorial
+                            ? _triggerColorWheelTutorial
+                            : null,
+                        centerNotifier: _colorDiscCenterNotifier,
                         onStrokeSizeChanged: (s) {
                           _toolController.setStrokeWidth(s);
                           setState(() {});
@@ -1219,9 +1335,6 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onLongPressMoveUpdate:
                 _isMultiPageEditMode ? null : _onLongPressMoveUpdate,
             onLongPressEnd: _isMultiPageEditMode ? null : _onLongPressEnd,
-            onSpaceSplitStart: _onSpaceSplitStart,
-            onSpaceSplitUpdate: _onSpaceSplitUpdate,
-            onSpaceSplitEnd: _onSpaceSplitEnd,
             // ✌️ MULTI-FINGER TAP: 2-finger tap = Undo, 3-finger tap = Redo
             onTwoFingerTap: () {
               if (_layerController.canUndo) {
@@ -1475,17 +1588,24 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
             onImageScaleStart: _onImageScaleStart,
             onImageTransform: _onImageTransform,
             onImageScaleEnd: _onImageScaleEnd,
-            // 🤏 SELECTION TRANSFORM: Two-finger rotate + scale on lasso selection
+            // 🤏 SELECTION TRANSFORM: Two-finger rotate + scale on lasso selection.
+            // Generous routing zone: when 2 fingers are placed AROUND a small
+            // selection their focal point can land just outside the tight
+            // selection bounds. Inflate by ~80 logical px (canvas-space) so
+            // the pinch reliably activates regardless of finger spacing.
             shouldRouteToSelectionTransform: (Offset screenFocalPoint) {
               if (_isSelectionPinching) return true;
               if (!_lassoTool.hasSelection) {
                 return false;
               }
+              final selBounds = _lassoTool.getSelectionBounds();
+              if (selBounds == null) return false;
               final canvasPos = _canvasController.screenToCanvas(
                 screenFocalPoint,
               );
-              final inSel = _lassoTool.isPointInSelection(canvasPos);
-              return inSel;
+              // Inflate ≈80 canvas-px so a focal point near (but outside) a
+              // tight selection still routes to the transform handler.
+              return selBounds.inflate(80).contains(canvasPos);
             },
             onSelectionScaleStart: _onSelectionScaleStart,
             onSelectionTransform: _onSelectionTransform,
@@ -1726,7 +1846,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     return IgnorePointer(
       child: RepaintBoundary(
         child: CustomPaint(
-          painter: _RemoteLiveStrokesPainter(
+          painter: RemoteLiveStrokesPainter(
             strokes: strokes,
             colors: CollaborationExtension.remoteLiveStrokeColors,
             widths: CollaborationExtension.remoteLiveStrokeWidths,
@@ -1746,7 +1866,7 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
     return IgnorePointer(
       child: RepaintBoundary(
         child: CustomPaint(
-          painter: _PdfLoadingPlaceholderPainter(
+          painter: PdfLoadingPlaceholderPainter(
             placeholders: placeholders.values.toList(),
             controller: _canvasController,
             pulseValue: _loadingPulseValue,
@@ -2637,168 +2757,8 @@ class _SectionMoveHandleState extends State<_SectionMoveHandle>
   }
 }
 
-/// 💥 Particle data for scratch-out dissolve effect.
-class _ScratchOutParticle {
-  final Offset position;
-  final Offset velocity;
-  final Color color;
-  final double size;
 
-  const _ScratchOutParticle({
-    required this.position,
-    required this.velocity,
-    required this.color,
-    required this.size,
-  });
-}
-
-/// 🔴 Real-time preview overlay: highlights strokes that would be deleted.
-
-/// 💥 Particle dissolve effect — colored particles fly out from deleted area.
-class _ScratchOutParticleWidget extends StatefulWidget {
-  final List<_ScratchOutParticle> particles;
-  final Rect bounds;
-  final InfiniteCanvasController canvasController;
-  final int deleteCount;
-
-  const _ScratchOutParticleWidget({
-    required this.particles,
-    required this.bounds,
-    required this.canvasController,
-    required this.deleteCount,
-  });
-
-  @override
-  State<_ScratchOutParticleWidget> createState() =>
-      _ScratchOutParticleWidgetState();
-}
-
-class _ScratchOutParticleWidgetState extends State<_ScratchOutParticleWidget>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _anim;
-
-  @override
-  void initState() {
-    super.initState();
-    _anim = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..forward();
-  }
-
-  @override
-  void dispose() {
-    _anim.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _anim,
-      builder: (context, child) {
-        return CustomPaint(
-          painter: _ScratchOutParticlePainter(
-            particles: widget.particles,
-            canvasController: widget.canvasController,
-            progress: _anim.value,
-            deleteCount: widget.deleteCount,
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ScratchOutParticlePainter extends CustomPainter {
-  final List<_ScratchOutParticle> particles;
-  final InfiniteCanvasController canvasController;
-  final double progress;
-  final int deleteCount;
-
-  static const double _gravity = 400.0; // px/s² downward
-
-  _ScratchOutParticlePainter({
-    required this.particles,
-    required this.canvasController,
-    required this.progress,
-    required this.deleteCount,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final t = Curves.easeOut.transform(progress);
-    final opacity = (1.0 - t).clamp(0.0, 1.0);
-    if (opacity <= 0) return;
-
-    final dt = progress * 0.5; // 500ms → 0.5s real time
-
-    // 🚀 PAINT CACHE: Reuse single Paint, change color per particle
-    final paint = Paint()..style = PaintingStyle.fill;
-
-    for (final p in particles) {
-      final screenPos = canvasController.canvasToScreen(p.position);
-      final x = screenPos.dx + p.velocity.dx * dt;
-      final y = screenPos.dy + p.velocity.dy * dt + 0.5 * _gravity * dt * dt;
-      final s = p.size * (1.0 - t * 0.6);
-
-      paint.color = p.color.withValues(alpha: opacity * 0.8);
-
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(center: Offset(x, y), width: s, height: s),
-          Radius.circular(s * 0.3),
-        ),
-        paint,
-      );
-    }
-
-    // Count badge for large deletions
-    if (deleteCount > 5 && t < 0.7) {
-      final badgeOpacity = (1.0 - t / 0.7).clamp(0.0, 1.0);
-      // Find center of particle cloud
-      if (particles.isNotEmpty) {
-        final centerScreen = canvasController.canvasToScreen(
-          particles.first.position,
-        );
-        final badgePaint =
-            Paint()
-              ..color = Colors.red.withValues(alpha: badgeOpacity * 0.85)
-              ..style = PaintingStyle.fill;
-        final badgeRect = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(centerScreen.dx, centerScreen.dy - 30),
-            width: 80,
-            height: 28,
-          ),
-          const Radius.circular(14),
-        );
-        canvas.drawRRect(badgeRect, badgePaint);
-
-        // Draw count text
-        final tp = TextPainter(
-          text: TextSpan(
-            text: '🧹 $deleteCount',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: badgeOpacity),
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        )..layout();
-        tp.paint(
-          canvas,
-          Offset(
-            centerScreen.dx - tp.width / 2,
-            centerScreen.dy - 30 - tp.height / 2,
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _ScratchOutParticlePainter old) =>
-      progress != old.progress;
-}
+// ScratchOutParticle data class + ScratchOutParticleWidget + private
+// _ScratchOutParticlePainter moved to
+// `lib/src/rendering/canvas/scratch_out_particles.dart` so
+// `FlueraCanvasView` can render the FX outside the screen library.

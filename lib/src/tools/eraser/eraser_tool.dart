@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
+import '../../history/undo_redo_manager.dart';
 import '../../utils/key_value_store.dart';
 import '../../drawing/models/pro_drawing_point.dart';
 import '../../core/models/shape_type.dart';
@@ -218,6 +219,13 @@ class EraserTool {
     // guard silently skips them → eraser appears to "not work" on new ink.
     _spatialIndex.markDirty();
     analytics.startSession();
+
+    // 🧩 F8/F10 fix: a single eraser gesture spans many primitive deltas
+    // (per stroke: 1 removeStroke + N addStroke fragments). Without this
+    // batch wrapper, Ctrl+Z would revert one fragment at a time instead
+    // of the whole eraser pass. Composite undo collapses the whole pass
+    // into one entry the user can revert in a single Ctrl+Z.
+    UndoRedoManager.instance.beginBatch();
   }
 
   void endGesture() {
@@ -235,6 +243,11 @@ class EraserTool {
       analytics.takeSnapshot(layerController.activeLayer?.strokes.length ?? 0);
     }
     analytics.endSession();
+
+    // Close the composite batch opened in `beginGesture`. Empty batches
+    // (gesture started, no strokes intersected) are a no-op inside
+    // `endBatchAsComposite` — nothing is pushed.
+    UndoRedoManager.instance.endBatchAsComposite('Cancella');
   }
 
   int get currentGestureEraseCount => _currentGestureEraseCount;

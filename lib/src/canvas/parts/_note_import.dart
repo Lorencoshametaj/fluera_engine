@@ -117,20 +117,16 @@ extension FlueraCanvasNoteImport on _FlueraCanvasScreenState {
         return;
       }
 
-      // Record stroke IDs for undo
-      final strokeIds = importResult.strokes.map((s) => s.id).toList();
-
-      // Batch-add all imported strokes
-      _layerController.addStrokesBatch(importResult.strokes);
+      // F11: Wrap the entire batch-add in a composite undo entry. The legacy
+      // `_ImportNotesCommand` is gone — the delta system is now the single
+      // source of truth for undo. One Ctrl+Z reverts the whole import.
+      await _layerController.runAsBatch(
+        'Importa ${importResult.strokes.length} tratti',
+        () async {
+          await _layerController.addStrokesBatch(importResult.strokes);
+        },
+      );
       DrawingPainter.triggerRepaint();
-
-      // 6. Register undo command so the entire import can be undone at once
-      _commandHistory.execute(_ImportNotesCommand(
-        layerController: _layerController,
-        strokeIds: strokeIds,
-        label: 'Import ${strokeIds.length} strokes',
-        alreadyExecuted: true, // strokes are already added above
-      ));
 
       // 7. Update cluster cache for cognitive features
       if (_clusterDetector != null) {
@@ -182,56 +178,7 @@ extension FlueraCanvasNoteImport on _FlueraCanvasScreenState {
     return canvasCenter;
   }
 }
-
-/// Command that allows undoing an entire note import in one step.
-///
-/// On undo: removes all imported strokes by ID.
-/// On redo: re-adds them (strokes are retained in memory).
-class _ImportNotesCommand extends Command {
-  final LayerController layerController;
-  final List<String> strokeIds;
-  List<ProStroke> _removedStrokes = const [];
-  bool _firstExecution;
-
-  _ImportNotesCommand({
-    required this.layerController,
-    required this.strokeIds,
-    required String label,
-    bool alreadyExecuted = false,
-  }) : _firstExecution = alreadyExecuted,
-       super(label: label);
-
-  @override
-  void execute() {
-    // On first call with alreadyExecuted=true, strokes are already added
-    // by the import pipeline — skip. On subsequent calls (redo), re-add them.
-    if (_firstExecution) {
-      _firstExecution = false;
-      return;
-    }
-    if (_removedStrokes.isNotEmpty) {
-      layerController.addStrokesBatch(_removedStrokes);
-      DrawingPainter.triggerRepaint();
-    }
-  }
-
-  @override
-  void undo() {
-    // Remove all imported strokes and save them for redo
-    final removed = <ProStroke>[];
-    for (final id in strokeIds) {
-      // Find the stroke in the layers before removing
-      for (final layer in layerController.layers) {
-        final stroke = layer.strokes.where((s) => s.id == id).firstOrNull;
-        if (stroke != null) {
-          removed.add(stroke);
-          break;
-        }
-      }
-      layerController.removeStroke(id);
-    }
-    _removedStrokes = removed;
-    DrawingPainter.invalidateAllTiles();
-    DrawingPainter.triggerRepaint();
-  }
-}
+// F11: `_ImportNotesCommand` removed — undo of an import is now handled
+// by the delta system via `LayerController.runAsBatch` which collapses
+// the entire `addStrokesBatch` into a single composite undo entry.
+// Single source of truth eliminates the parallel command/delta divergence.

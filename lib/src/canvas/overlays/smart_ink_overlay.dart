@@ -196,6 +196,18 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
       if (_cache.length > 50) _cache.remove(_cache.keys.first);
     }
 
+    // ── Dismiss if recognition failed or returned a placeholder ────────
+    final txt = _recognizedText?.trim() ?? '';
+    if (txt.isEmpty || txt == '?') {
+      if (mounted) {
+        widget.onResult(const SmartInkResult(
+          text: '',
+          action: SmartInkAction.dismiss,
+        ));
+      }
+      return;
+    }
+
     if (mounted) {
       setState(() => _isLoading = false);
     }
@@ -331,30 +343,6 @@ class _SmartInkOverlayState extends State<SmartInkOverlay>
                         color: subtleColor, letterSpacing: 0.5,
                       ),
                     ),
-                    if (!_isLoading && _recognizedText != null) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: (_detectedType == 'math'
-                              ? const Color(0xFFFF9800)
-                              : const Color(0xFF4CAF50)
-                          ).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          _detectedType == 'math' ? '𝑓(x)' : 'Aa',
-                          style: TextStyle(
-                            fontSize: 10, fontWeight: FontWeight.w700,
-                            color: _detectedType == 'math'
-                                ? const Color(0xFFFF9800)
-                                : const Color(0xFF4CAF50),
-                          ),
-                        ),
-                      ),
-                    ],
                     const Spacer(),
                     GestureDetector(
                       onTap: _dismiss,

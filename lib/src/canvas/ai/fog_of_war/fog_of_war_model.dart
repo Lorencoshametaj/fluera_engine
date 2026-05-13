@@ -9,6 +9,8 @@
 // AI STATE: N/A — pure data model.
 // ============================================================================
 
+import 'dart:ui' show Rect;
+
 /// The 3 fog density levels (P10-03).
 ///
 /// The 3 fog density levels (P10-03).
@@ -91,6 +93,24 @@ class FogNodeEntry {
         'confidence': confidence,
         'responseTime_ms': responseTime?.inMilliseconds,
       };
+
+  /// Sprint 6 — used by the Fog→Exam reverse return flow to rehydrate
+  /// per-node state from a persisted JSON checkpoint.
+  factory FogNodeEntry.fromJson(Map<String, dynamic> j) {
+    final statusName = j['status'] as String? ?? FogNodeStatus.hidden.name;
+    final revealed = j['revealedAt'] as String?;
+    final rt = j['responseTime_ms'];
+    return FogNodeEntry(
+      clusterId: j['clusterId'] as String,
+      status: FogNodeStatus.values.firstWhere(
+        (s) => s.name == statusName,
+        orElse: () => FogNodeStatus.hidden,
+      ),
+      revealedAt: revealed == null ? null : DateTime.tryParse(revealed),
+      confidence: (j['confidence'] as num?)?.toInt(),
+      responseTime: rt is num ? Duration(milliseconds: rt.toInt()) : null,
+    );
+  }
 }
 
 /// Fog of War session phases.
@@ -193,11 +213,25 @@ class FogOfWarSession {
     return total / withConf.length;
   }
 
+  /// Sprint 6 — Fog→Exam reverse return: optional canvas-coordinate rect
+  /// captured by the controller at activation. Persisted in [toJson] when
+  /// non-null so [FogOfWarSession.fromJson] can rehydrate the spatial scope.
+  Rect? zoneRect;
+
   Map<String, dynamic> toJson() => {
         'sessionId': sessionId,
+        'canvasId': canvasId,
         'timestamp': startedAt.toIso8601String(),
+        if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
         'fogLevel': fogLevel.name,
         'zone': zoneId,
+        if (zoneRect != null)
+          'zoneRect': {
+            'l': zoneRect!.left,
+            't': zoneRect!.top,
+            'w': zoneRect!.width,
+            'h': zoneRect!.height,
+          },
         'aiExaminer': false, // V1: no AI examiner
         'totalNodes': totalNodes,
         'durationSeconds': durationSeconds,
@@ -211,6 +245,45 @@ class FogOfWarSession {
         'nodeResults':
             nodeEntries.values.map((e) => e.toJson()).toList(),
       };
+
+  /// Sprint 6 — rehydrate a completed Fog session from disk so the
+  /// reverse-return flow can re-mount the heatmap after Atlas Q&A.
+  ///
+  /// The restored object preserves [nodeEntries] verbatim. The caller is
+  /// responsible for re-resolving [_originalClusters] from the live canvas
+  /// (cluster geometry can drift while the user is in the exam overlay).
+  factory FogOfWarSession.fromJson(Map<String, dynamic> j) {
+    final raw = (j['nodeResults'] as List<dynamic>? ?? const [])
+        .whereType<Map<String, dynamic>>();
+    final entries = <String, FogNodeEntry>{};
+    for (final e in raw) {
+      final entry = FogNodeEntry.fromJson(e);
+      entries[entry.clusterId] = entry;
+    }
+    final rect = j['zoneRect'] as Map<String, dynamic>?;
+    final completed = j['completedAt'] as String?;
+    return FogOfWarSession(
+      sessionId: j['sessionId'] as String,
+      canvasId: j['canvasId'] as String? ?? '',
+      zoneId: j['zone'] as String? ?? '',
+      fogLevel: FogLevel.values.firstWhere(
+        (l) => l.name == j['fogLevel'],
+        orElse: () => FogLevel.medium,
+      ),
+      startedAt: DateTime.tryParse(j['timestamp'] as String? ?? '') ??
+          DateTime.now(),
+      completedAt: completed == null ? null : DateTime.tryParse(completed),
+      totalNodes: (j['totalNodes'] as num?)?.toInt() ?? entries.length,
+      nodeEntries: entries,
+    )..zoneRect = rect == null
+        ? null
+        : Rect.fromLTWH(
+            (rect['l'] as num).toDouble(),
+            (rect['t'] as num).toDouble(),
+            (rect['w'] as num).toDouble(),
+            (rect['h'] as num).toDouble(),
+          );
+  }
 }
 
 /// Result of tapping a node during mastery map phase (P10-21).

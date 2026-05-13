@@ -8,9 +8,10 @@ import 'dart:ui'
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/foundation.dart' show compute, kIsWeb, kReleaseMode;
-import 'package:flutter/scheduler.dart' show Ticker;
+import 'package:flutter/scheduler.dart' show SchedulerBinding, Ticker;
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
+import './ai/cluster_concept_index.dart'; // 🧠 Per-canvas concept source of truth
 import './ai/proactive_analysis_model.dart'; // 💡 Proactive knowledge gap data models
 import '../core/scene_graph/content_origin.dart'; // 🏷️ Content provenance taxonomy (A20.3)
 import '../audio/pedagogical_sound_engine.dart'; // 🎵 Pedagogical sound effects (A13.4)
@@ -25,6 +26,9 @@ import './ai/flow_guard.dart'; // 🛡️ Flow protection during active writing
 import './overlays/exam_overlay.dart'; // 🎓 Exam Mode fullscreen overlay
 import './overlays/chat_overlay.dart'; // 💬 Chat with Notes overlay
 import '../ai/chat_context_builder.dart'; // 💬 Chat context builder
+import '../ai/cluster_action.dart'; // 🧩 Cluster-level Atlas action types (F8)
+import '../ai/cluster_action_executor.dart'; // 🧩 Cluster-level Atlas dispatcher (F8)
+import '../ai/telemetry_recorder.dart'; // 📊 Telemetry sink for chat cost-transparency
 import './widgets/proactive_cluster_dot.dart'; // 💡 Animated gap indicator dot
 import '../platform/native_notifications.dart'; // 🔔 Native notifications for SR reminders
 import '../l10n/fluera_localizations.dart'; // 🌍 L10n strings
@@ -33,6 +37,7 @@ import 'package:flutter/services.dart';
 import '../utils/safe_path_provider.dart';
 import '../utils/platform_guard.dart';
 import '../utils/key_value_store.dart';
+import '../utils/ai_language_preference.dart';
 import '../audio/native_audio_models.dart';
 import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
@@ -144,6 +149,7 @@ import '../dialogs/image_editor_crop.dart';
 import '../services/image_service.dart';
 import '../services/adaptive_debouncer_service.dart';
 import '../services/digital_ink_service.dart';
+import '../services/italian_ocr_corrector.dart';
 import '../services/ink_prediction_service.dart';
 import '../services/word_completion_dictionary.dart';
 import '../services/spellcheck_service.dart';
@@ -177,12 +183,16 @@ import '../time_travel/models/synchronized_recording.dart';
 import '../time_travel/controllers/synchronized_playback_controller.dart';
 import '../time_travel/widgets/synchronized_playback_overlay.dart';
 import '../collaboration/widgets/canvas_presence_overlay.dart';
+import '../collaboration/widgets/connected_users_strip.dart';
+import '../collaboration/widgets/sync_status_indicator.dart';
 import '../collaboration/fluera_realtime_adapter.dart';
 import '../collaboration/conflict_resolution.dart';
 import '../collaboration/widgets/conflict_resolution_dialog.dart';
 import '../multiview/multiview_orchestrator.dart';
 import '../config/advanced_split_layout.dart';
 import '../config/wheel_mode_pref.dart';
+import '../config/color_wheel_tutorial_pref.dart';
+import './overlays/color_wheel_tutorial_overlay.dart';
 import '../config/split_panel_content.dart';
 import './overlays/canvas_viewport_overlay.dart';
 import '../time_travel/services/time_travel_recorder.dart';
@@ -222,6 +232,13 @@ import '../storage/recording_storage_service.dart';
 import '../platform/display_capabilities_detector.dart';
 import '../config/adaptive_rendering_config.dart';
 import '../config/v1_feature_gate.dart'; // 🚀 v1 DEFER kill switches
+import './fluera_canvas_view.dart'; // 🏗️ God Object Decomposition Phase 1
+import './canvas_view_tier.dart'; // 🏗️ Tier configuration
+import '../rendering/canvas/eraser_overlay_painters.dart'; // 🏗️ Public eraser FX types
+import '../rendering/canvas/collab_overlay_painters.dart'; // 🏗️ Public collab FX types
+import '../tools/lasso/lasso_ripple_painter.dart'; // 🏗️ Public lasso ripple FX
+import '../rendering/canvas/preview_overlay_painters.dart'; // 🏗️ Public section/fog preview painters
+import '../rendering/canvas/scratch_out_particles.dart'; // 🏗️ Public scratch-out FX
 import '../reflow/cluster_detector.dart';
 import '../reflow/reflow_physics_engine.dart';
 import '../reflow/content_cluster.dart';
@@ -239,7 +256,6 @@ import '../audio/sherpa_model_manager.dart';
 import '../audio/transcription_result.dart';
 import '../audio/streaming_transcription_service.dart';
 import '../audio/audio_keyword_extractor.dart';
-import '../reflow/space_split_controller.dart';
 import '../audio/platform_channels/audio_recorder_channel.dart';
 import '../rendering/canvas/image_memory_manager.dart';
 import '../rendering/canvas/image_memory_budget.dart';
@@ -359,6 +375,9 @@ import '../systems/component_set.dart';
 import '../systems/layout_engine.dart';
 import '../systems/preferred_values.dart';
 import '../collaboration/scene_graph_crdt.dart';
+import '../collaboration/crdt_layer_controller_observer.dart';
+import '../collaboration/crdt_layer_controller_applier.dart';
+import '../storage/crdt_persistence.dart';
 import '../export/fluera_file_format.dart';
 import '../export/fluera_file_export_service.dart';
 
@@ -402,7 +421,9 @@ import '../rendering/canvas/golden_shimmer_painter.dart'; // ⭐ Golden shimmer 
 // ─── Fog of War (Step 10) ──────────────────────────────────────────────────
 import './ai/fog_of_war/fog_of_war_controller.dart';
 import './ai/fog_of_war/fog_of_war_model.dart';
+import './ai/fog_of_war/fog_session_resume_storage.dart';
 import '../rendering/canvas/fog_of_war_overlay_painter.dart';
+import '../rendering/canvas/surgical_path_overlay_painter.dart';
 import './widgets/fog_of_war_info_screen.dart';
 import './widgets/ghost_map_info_screen.dart';
 
@@ -410,6 +431,7 @@ import './widgets/ghost_map_info_screen.dart';
 import './ai/socratic/socratic_controller.dart';
 import './ai/socratic/socratic_model.dart';
 import './widgets/socratic_bubble.dart';
+import './widgets/socratic_scope_picker.dart';
 
 // ─── Cross-Zone Bridges (Step 9) ──────────────────────────────────────────────
 import './ai/cross_zone_bridge_controller.dart';
@@ -672,6 +694,57 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   FlueraRealtimeEngine? _realtimeEngine;
   StreamSubscription<CanvasRealtimeEvent>? _realtimeEventSub;
 
+  /// 🔄 CRDT graph that mirrors every LayerController mutation locally and
+  /// remotely. Owned by [_initRealtimeCollaboration] and torn down by
+  /// [_disposeRealtimeCollaboration].
+  CRDTSceneGraph? _crdtSceneGraph;
+  CRDTLayerControllerObserver? _crdtMutationObserver;
+  CRDTToLayerControllerApplier? _crdtApplier;
+  StreamSubscription<CRDTOperation>? _crdtOpSubscription;
+  void Function()? _crdtMutationUnsubscribe;
+
+  /// Buffer for incoming remote ops, drained in a single
+  /// `beginBatch`/`endBatch` cycle on the next microtask. The pixel
+  /// eraser produces `removeNode` + 1-2 `addNode` per tick (split-stroke
+  /// mode); applying each op separately makes the receiver flash because
+  /// every `addStroke`/`removeStroke` triggers `notifyListeners`.
+  /// Coalescing the burst into one repaint frame swaps the parent
+  /// stroke and its replacement fragments atomically from the user's
+  /// POV.
+  final List<CRDTOperation> _pendingRemoteOps = [];
+  Timer? _pendingRemoteOpsTimer;
+
+  /// 🔒 Live subscription to permission changes. Fires whenever the local
+  /// user's role on this canvas mutates (share added, role changed,
+  /// share revoked). Wired only when [FlueraPermissionProvider]
+  /// implements `canEditChanges` — implementations that don't are
+  /// pinned to the open-time permission until the canvas is reloaded.
+  StreamSubscription<bool>? _permissionSubscription;
+
+  /// 💾 Periodic safety net: re-broadcasts ops still flagged unsent every
+  /// few seconds. Supabase Broadcast is fire-and-forget without an ack
+  /// channel, so a peer that misses the wire packet never receives the
+  /// op unless we resend it. The drain on reconnect handles offline-to-
+  /// online transitions; this timer handles transient packet loss while
+  /// nominally connected.
+  Timer? _crdtOutboxDrainTimer;
+
+  /// 💾 Persistence layer for the CRDT op-log + vector clocks + snapshots.
+  /// Bound to the same SQLite database used for canvas storage.
+  CRDTPersistence? _crdtPersistence;
+
+  /// HLC peer identifier used by the local [_crdtSceneGraph]. Resolved from
+  /// `config.getDeviceId() ?? config.getUserId()`; persisted across restarts
+  /// implicitly via the host-supplied stable id.
+  String? _crdtPeerId;
+
+  /// 💾 Reactive count of CRDT ops produced locally that have not yet been
+  /// broadcast (i.e. `crdt_operations.sent_at IS NULL` for this canvas).
+  /// Drives the `SyncStatusIndicator` "N pending" badge. Approximate — kept
+  /// consistent by the same code paths that flip `sent_at`, so it converges
+  /// to the SQL truth on each broadcast / drain cycle.
+  final ValueNotifier<int> _crdtPendingOpsNotifier = ValueNotifier<int>(0);
+
   /// 🤝 Is this canvas shared with other users?
   bool _isSharedCanvas = false;
 
@@ -724,6 +797,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// ☁️ Timestamp of last successful local save (millis since epoch).
   /// Used for conflict detection with cloud data.
   int? _lastLocalSaveTimestamp;
+
+  /// 🛡️ Set true while a remote (cloud) snapshot is being applied to the
+  /// in-memory state. Suppresses the autosave that would otherwise fire
+  /// on the layer-controller notification, which would commit the remote
+  /// snapshot back to disk under `dirtyLayers=[]` (full rewrite) and
+  /// destroy any local edits that were freshly loaded.
+  bool _isApplyingRemote = false;
 
   /// Layer controller per gestire i layer
   late final LayerController _layerController;
@@ -824,6 +904,15 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     telemetry: widget.config.telemetry,
   );
 
+  /// 🩻 Sprint 6.1 — surgicalPath exam: when an exam is launched from the
+  /// Fog of War mastery summary with `layout: surgicalPath`, the canvas
+  /// must paint the [SurgicalPathOverlayPainter] above the strokes (glow
+  /// on blind-spot clusters + pulsing outline on the current question's
+  /// source cluster). These two fields drive that overlay; both are
+  /// nullable and only non-null while a surgicalPath exam is mounted.
+  ExamSessionController? _surgicalExamController;
+  Set<String>? _surgicalBlindSpotIds;
+
   /// 🌫️ Fog of War: Version notifier for painter repaint.
   final ValueNotifier<int> _fogOfWarVersionNotifier = ValueNotifier(0);
 
@@ -892,6 +981,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Cluster IDs currently showing hypercorrection pulse (⚡ P3-23).
   final Set<String> _hypercorrectionPulseClusterIds = {};
 
+  /// Tracks the last active-question id we panned to. Used by
+  /// `buildSocraticOverlays` to auto-pan when the active bubble would
+  /// otherwise be off-screen (off-viewport cluster selected from the
+  /// scope picker). Re-pans only when the active id changes, not on
+  /// every rebuild.
+  String? _lastPannedActiveQuestionId;
+
   // 🚶 Passeggiata nel Palazzo fields
   /// Whether Passeggiata mode is currently active.
   bool _isPasseggiataActive = false;
@@ -910,7 +1006,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // 💛 Zeigarnik Effect fields
   /// Whether the Zeigarnik pulsing effect is enabled.
-  bool _zeigarnikEnabled = true;
+  bool _zeigarnikEnabled = false;
 
   /// Bounding rects of incomplete nodes (in canvas coordinates).
   List<Rect> _zeigarnikIncompleteNodeBounds = const [];
@@ -1002,6 +1098,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// Fires ONLY when canUndo/canRedo/elementCount transitions — not on every
   /// _layerController notification. Prevents toolbar rebuild per stroke add.
   final ValueNotifier<int> _undoRedoVersion = ValueNotifier(0);
+
+  /// Bumped whenever the eraser mode (whole-stroke vs pixel) changes — drives
+  /// a toolbar rebuild so the eraser-button icon flips between
+  /// `delete_sweep_rounded` and `content_cut`. The eraser tool itself isn't a
+  /// ChangeNotifier, so we surface the change via this lightweight version.
+  final ValueNotifier<int> _eraserModeVersion = ValueNotifier(0);
   bool _lastCanUndo = false;
   bool _lastCanRedo = false;
   int _lastElementCount = 0;
@@ -1236,12 +1338,6 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   List<ContentCluster> _clusterCache = [];
   AnimatedReflowController? _animatedReflowController;
 
-  // ✂️ SPACE-SPLIT: Controller for two-finger vertical spread gesture
-  final SpaceSplitController _spaceSplitController = SpaceSplitController();
-
-  /// ✂️ Snapshot of stroke positions before split — used for undo.
-  Map<String, List<ProDrawingPoint>>? _preSplitStrokeSnapshot;
-
   // 🧠 KNOWLEDGE FLOW: Connection graph + particle animation
   KnowledgeFlowController? _knowledgeFlowController;
   Ticker? _knowledgeParticleTicker;
@@ -1251,6 +1347,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // 🧠 SEMANTIC MORPHING: Zoom-out semantic view controller
   SemanticMorphController? _semanticMorphController;
+
+  // 🧠 CLUSTER CONCEPT INDEX: per-canvas source of truth for "what does
+  // this cluster talk about". Replaces the four-way duplication where
+  // Semantic Titles / Exam / Socratic / Ghost Map each ran their own
+  // OCR + AI pipeline on the same strokes. Lazily populated via
+  // resolve(), shared across all cognitive features.
+  ClusterConceptIndex? _clusterConceptIndex;
 
   // 🏛️ MONUMENT RESOLVER: named landmarks visible at LOD 2 (§1098).
   // Recomputed only when the graph topology changes — panning/zooming
@@ -1780,6 +1883,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   final Set<String> _sessionMastered = {}; // concepts rated "lo so già"
   final Map<String, SrsCardData> _reviewSchedule =
       {}; // FSRS spaced repetition: concept → card data
+
+  /// 🌉 Per-cluster last day a Cross-Zone Bridge accept triggered an FSRS
+  /// stability bump. Caps the effect at 1×/cluster/day so the student
+  /// can't game cross-zone clicks for stability inflation.
+  final Map<String, DateTime> _bridgeFsrsBumpLastDay = {};
+
   /// 🎥 Persistent count of completed SRS review sessions for this canvas.
   /// Drives the progressive zoom-out opener (§1549). Increments after each
   /// successful endSession, persisted alongside the schedule.
@@ -1833,9 +1942,41 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   String? _wheelModeToast;
   bool _wheelModeToastVisible = false;
 
-  /// 4️⃣ AUTO-HIDE: pill fades out after inactivity.
-  bool _wheelPillVisible = true;
+  /// 4️⃣ AUTO-HIDE: dock starts hidden on app open — only the tiny re-opener
+  /// dot + hint appear, so the canvas is clean from launch. Tap reveals the
+  /// dock (pill + bookmark FAB) for 4 s.
+  bool _wheelPillVisible = false;
   DateTime _wheelPillLastInteraction = DateTime.now();
+
+  /// 💡 Onboarding hint: shown once next to the re-open dot the first time
+  /// the pill auto-hides in wheel mode, then fades out.
+  bool _wheelHintVisible = false;
+  Timer? _wheelHintTimer;
+
+  /// 🎨 Color-wheel first-touch tutorial state.
+  /// Visible until the user dismisses; persisted across launches via
+  /// [ColorWheelTutorialPref] so the overlay only ever appears once.
+  bool _showColorWheelTutorial = false;
+
+  /// Live disc centre published by the [FloatingColorDisc] — drives the
+  /// spotlight cutout in the tutorial overlay.
+  final ValueNotifier<Offset> _colorDiscCenterNotifier =
+      ValueNotifier<Offset>(Offset.zero);
+
+  bool get _shouldShowColorWheelTutorial => !ColorWheelTutorialPref.seen;
+
+  void _triggerColorWheelTutorial() {
+    if (ColorWheelTutorialPref.seen) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _showColorWheelTutorial = true);
+    ColorWheelTutorialPref.seen = true; // persists immediately
+  }
+
+  void _dismissColorWheelTutorial() {
+    if (!_showColorWheelTutorial) return;
+    HapticFeedback.selectionClick();
+    setState(() => _showColorWheelTutorial = false);
+  }
 
   /// 🖊️ PEN PICKER: transient overlay that expands from the dot on tap.
   /// Zero canvas space used — appears on top as a floating overlay.
@@ -1958,6 +2099,24 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🎨 Apply a brush preset — single source of truth.
   void _applyBrushPreset(BrushPreset preset) {
+    // 🔒 V1 paywall gate (blocker, 2026-05-05): Free tier is locked to the
+    // three "writing" brushes (pencil, fountain, marker). Anything richer
+    // (technical pen, calligraphy, highlighter — and the GPU brushes once
+    // they ship) requires Plus or higher. We preserve the current visual
+    // selection by NOT mutating tool state, then surface the upgrade
+    // prompt so the user knows why nothing happened.
+    if (widget.config.subscriptionTier == FlueraSubscriptionTier.free &&
+        !V1FeatureGate.isBrushFree(preset.penType)) {
+      final cb = widget.config.onUpgradePrompt;
+      if (cb != null) {
+        cb(
+          context,
+          'Questo pennello è disponibile con Plus. I tre pennelli base (matita, penna, marker) restano sempre gratis.',
+        );
+      }
+      return;
+    }
+
     _selectedPresetId = preset.id;
     _brushSettings = preset.settings;
     _toolController.setPenType(preset.penType);
@@ -1970,11 +2129,33 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
   }
 
+  /// Curated subset shown in wheel mode (pen picker + swipe cycle).
+  /// Order is preserved so swipe-cycle iterates in this exact sequence.
+  static const List<String> _wheelModeBrushIds = [
+    'builtin_everyday_pen',
+    'builtin_fine_pen',
+    'builtin_thick_marker',
+    'builtin_soft_pencil',
+    'builtin_calligraphy',
+    'builtin_highlighter',
+  ];
+
+  List<BrushPreset> get _wheelModeBrushPresets {
+    final all = _brushPresetManager.allPresets;
+    final byId = {for (final p in all) p.id: p};
+    return [
+      for (final id in _wheelModeBrushIds)
+        if (byId[id] != null) byId[id]!,
+    ];
+  }
+
   /// Cycle through brush presets via swipe gesture on the indicator dot.
   /// Shows a brief HUD with the preset name so the user knows what was selected.
   /// [forward] true = next preset (swipe left), false = previous (swipe right).
   void _cyclePreset({required bool forward}) {
-    final presets = _brushPresetManager.allPresets;
+    final presets = _useRadialWheel
+        ? _wheelModeBrushPresets
+        : _brushPresetManager.allPresets;
     if (presets.isEmpty) return;
     final cur = presets.indexWhere((p) => p.id == _selectedPresetId);
     final safeIdx = cur < 0 ? 0 : cur;
@@ -2023,6 +2204,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// 📝 Inline text editing state
   bool _isInlineEditing = false;
   DigitalTextElement? _inlineEditingElement;
+
+  /// 📝 Pending tap → text creation. Holds the canvas-space position the
+  /// user just tapped while in digital-text mode. The actual
+  /// `_startInlineTextCreation` call is deferred ~120 ms so a 2-finger
+  /// pinch (which fires `_onDrawCancel` when the 2nd finger lands) can
+  /// abort the creation BEFORE the inline editor flashes on screen.
+  Offset? _pendingDigitalTextPosition;
+  Timer? _pendingDigitalTextTimer;
   DateTime?
   _inlineTextFinishedAt; // 🔒 Cooldown to prevent spurious re-creation
   final _inlineOverlayKey = GlobalKey<InlineTextOverlayState>();
@@ -2139,6 +2328,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🤏 Selection pinch transform state (used by _drawing_handlers extension)
   bool _isSelectionPinching = false;
+
+  /// Timestamp (ms since epoch) of the last selection-pinch END. Used as a
+  /// grace period: if the user lifts one finger from a 2-finger pinch and
+  /// taps again immediately, the new tap should NOT clear the still-visible
+  /// selection. Within this window `_onDrawStart` skips lasso/marquee start.
+  int _lastSelectionPinchEndMs = 0;
+  static const int _kSelectionPinchGraceMs = 700;
   double _selectionPrevRotation = 0.0;
   double _selectionPrevScale = 1.0;
   double _selectionAccumRotation =
@@ -2354,7 +2550,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🎯 Eraser overlay state
   late final AnimationController _eraserPulseController;
-  final List<_EraserTrailPoint> _eraserTrail = [];
+  final List<EraserTrailPoint> _eraserTrail = [];
   Set<String> _eraserPreviewIds = {};
   int _eraserGestureEraseCount = 0;
 
@@ -2364,7 +2560,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   double _eraserSmoothedRadius = 20.0;
   int _lastEraserPointerDownTime = 0;
   int _eraserTapCount = 0;
-  final List<_EraserParticle> _eraserParticles = [];
+  final List<EraserParticle> _eraserParticles = [];
 
   /// 🎯 V4: Lasso eraser mode
   bool _eraserLassoMode = false;
@@ -2391,7 +2587,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _scratchOutAnimating = false;
 
   /// Deleted stroke data for particle dissolve effect.
-  List<_ScratchOutParticle> _scratchOutParticles = [];
+  List<ScratchOutParticle> _scratchOutParticles = [];
 
   /// Set to true when draw is cancelled (zoom interrupt) — suppresses scratch-out.
   bool _drawWasCancelled = false;
@@ -2530,6 +2726,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _isMultiviewActive = false;
   bool _isMultiviewTransitioning = false; // 🚀 2-phase transition flag
   AdvancedSplitLayout? _multiviewLayout;
+  // Key to reach the multiview orchestrator state (panel content swaps,
+  // panel-index lookup from a controller, etc.).
+  final GlobalKey<MultiviewOrchestratorState> _multiviewKey =
+      GlobalKey<MultiviewOrchestratorState>();
   // 🚀 Targeted rebuild: only the canvas area repaints, not the entire screen
   final ValueNotifier<int> _multiviewVersionNotifier = ValueNotifier<int>(0);
 
@@ -2661,9 +2861,21 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       // silent — landmark layer degrades gracefully without OCR
     });
 
+    // 🎨 Load color-wheel tutorial seen flag (one-shot)
+    ColorWheelTutorialPref.load();
+
     // 🔄 Load wheel mode preference from disk
     _WheelModePref.load().then((_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      setState(() {
+        // 💡 Surface the onboarding hint on app open in wheel mode so the
+        // user immediately knows the small top-left dot reopens the dock.
+        if (_useRadialWheel) _wheelHintVisible = true;
+      });
+      _wheelHintTimer?.cancel();
+      _wheelHintTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) setState(() => _wheelHintVisible = false);
+      });
     });
 
     // 📅 Load spaced repetition schedule from disk
@@ -2971,6 +3183,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         // When the native path is not feeding (finger/Android/quiet), skip.
         if (!_isDrawingNotifier.value) return;
         if (!_drawingHandler.nativeInputAuthoritative) return;
+        // 🚨 Android prediction is a naïve velocity-based 3-frame
+        // extrapolation in PredictedTouchPlugin.kt — it overshoots when
+        // the finger changes direction, drawing a phantom arc from the
+        // finger to a future point that vanishes on pointer-up. iOS Apple
+        // Pencil has a high-quality native predictor and benefits from
+        // the tail; Android does not. Skip the overlay on Android.
+        if (Platform.isAndroid) return;
         // Predicted arrive in FlutterView-local screen pixels; transform to
         // canvas-space the same way coalesced batches are transformed in
         // _onNativeCoalescedBatch so they align with _currentStroke.
@@ -2978,10 +3197,24 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
             _canvasAreaKey.currentContext?.findRenderObject() as RenderBox?;
         if (rb == null) return;
         final canvasOrigin = rb.localToGlobal(Offset.zero);
+        // 🚨 Android MotionEvent → DrawingInputHandler stores raw pixels in
+        // `_nativePredictedPoints[i].position`. Flutter's `localToGlobal`
+        // returns logical pixels (DP). Divide by DPR on Android so the
+        // predicted-tail anti-lag overlay aligns with the committed live
+        // stroke instead of drifting along a phantom diagonal.
+        final nativeCoordScale = Platform.isAndroid
+            ? MediaQuery.of(context).devicePixelRatio
+            : 1.0;
         final mapped = <ProDrawingPoint>[];
         for (final p in predicted) {
+          final logicalScreen = nativeCoordScale == 1.0
+              ? p.position
+              : Offset(
+                  p.position.dx / nativeCoordScale,
+                  p.position.dy / nativeCoordScale,
+                );
           final canvasPos = _canvasController.screenToCanvas(
-            p.position - canvasOrigin,
+            logicalScreen - canvasOrigin,
           );
           mapped.add(
             ProDrawingPoint(
@@ -3071,6 +3304,37 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         _knowledgeFlowController = KnowledgeFlowController();
         _radialExpansionController = RadialExpansionController();
         _semanticMorphController = SemanticMorphController();
+        _clusterConceptIndex = ClusterConceptIndex(
+          providerFn: () {
+            try {
+              return EngineScope.current.atlasProvider;
+            } catch (_) {
+              return null;
+            }
+          },
+          strokeMapFn: () {
+            final map = <String, ProStroke>{};
+            for (final l in _layerController.layers) {
+              for (final s in l.strokes) {
+                map[s.id] = s;
+              }
+            }
+            return map;
+          },
+          reviewScheduleFn: () => _reviewSchedule,
+          languageNameFn: () => _deviceLanguageName,
+        );
+        // 🤝 Wire cross-feature avoid: Socratic and Exam now share the
+        // same "recently-asked" view via the index (B1 of the consolidation
+        // sprint). Each controller still keeps its local ring buffer for
+        // backward-compat (tests inject controllers without an index);
+        // the merge happens at read time in `recentQuestionsForClusters`.
+        _socraticController.conceptIndex = _clusterConceptIndex;
+        // 💾 C1: Hydrate persisted concepts from disk so AI titles
+        // generated in a previous session survive cold-start. Canvas
+        // ID is set a few lines above; bindCanvas reads the on-disk
+        // JSON and notifies listeners when concepts populate.
+        unawaited(_clusterConceptIndex!.bindCanvas(_canvasId));
         _thumbnailCache = ClusterThumbnailCache();
         _knowledgeParticleTicker = createTicker((elapsed) {
           // Tick particles at ~60fps (16ms = 0.016s)
@@ -3504,6 +3768,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _knowledgeParticleTicker?.dispose();
     _knowledgeFlowController?.dispose();
     _thumbnailCache?.dispose();
+    // 🧠 CLUSTER CONCEPT INDEX: Release per-canvas concept cache
+    _clusterConceptIndex?.dispose();
     // 🗺️ GHOST MAP: Release controller + animation
     _ghostMapAnimController?.dispose();
     _ghostMapFadeOutController?.dispose(); // Fix #18
@@ -3569,6 +3835,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
     // ☁️ CLOUD SYNC
     _disposeRealtimeCollaboration();
+    _crdtPendingOpsNotifier.dispose();
     _syncEngine?.dispose();
 
     // 🤝 P2P SESSION
@@ -3619,6 +3886,7 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _isDrawingNotifier.dispose();
     _isLoadingNotifier.dispose();
     _undoRedoVersion.dispose();
+    _eraserModeVersion.dispose();
 
     _currentStrokeNotifier.dispose();
     _currentShapeNotifier.dispose();
@@ -3833,27 +4101,6 @@ class _SyncDotState extends State<_SyncDot>
   }
 }
 
-/// 🎯 Trail point for eraser trail visualization
-class _EraserTrailPoint {
-  final Offset position;
-  final int timestamp;
-
-  const _EraserTrailPoint(this.position, this.timestamp);
-}
-
-/// 🎯 V3: Particle emitted at erase intersection points
-class _EraserParticle {
-  Offset position;
-  final Offset velocity;
-  double opacity;
-  final int createdAt;
-  final double size;
-
-  _EraserParticle({
-    required this.position,
-    required this.velocity,
-    this.opacity = 1.0,
-    required this.createdAt,
-    this.size = 3.0,
-  });
-}
+// EraserTrailPoint + EraserParticle moved to
+// `lib/src/rendering/canvas/eraser_overlay_painters.dart` (public types)
+// so [FlueraCanvasView] outside this library can reuse them.

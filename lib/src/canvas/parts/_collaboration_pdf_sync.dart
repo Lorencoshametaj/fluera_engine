@@ -24,7 +24,7 @@ extension _CollaborationPdfSync on _FlueraCanvasScreenState {
     // Cancel any existing timeout for this doc
     CollaborationExtension._pdfLoadingTimeouts[docId]?.cancel();
 
-    CollaborationExtension._pdfLoadingPlaceholders[docId] = _PdfLoadingPlaceholder(
+    CollaborationExtension._pdfLoadingPlaceholders[docId] = PdfLoadingPlaceholder(
       documentId: docId,
       fileName: fileName,
       pageCount: pageCount,

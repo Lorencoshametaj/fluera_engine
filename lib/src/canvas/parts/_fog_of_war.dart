@@ -945,6 +945,13 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     final l10n = FlueraLocalizations.of(context);
     final summaryText = _fogOfWarController.localizedSummaryText(l10n);
 
+    // Sprint 5 — capture the surgical-plan ids now (the controller may
+    // dispose between the sheet open + the user's tap on the CTA).
+    final blindSpotIds = session!.surgicalPlanNodeIds.toSet();
+    // Sprint 6 — capture session reference for reverse-return persistence.
+    final sessionForResume = session;
+    final zoneForResume = _fogOfWarController.selectedZone;
+
     // Show structured bottom sheet instead of multi-line SnackBar.
     showModalBottomSheet(
       context: context,
@@ -952,7 +959,7 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
       isDismissible: true,
       isScrollControlled: true,
       builder: (ctx) => _FogMasterySummarySheet(
-        session: session!,
+        session: session,
         summaryText: summaryText,
         deltaText: deltaText,
         densitySuggestion: densitySuggestion,
@@ -961,6 +968,31 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
         onDismiss: () {
           Navigator.pop(ctx);
         },
+        // Sprint 5 — hand the forgotten / blind-spot clusters straight to
+        // the Atlas examiner. Per spec the spatial recall comes first,
+        // then the AI quizzes on what didn't come back from memory.
+        onAtlasExam: blindSpotIds.isEmpty
+            ? null
+            : () async {
+                Navigator.pop(ctx);
+                // Sprint 6 — persist the completed session BEFORE dismiss
+                // so the reverse-return flow can re-mount the heatmap
+                // when the Atlas exam ends.
+                if (zoneForResume != null) {
+                  sessionForResume.completedAt ??= DateTime.now();
+                  sessionForResume.zoneRect = zoneForResume;
+                  await const FogSessionResumeStorage().save(sessionForResume);
+                }
+                // Dismiss the fog overlay before the Atlas overlay mounts —
+                // they live in different OverlayEntries and stacking both
+                // would burn GPU on the blurred backdrop.
+                dismissFogOfWar();
+                _startExamSession(
+                  restrictedToClusterIds: blindSpotIds,
+                  layout: ExamOverlayLayout.surgicalPath,
+                  onExamComplete: _handleExamCompleteFromFog,
+                );
+              },
       ),
     );
   }
@@ -996,6 +1028,78 @@ extension FogOfWarWiring on _FlueraCanvasScreenState {
     _fogHintDistanceLabel = null;
     _layerController.notifyListeners();
     setState(() {});
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🌫️↔🎓 Sprint 6 — Reverse return Exam→Fog
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Restore the Fog of War heatmap after the Atlas exam dismisses.
+  /// Wired as `onExamComplete` callback in `_atlas_ai.dart:_startExamSession`
+  /// when the exam was launched from the fog mastery summary CTA.
+  ///
+  /// Reads the persisted [FogOfWarSession] from
+  /// [FogSessionResumeStorage], re-resolves the zone clusters from the
+  /// live `_clusterCache` (cluster bounds may have shifted while the
+  /// student was inside the exam overlay), and re-activates the
+  /// controller in mastery-map mode. Falls back gracefully (snackbar +
+  /// no restore) when the canvas no longer has clusters in the saved
+  /// zone — prevents zombie heatmaps on a canvas the user reorganised.
+  Future<void> _handleExamCompleteFromFog() async {
+    const storage = FogSessionResumeStorage();
+    final saved = await storage.read();
+    if (!mounted || saved == null) {
+      await storage.clear();
+      return;
+    }
+    final zone = saved.zoneRect;
+    if (zone == null) {
+      await storage.clear();
+      return;
+    }
+
+    // Re-resolve clusters from live cache — the canvas may have been
+    // reorganised during the exam.
+    final clustersInZone = _clusterCache
+        .where((c) => zone.overlaps(c.bounds))
+        .toList();
+    if (clustersInZone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('🌫️ Mappa Fog of War non più disponibile (canvas modificato).'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 3),
+      ));
+      await storage.clear();
+      return;
+    }
+
+    // Partial evaporation — some original clusters are gone. Restore the
+    // heatmap with what remains, but warn the student so they don't think
+    // the gap is a bug. Threshold: lose more than 20% triggers the
+    // notice (small drift is normal as Reflow re-clusters strokes).
+    final originalCount = saved.totalNodes;
+    final missingCount = originalCount - clustersInZone.length;
+    if (originalCount > 0 && missingCount / originalCount > 0.20) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          '🌫️ Heatmap parziale: $missingCount nodi sono stati riorganizzati durante l\'esame.',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ));
+    }
+
+    _fogOfWarController.activateInMasteryMode(
+      zone: zone,
+      clustersInZone: clustersInZone,
+      canvasId: _canvasId,
+      savedSession: saved,
+    );
+    _layerController.notifyListeners();
+    if (mounted) setState(() {});
+    // Cleanup checkpoint — heatmap is restored, the next dismiss is the
+    // user's intentional close.
+    await storage.clear();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1756,6 +1860,12 @@ class _FogMasterySummarySheet extends StatelessWidget {
   final bool isMuroRosso;
   final VoidCallback onDismiss;
 
+  /// Sprint 5 — Fog↔Exam handoff. When non-null and the session has at
+  /// least one forgotten / blind-spot node, an additional CTA appears above
+  /// "Esplora la mappa" that hands those clusters off to the Atlas examiner
+  /// (per `teoria_cognitiva_apprendimento.md` §"L'IA come Esaminatore").
+  final VoidCallback? onAtlasExam;
+
   const _FogMasterySummarySheet({
     required this.session,
     required this.summaryText,
@@ -1764,6 +1874,7 @@ class _FogMasterySummarySheet extends StatelessWidget {
     required this.milestoneText,
     required this.isMuroRosso,
     required this.onDismiss,
+    this.onAtlasExam,
   });
 
   @override
@@ -1955,6 +2066,33 @@ class _FogMasterySummarySheet extends StatelessWidget {
             ],
 
             const SizedBox(height: 16),
+
+            // Sprint 5 — Atlas Examiner CTA (Fog↔Exam integration).
+            // Shown only when the session has forgotten/blind-spot nodes
+            // AND the host wired an Atlas exam handoff. The phrasing
+            // mirrors the spec's "L'IA come Esaminatore" wording.
+            if (onAtlasExam != null && session.surgicalPlanNodeIds.isNotEmpty) ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: onAtlasExam,
+                  icon: const Text('🎓', style: TextStyle(fontSize: 16)),
+                  label: Text(
+                    'Interrogami sui ${session.surgicalPlanNodeIds.length} blind spot',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF00E5FF),
+                    foregroundColor: const Color(0xFF0A0A1A),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
 
             // Dismiss button.
             SizedBox(

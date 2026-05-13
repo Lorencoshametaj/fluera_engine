@@ -99,6 +99,11 @@ class ToolbarState {
   final bool isGhostMapActive;
   final int ghostMapGapCount;
 
+  // ── Bookmarks ─────────────────────────────────────────────────────────────
+  /// Number of spatial bookmarks on the canvas. The bookmark button is hidden
+  /// when zero (keep the toolbar uncluttered before any bookmark exists).
+  final int bookmarkCount;
+
   // ── Step Gate System (A15) ─────────────────────────────────────────────────
   /// Gate availability per cognitive tool step.
   /// 0 = open, 1 = soft, 2 = hard, 3 = automatic.
@@ -118,6 +123,11 @@ class ToolbarState {
   /// Index of the suggested next step in `LearningStep.values`.
   /// Used to show a highlight on the suggested toolbar chip.
   final int? suggestedStepIndex;
+
+  /// 🔒 Tier — drives paywall gates inside the toolbar (locked brush
+  /// pills on Free, Pro badges in dialogs, etc.). Defaults to Free so
+  /// callers that don't pass it get the safest behaviour.
+  final FlueraSubscriptionTier subscriptionTier;
 
   ToolbarState({
     // Drawing
@@ -193,6 +203,8 @@ class ToolbarState {
     // Ghost Map
     this.isGhostMapActive = false,
     this.ghostMapGapCount = 0,
+    // Bookmarks
+    this.bookmarkCount = 0,
     // Step Gate System (A15)
     this.recallGateType,
     this.socraticGateType,
@@ -202,6 +214,8 @@ class ToolbarState {
     this.crossZoneBridgeCount = 0,
     this.isCrossZoneBridgeLoading = false,
     this.suggestedStepIndex,
+    // Tier
+    this.subscriptionTier = FlueraSubscriptionTier.free,
   });
 
   /// Creates a copy with selected fields overridden.
@@ -289,6 +303,7 @@ class ToolbarState {
       isSmartSnapActive: isSmartSnapActive,
       isGhostMapActive: isGhostMapActive,
       ghostMapGapCount: ghostMapGapCount,
+      bookmarkCount: bookmarkCount,
       // Step Gate
       recallGateType: recallGateType,
       socraticGateType: socraticGateType,

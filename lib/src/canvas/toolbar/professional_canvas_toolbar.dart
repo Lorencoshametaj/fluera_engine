@@ -25,6 +25,7 @@ import '../../tools/pdf/pdf_annotation_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
 import '../../history/command_history.dart';
 import '../../config/v1_feature_gate.dart';
+import '../fluera_canvas_config.dart' show FlueraSubscriptionTier;
 import 'pdf_contextual_toolbar.dart';
 
 import 'toolbar_status.dart';
@@ -222,6 +223,9 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   VoidCallback? get onResetRotation => callbacks.onResetRotation;
   VoidCallback? get onToggleRotationLock => callbacks.onToggleRotationLock;
   VoidCallback? get onSearchPressed => callbacks.onSearchPressed;
+  VoidCallback? get onWheelModeToggle => callbacks.onWheelModeToggle;
+  VoidCallback? get onBookmarksPressed => callbacks.onBookmarksPressed;
+  int get bookmarkCount => state.bookmarkCount;
   VoidCallback? get onShapeRecognitionToggle =>
       callbacks.onShapeRecognitionToggle;
   VoidCallback? get onShapeRecognitionSensitivityCycle =>
@@ -309,6 +313,10 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   VoidCallback? get onImageFillMode => callbacks.onImageFillMode;
   ValueChanged<String>? get onTokenExport => callbacks.onTokenExport;
   ValueChanged<String>? get onInsertText => callbacks.onInsertText;
+  ValueChanged<String>? get onUpgradePrompt => callbacks.onUpgradePrompt;
+
+  // ── ToolbarState forwarder for tier (used by brush strip + dialogs) ──────
+  FlueraSubscriptionTier get subscriptionTier => state.subscriptionTier;
 
   @override
   ConsumerState<ProfessionalCanvasToolbar> createState() =>

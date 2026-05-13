@@ -39,8 +39,11 @@ class V1FeatureGate {
   /// gives us telemetry on whether students actually build cross-domain links.
   static const bool crossZoneBridges = true;
 
-  /// 📝 Exam Session — Steps 10-11, not in the first month.
-  static const bool examSession = false;
+  /// 📝 Exam Session — Steps 10-11. Killer feature per medicina/legge/concorsi
+  /// e magistrale. Backend + UI completamente wired, FSRS spaced repetition
+  /// integrato in onComplete. Sbloccato per V1 launch (decisione 2026-05-05,
+  /// Path 3 audit). Comparable: Anki/Memorang ma genera Q&A dai tuoi appunti.
+  static const bool examSession = true;
 
   /// 🏪 Marketplace — requires critical user mass.
   static const bool marketplace = false;
@@ -56,7 +59,20 @@ class V1FeatureGate {
   static const bool advancedBrushes = false;
 
   /// 🖥️ Multiview — UX complexity not necessary day 1.
-  static const bool multiview = false;
+  static const bool multiview = true;
+
+  /// 🏗️ FlueraCanvasView extraction (main canvas) — God Object Decomposition
+  /// Phase 1. When true, FlueraCanvasScreen delegates the viewport+input
+  /// pipeline to the new FlueraCanvasView widget. Off by default until
+  /// device-validated end-to-end (pixel-match harness is already green).
+  static const bool flueraCanvasViewExtraction = false;
+
+  /// 🏗️ FlueraCanvasView in multiview panels — same extraction, scoped to
+  /// the multiview orchestrator only. Default ON because the legacy
+  /// `MultiviewPanel` is canvas-lite (no PDFs, no images, no cognitive
+  /// overlays, no paper template). Activating FlueraCanvasView here can
+  /// only improve panel fidelity vs the legacy path.
+  static const bool flueraCanvasViewExtractionMultiview = true;
 
   /// 📊 Tabular — advanced tool.
   static const bool tabular = false;

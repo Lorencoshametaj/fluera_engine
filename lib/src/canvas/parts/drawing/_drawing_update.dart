@@ -286,7 +286,6 @@ extension on _FlueraCanvasScreenState {
           if (now - _lastDragSyncTime >=
               _FlueraCanvasScreenState._dragSyncThrottleMs) {
             _lastDragSyncTime = now;
-            _broadcastImageUpdate(updated);
           }
         }
       }
@@ -321,7 +320,6 @@ extension on _FlueraCanvasScreenState {
           if (now - _lastDragSyncTime >=
               _FlueraCanvasScreenState._dragSyncThrottleMs) {
             _lastDragSyncTime = now;
-            _broadcastImageUpdate(updated);
           }
         }
       }
@@ -348,7 +346,6 @@ extension on _FlueraCanvasScreenState {
             _layerController.updateImage(updated);
             _layerController.enableDeltaTracking = wasTracking;
             // 🔴 RT: Live drag broadcast so collaborators see movement
-            _broadcastImageUpdate(updated);
           }
         }
 
@@ -641,7 +638,7 @@ extension on _FlueraCanvasScreenState {
       _eraserTool.updateShapeAngleFromTilt(tiltX, tiltY);
 
       // 🎯 Track trail (max 20 points)
-      _eraserTrail.add(_EraserTrailPoint(canvasPosition, now));
+      _eraserTrail.add(EraserTrailPoint(canvasPosition, now));
       // 🚀 PERF: Front-trim instead of removeWhere (O(1) amortized vs O(n))
       while (_eraserTrail.isNotEmpty &&
           now - _eraserTrail.first.timestamp > 300) {

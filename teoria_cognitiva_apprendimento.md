@@ -223,6 +223,23 @@ La Productive Failure si distingue dalle Desirable Difficulties (§5) perché no
 
 **🤖 Implicazione nell'era dell'IA:** L'IA che interviene *prima* del fallimento distrugge la Productive Failure. Se lo studente chiede a ChatGPT "spiegami X" prima di aver tentato da solo, bypassa completamente la Fase di Generazione e il cervello non è preparato ad accogliere la risposta. Questo è il motivo per cui l'IA è **dormiente** nei Passi 1-2: deve permettere il fallimento.
 
+#### Aggiornamento 2021-2024: I 4 Meccanismi e le Condizioni Operative
+
+La meta-analisi **Sinha & Kapur (2021)**, *"When Problem Solving Followed by Instruction Works: Evidence for Productive Failure"* (Review of Educational Research), ha identificato **4 meccanismi cognitivi** attraverso cui la PF produce apprendimento (codificati nel libro Kapur 2024, *Productive Failure: Unlocking Deeper Learning Through the Science of Failing*):
+
+1. **Activation** — Il fallimento attiva conoscenze pregresse rilevanti ma incomplete. Senza attivazione preliminare, l'istruzione successiva non ha "ganci" su cui agganciarsi.
+2. **Awareness** — Lo studente diventa consapevole dei propri gap *specifici*, non genericamente "non so". Questa metacognizione mirata orienta l'attenzione durante la consolidation.
+3. **Affect** — La frustrazione e la sorpresa creano arousal emotivo (vedi §4 Ipercorrezione), taggando la successiva soluzione come saliente.
+4. **Assembly** — Durante la fase di consolidamento, lo studente *integra* (non riceve passivamente) la soluzione corretta, riconfigurando le proprie conoscenze pregresse.
+
+> [!WARNING]
+> **PF non è universalmente buona — funziona solo sotto condizioni precise.** Sinha & Kapur (2021) e l'edweek interview di Kapur (2024) sono espliciti: PF *peggiora* l'apprendimento se mancano queste condizioni operative:
+> - **Complessità adeguata**: il problema deve essere risolvibile *parzialmente* dallo studente (non banale, non impossibile). Se è banale, niente activation; se è impossibile, niente awareness.
+> - **Contrast cases nella consolidation phase**: il docente (o l'IA) deve mostrare *perché* le soluzioni dello studente non funzionano, confrontandole con la corretta. Senza contrast, la fase 4 (assembly) fallisce.
+> - **Prior knowledge "rilevante ma incompleto"**: lo studente deve avere abbastanza conoscenza pregressa per generare *qualcosa*, ma non abbastanza per risolvere completamente. Mappare questa zona prima del task è progettazione pedagogica seria.
+>
+> **Implicazione per Fluera:** Il Passo 2 (canvas vuoto = generazione autonoma) è una buona PF *solo se* il Passo 4 (Confronto Centauro) implementa contrast cases reali — non se l'IA si limita a dire "ecco la risposta corretta". L'IA deve mostrare *perché* il modello dello studente fallisce in casi specifici, non sostituirlo.
+
 ---
 
 ### T5. Esempi Concreti: L'Ancora dell'Astrazione (Chi et al., 1981; Rawson & Dunlosky, 2022)
@@ -240,6 +257,34 @@ Il meccanismo è semplice: un concetto astratto ("l'entropia aumenta nei sistemi
 > Nessun altro strumento rende questo accoppiamento così naturale, visivo e spaziale.
 
 **🤖 Implicazione nell'era dell'IA:** L'IA può generare esempi concreti brillanti — ed è una delle rare situazioni in cui l'output dell'IA è legittimamente utile. Ma con una regola: lo studente deve **prima** tentare di generare i propri esempi (Effetto Generazione §3), e solo dopo confrontarli con quelli dell'IA. L'esempio auto-generato, anche se peggiore, è neurologicamente più efficace di quello perfetto letto da un LLM.
+
+---
+
+### T6. Deliberate Practice e i Suoi Limiti (Ericsson, 1993; Hambrick & Macnamara, 2014)
+
+**Anders Ericsson** (1993, *"The Role of Deliberate Practice in the Acquisition of Expert Performance"*, Psychological Review) definì la **Deliberate Practice** (DP) come pratica strutturata caratterizzata da:
+
+1. **Task ai limiti delle proprie capacità** — non comfort zone, non zona di panico, ma zona di stretching cognitivo (sovrappone con ZPD §19).
+2. **Feedback immediato e specifico** — non "buono/cattivo", ma diagnostica granulare.
+3. **Ripetizione mirata** — focus su componenti deboli identificati, non ripetizione generica.
+4. **Correzione esplicita** — gli errori vengono analizzati e i pattern motori/cognitivi rivisti.
+
+> [!IMPORTANT]
+> **Wire-up coi 12 Passi:** Tutto il workflow Fluera è di fatto un'implementazione operativa di Deliberate Practice. Il Confronto Centauro (Passo 4) = feedback specifico ericssoniano. La ZPD del canvas (zone vuote vs piene) = task ai limiti. L'Ipercorrezione (§4) = correzione esplicita ad alto arousal. La pratica SRS (Passo 8) = ripetizione mirata calibrata. **Fluera è una macchina di Deliberate Practice per lo studio.**
+
+#### Il Caveat Onesto: La Critica Hambrick-Macnamara
+
+La narrativa popolare ("10.000 ore ti rendono esperto in qualunque cosa", reperita per esempio in Gladwell, *Outliers*) è una distorsione del paper originale di Ericsson. La ricerca successiva ha sistematicamente ridimensionato il potere esplicativo della DP:
+
+- **Macnamara, Hambrick & Moreau (2014)**, meta-analisi su 88 studi: la DP spiega in media il **4% della varianza nelle performance educative**, il **18% in sport**, il **26% in giochi (chess, scacchi)**, **<1% nelle professioni**.
+- **Hambrick et al. (2014)**, *"Deliberate practice: Is that all it takes to become an expert?"*: la DP è **necessaria ma non sufficiente**. Variabili residue: working memory capacity, prior knowledge, age of starting, opportunità, motivazione intrinseca.
+- **Macnamara & Hambrick (2020)** + risposta Ericsson nel *Psychological Research*: il dibattito si è chiuso su un consenso operativo — DP è la *condizione necessaria* per il loop di pratica strutturata, ma promettere expertise garantita è scientificamente scorretto.
+
+> [!CAUTION]
+> **Implicazione per il marketing di Fluera:** Mai promettere "diventa esperto", "padroneggia la materia", "garantito miglioramento del X%". La frase corretta è: *"Fluera ottimizza il loop di pratica deliberata. Le ore, il focus, la curiosità, e il prior knowledge restano tuoi."* Questo posizionamento è già implementato nel box "Cosa non rivendichiamo" della landing page — ed è un asset reputazionale, non una limitazione marketing.
+
+> [!NOTE]
+> **Confronto con Productive Failure (T4):** Sembrano in tensione (DP enfatizza ripetizione strutturata; PF enfatizza fallimento generativo). In realtà sono complementari nei tempi. **PF è la fase 0** (genera ipotesi prima di sapere come si fa). **DP è la fase 1-N** (una volta che hai un modello, lo affini con ripetizione mirata e feedback). I 12 Passi di Fluera mappano: Passo 2 = PF (canvas vuoto), Passi 3-8 = DP (loop di feedback Centauro + SRS).
 
 ---
 
@@ -3191,4 +3236,147 @@ Il "con tratti" aggiunge due layer cognitivi impossibili con il solo audio:
 > Senza appunti a mano (Strato 1), la registrazione è un registratore vocale — Strato 2 senza ancoraggio.
 > Senza registrazione (Strato 2), gli appunti perdono il contesto della fonte — Strato 1 senza rete di sicurezza.
 > Con entrambi + sincronizzazione tratti: **appunti con memoria di dove sono nati**, navigabili con un tocco.
+
+---
+
+## PARTE XIII — Le Frontiere Avanzate della Pedagogia: KiP e Threshold Concepts
+
+---
+
+> *Le sezioni 1-32 hanno descritto come il cervello apprende. Le due sezioni che seguono descrivono come il cervello **rifiuta** di apprendere — e come il design pedagogico deve adattarsi.*
+
+---
+
+## 33. Knowledge in Pieces e P-Prims (diSessa, 1993)
+
+**Andrea diSessa** (1993, *"Toward an Epistemology of Physics"*, Cognition and Instruction; e Smith, diSessa & Roschelle 1993, *"Misconceptions Reconceived"*, Journal of the Learning Sciences) ha demolito una delle convinzioni più radicate della pedagogia classica: l'idea che gli studenti arrivino in aula con "concetti sbagliati" (misconceptions) che il docente deve "rimuovere" per sostituirli con "concetti corretti".
+
+La realtà, dimostrata da decenni di ricerca empirica in fisica, matematica e computer science, è radicalmente diversa.
+
+> [!IMPORTANT]
+> **Il Principio:** La conoscenza pre-istruzione di uno studente non è un blocco monolitico (giusto o sbagliato), ma una **collezione di frammenti** — diSessa li chiama **p-prims** (phenomenological primitives) — che sono *intuizioni minimal* derivate dall'esperienza quotidiana. Ogni p-prim è di per sé né giusto né sbagliato: la sua correttezza dipende dal **contesto** in cui viene attivato.
+
+#### Esempi di p-prims
+
+- **"More effort → more result"**: corretto quando spingi un'auto in panne, sbagliato in fisica relativistica (la velocità non aumenta linearmente con la forza per oggetti vicini a c).
+- **"Closer source → stronger effect"**: corretto per il calore di un fuoco, sbagliato per la radiazione cosmica isotropa.
+- **"Things naturally come to rest"**: corretto sul tavolo (attrito), sbagliato nello spazio (legge d'inerzia di Newton).
+
+Quando uno studente "sbaglia" un problema di fisica, raramente sta usando un p-prim *errato*. Sta applicando un p-prim *valido* a un contesto dove non si applica. La domanda pedagogica corretta non è "come elimino la misconception?" ma "come aiuto lo studente a riconoscere il contesto giusto in cui applicare ogni p-prim?".
+
+#### Misconceptions vs Knowledge in Pieces: Tabella di Confronto
+
+| Dimensione | Modello Misconceptions (classico) | Modello Knowledge in Pieces (diSessa) |
+|------------|-----------------------------------|---------------------------------------|
+| **Natura dell'errore** | Il cervello contiene un "concetto sbagliato" da rimuovere | Il cervello contiene frammenti validi applicati al contesto sbagliato |
+| **Strategia pedagogica** | Confutazione e sostituzione | Ricontestualizzazione e integrazione |
+| **Tono del feedback** | "Hai sbagliato, ecco il concetto corretto" | "Questo frammento è vero quando X, ma qui il contesto è Y" |
+| **Stato emotivo studente** | Vergogna, demotivazione | Curiosità, ricalibrazione |
+| **Persistenza dell'apprendimento** | Spesso il p-prim ricompare sotto pressione | Il framework integrato resiste perché incorpora il frammento |
+| **Riferimenti** | Posner, Strike & Hewson (1982); Vosniadou (1994) | diSessa (1993); Smith, diSessa & Roschelle (1993); diSessa & Hammer (2020) |
+
+> [!WARNING]
+> **Il modello classico è scientificamente obsoleto da 30 anni.** La ricerca KiP ha mostrato empiricamente (su migliaia di studenti di fisica universitaria) che le "misconceptions" che sembrano eliminate dal docente *ricompaiono intatte* sotto pressione (esami non standard, contesti nuovi). Le strategie KiP-aware producono apprendimento *più resistente* perché non chiedono allo studente di abbandonare l'intuizione, ma di mappare quando applicarla.
+
+#### Implicazioni per Fluera (Design Pedagogico)
+
+**Per il Confronto Centauro (Stadio 2):** L'IA non deve mai dire "sbagli", "errore", "concetto errato". Il framing corretto è: *"Questo frammento è vero quando vale X — qui invece il contesto è Y. Vediamo cosa cambia."* Questo è già implementato come regola FERREE in `atlas_ai_service.dart` riga 461-462 e applicato al copy di Ghost Map.
+
+**Per Ghost Map:** I nodi "mancanti" non sono "buchi nel cervello dello studente". Sono **frammenti non ancora integrati nello schema**. Il copy aggiornato 2026-05-11 riflette questo framing: "frammenti da scoprire", "frammenti da consolidare", "ecco il frammento che integra il quadro". Il rename completo della feature ("Mappa Concetti" invece di "Mappa Lacune") è un cambio di vocabolario non casuale.
+
+**Per il Passo 3 (Interrogazione Socratica):** Le domande "lacuna" (recall 1-2) sono state riformulate come "fragments not yet connected" anziché "student forgot or never connected". La domanda diventa "quale frammento ponte manca?" anziché "cosa hai dimenticato?".
+
+**Integrazione con altri principi:**
+- **Effetto Generazione (§3):** lo studente che genera attivamente i propri frammenti li integra meglio di quelli che gli vengono "dati corretti".
+- **Ipercorrezione (§4):** lo shock funziona ancora, ma il framing cambia — non "eri sicuro ma hai sbagliato" bensì "eri sicuro su un frammento da ricontestualizzare".
+- **Productive Failure (T4):** PF e KiP sono allineati — il fallimento generativo attiva i p-prims rilevanti, e la consolidation phase li ricontestualizza invece di sostituirli.
+- **Threshold Concepts (§34):** alcuni p-prims richiedono attraversamento di TC per essere riconfigurati — vedi sezione successiva.
+
+#### Citazioni
+
+- diSessa, A. A. (1993). *"Toward an Epistemology of Physics"*. Cognition and Instruction, 10(2-3), 105-225.
+- Smith, J. P., diSessa, A. A., & Roschelle, J. (1993). *"Misconceptions Reconceived: A Constructivist Analysis of Knowledge in Transition"*. Journal of the Learning Sciences, 3(2), 115-163.
+- diSessa, A. A., & Hammer, D. (2020). *"Knowledge in Pieces"*. In Springer reference handbook of the learning sciences.
+
+---
+
+## 34. Threshold Concepts e Liminality (Meyer & Land, 2003-2006)
+
+**Jan Meyer** e **Ray Land** (2003, *"Threshold Concepts and Troublesome Knowledge"*, ETL Project Occasional Report 4; e 2006, libro collettivo *"Overcoming Barriers to Student Understanding"*) hanno introdotto un concetto che spiega un fenomeno familiare a ogni docente: alcuni concetti chiave di una disciplina, una volta compresi, **trasformano irreversibilmente** il modo in cui lo studente vede l'intera materia. Prima di attraversarli, lo studente è "fuori"; dopo, è "dentro" la disciplina.
+
+> [!IMPORTANT]
+> **Il Principio:** Un **Threshold Concept** (TC) è un portale conoscitivo che, una volta attraversato, riorganizza la visione dello studente sulla disciplina. Non è "un concetto difficile in più". È un **cambio di framework**, spesso doloroso, irreversibile, e profondamente integrativo.
+
+#### Le 5 Caratteristiche di un Threshold Concept
+
+1. **Trasformativo** — cambia il modo in cui lo studente vede il mondo, non solo la sua conoscenza locale.
+2. **Irreversibile** — una volta attraversato, è quasi impossibile "tornare" alla visione precedente. Spiega perché gli esperti non capiscono più perché i novizi trovano X "ovvio o sbagliato".
+3. **Integrativo** — espone l'interconnessione tra fenomeni prima percepiti come separati.
+4. **Bounded** — definisce i confini della disciplina; chi non l'ha attraversato non è ancora "dentro".
+5. **Troublesome** — è cognitivamente, emotivamente o ontologicamente difficile (Perkins, 1999). Spesso conflittuale con intuizioni quotidiane.
+
+#### Esempi di Threshold Concepts per Disciplina
+
+| Disciplina | Threshold Concept | Cosa cambia dopo l'attraversamento |
+|------------|-------------------|-----------------------------------|
+| **Calcolo** | Limite di funzione | Si vede la matematica come ragionamento sull'infinito, non solo manipolazione algebrica |
+| **Economia** | Opportunity cost | Ogni decisione viene letta come trade-off, non come scelta isolata |
+| **Fisica** | Sistema di riferimento (relatività galileiana) | Le grandezze "assolute" (velocità, posizione) diventano relazionali |
+| **Programmazione OOP** | Object / encapsulation | Il codice viene visto come collaborazione tra entità autonome, non come sequenza di istruzioni |
+| **Statistica** | P-value e null hypothesis | Si distingue "evidenza" da "prova" |
+| **Biologia** | Selezione naturale | Gli organismi vengono visti come adattati *a posteriori*, non *progettati* |
+| **Diritto** | Distinzione norma vs fatto | I casi vengono letti attraverso categorie, non come narrazioni |
+| **Medicina** | Diagnosi differenziale come probabilità bayesiana | Il sintomo non "è" la malattia — è evidenza che modula prior |
+
+#### La Liminality: Il Periodo "In Mezzo" (Critico)
+
+Il concetto **più importante e meno noto** del framework Meyer-Land è la **liminality** (dal latino *limen*, "soglia"). È lo stato dello studente che ha *iniziato* ad attraversare un TC ma non l'ha ancora *completato*.
+
+Caratteristiche della liminality:
+- **Non-monotonica**: lo studente può oscillare tra "capisco" e "non capisco" per **settimane o mesi**.
+- **Frustrante**: la confidenza cala drasticamente. Lo studente che prima pensava di "sapere" ora si sente *più* incompetente.
+- **Mimetic stage**: lo studente impara a *imitare* il discorso esperto senza ancora comprendere — i suoi appunti possono sembrare corretti mentre la sua comprensione è in transizione.
+- **Tacit transformation**: l'attraversamento avviene spesso fuori dalla coscienza, durante il sonno o il "tempo morto". Non è un evento puntuale.
+
+> [!CAUTION]
+> **Tensione critica con SRS / FSRS:** I sistemi di Spaced Repetition standard (Anki, FSRS) interpretano la "low confidence persistente" come *segnale di forgetting* e accelerano la frequenza di ripasso. Per uno studente in **liminality di un TC**, questo è esattamente la cosa sbagliata: la "low confidence" non è forgetting, è **transizione cognitiva** in corso. Bombardarlo di ripassi su quel concetto produce frustrazione, non apprendimento. Il TC ha bisogno di **tempo morto**, non di pressione.
+
+#### Implicazioni per Fluera (V2 Backlog, NON V1)
+
+> [!NOTE]
+> **Disclaimer:** Le implementazioni qui sotto sono *proposte di design futuro*. La V1 attuale di Fluera (8 cognitive features wired al 2026-05-11) **non implementa** ancora un Threshold Concept Mode dedicato. Questa sezione documenta l'opportunità per V2.
+
+**Threshold Concept Mode (proposta V2):**
+- L'IA identifica i candidati TC analizzando: (a) concetti che lo studente revisita ≥5 volte senza convergenza nelle confidence, (b) concetti dove il pattern di errore mostra "mimetic stage" (corretto sintatticamente, sbagliato concettualmente), (c) concetti cross-cluster con alta integrazione.
+- Per i TC identificati, la UX cambia:
+  - **Badge dedicato** sul nodo (es. soglia stilizzata) — visivamente distinto dai nodi normali.
+  - **FSRS soft-mode**: il ripasso si dirada invece di accelerare, dando tempo morto allo studente.
+  - **Copy che normalizza la liminality**: "Sei in attraversamento di un concetto soglia. È normale oscillare tra 'capisco' e 'non capisco' per settimane. Non disattivare la sessione, dai tempo al cervello."
+  - **Nessun confidence slider** durante la liminality (chiedere "quanto sei sicuro?" a uno studente in transizione è metacognitivamente dannoso).
+
+**Per la copy attuale (V1):** Almeno evitare di trattare oscillazioni di confidenza come "regressione". Il copy `ghostMap_belowZPDExplanation` ("Concentrati prima sui prerequisiti — ci tornerai più avanti") è già allineato a questo principio.
+
+**Per il Confronto Centauro:** Quando lo studente fallisce su un TC, l'IA dovrebbe riconoscere lo stato liminale e *non* scaricare la soluzione completa. Risposta corretta: *"Stai attraversando un concetto fondante. La risposta non è memorizzabile — devi viverla. Prova questi 3 esempi diversi, vedi se emerge un pattern."*
+
+#### Integrazione con altri principi
+
+- **Productive Failure (T4):** un TC è una macchina di PF naturale. Il fallimento ripetuto attiva la generazione, e la consolidation phase è l'attraversamento stesso.
+- **Knowledge in Pieces (§33):** alcuni TC richiedono di ricontestualizzare un cluster di p-prims simultaneamente. È per questo che sono "troublesome": non basta cambiare un frammento, va riconfigurato l'intero schema.
+- **ZPD (§19):** un TC è oltre la ZPD finché non è quasi attraversato — la pressione standard ZPD ("rendi più difficile") è dannosa.
+- **Growth Mindset (§12):** la liminality è il test estremo del growth mindset. Lo studente con fixed mindset abbandona il TC ("non è per me"); con growth mindset persiste anche oscillando.
+
+#### Citazioni
+
+- Meyer, J. H. F., & Land, R. (2003). *"Threshold Concepts and Troublesome Knowledge: Linkages to Ways of Thinking and Practising within the Disciplines"*. ETL Project Occasional Report 4.
+- Meyer, J. H. F., & Land, R. (2005). *"Threshold concepts and troublesome knowledge (2): Epistemological considerations and a conceptual framework for teaching and learning"*. Higher Education, 49(3), 373-388.
+- Land, R., Meyer, J. H. F., & Smith, J. (Eds.) (2008). *"Threshold Concepts within the Disciplines"*. Sense Publishers.
+- Perkins, D. (1999). *"The many faces of constructivism"*. Educational Leadership, 57(3), 6-11. — per "troublesome knowledge".
+
+---
+
+> [!IMPORTANT]
+> ### Il Principio Unificante della Parte XIII
+> **Le sezioni 1-32 ottimizzano l'apprendimento; le sezioni 33-34 lo umanizzano.** KiP riconosce che lo studente non è "un cervello rotto da riparare", ma un sistema di frammenti validi che cercano contesto. Threshold Concepts riconosce che alcuni passaggi non sono "lezioni in più" ma trasformazioni ontologiche dolorose.
+>
+> Il design pedagogico maturo di Fluera (V2 e oltre) deve incorporare entrambe queste prospettive: copy KiP-aware (già patchato 2026-05-11), e Threshold Concept Mode (backlog V2). Senza queste lenti, anche un'app evidence-based diventa un'altra macchina di "feedback giudicante" che lo studente impara a evitare.
 

@@ -48,11 +48,6 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
   final Function(Offset screenPos)? onLongPressMoveUpdate;
   final Function(Offset screenPos)? onLongPressEnd;
 
-  // ✂️ SPACE-SPLIT: Two-finger spread gesture callbacks
-  final Function(double splitLinePosition, {bool isHorizontal})? onSpaceSplitStart;
-  final Function(double splitLinePosition, double spreadDistance)? onSpaceSplitUpdate;
-  final VoidCallback? onSpaceSplitEnd;
-
   // ✌️ MULTI-FINGER TAP: Undo with 2-finger tap, Redo with 3-finger tap
   final VoidCallback? onTwoFingerTap;
   final VoidCallback? onThreeFingerTap;
@@ -124,9 +119,6 @@ class InfiniteCanvasGestureDetector extends StatefulWidget {
     this.onLongPress,
     this.onLongPressMoveUpdate,
     this.onLongPressEnd,
-    this.onSpaceSplitStart,
-    this.onSpaceSplitUpdate,
-    this.onSpaceSplitEnd,
     this.onTwoFingerTap,
     this.onThreeFingerTap,
     this.onSingleTap,
@@ -200,6 +192,18 @@ class _InfiniteCanvasGestureDetectorState
   // 🖊️ Flag to enable/disable drawing in stylus mode
   bool _shouldEnableDrawing = true;
 
+  // 🎚️ B: STYLUS SAMPLE RATE PROBE
+  // Tracks inter-event gap for the active drawing pointer. If gaps are
+  // consistently >16 ms while the device should deliver 4-8 ms (120-240
+  // Hz pen), Flutter framework is dropping historical samples →
+  // motivation for the dispatchTouchEvent bypass in B fix step 2.
+  // Logs a one-line summary at pen-up via [_dumpStylusGapStats].
+  int _strokeFirstEventTimeUs = 0;
+  int _strokeLastEventTimeUs = 0;
+  int _strokeMoveEventCount = 0;
+  int _strokeMaxGapUs = 0;
+  int _strokeSumGapUs = 0;
+
   // 🌊 LIQUID: Velocity tracking for pan momentum
   Offset _lastScaleFocalPoint = Offset.zero;
   int _lastScaleUpdateTime = 0;
@@ -230,20 +234,6 @@ class _InfiniteCanvasGestureDetectorState
   static const double _rotationDeadzone = 0.05; // ~3° in radians
   static const double _rotationDeadzoneZoomDominant = 0.20; // ~11° when zoom dominates
   static const double _maxAngularVelocity = 3.0; // Cap spin speed (rad/s)
-
-  // ✂️ SPACE-SPLIT: Two-finger spread tracking
-  bool _isSpaceSplitting = false;
-  bool _splitIsHorizontal = false; // true = horizontal split (↔), false = vertical (↕)
-  final Map<int, Offset> _pointerPositions = {}; // pointerId → screen position
-  double _splitInitialVerticalDistance = 0.0;
-  double _splitInitialHorizontalDistance = 0.0;
-  double _splitInitialHorizontalCenter = 0.0;
-  double _splitInitialVerticalCenter = 0.0;
-  static const double _splitActivationThreshold = 30.0; // px spread to activate
-  static const double _splitDirectionalityRatio = 3.0; // primary axis must be 3× secondary
-  // ✂️ LONG-PRESS: Hold 2 fingers still for 400ms to arm space-split
-  Timer? _splitLongPressTimer;
-  bool _splitLongPressReady = false;
 
   // ✌️ MULTI-FINGER TAP: Track max pointer count and start time for quick-tap detection
   int _maxPointerCountInGesture = 0;
@@ -363,6 +353,15 @@ class _InfiniteCanvasGestureDetectorState
         onLongPressStart: (details) {
           // Long press rilevato - converti coordinata schermo → canvas
           if (widget.onLongPress != null && _pointerCount == 1) {
+            // 🎯 RADIAL MENU FIX: long-press just won the gesture arena.
+            // Cancel any stroke started at pointer-down and stop forwarding
+            // draw updates so finger movement on the wheel (or other
+            // long-press handlers like PDF preview / graph drag / inline
+            // text edit) does not extend a stroke underneath.
+            if (_isDrawing) {
+              _isDrawing = false;
+              widget.onDrawCancel?.call();
+            }
             final canvasPoint = widget.controller.screenToCanvas(
               details.localPosition,
             );
@@ -431,6 +430,14 @@ class _InfiniteCanvasGestureDetectorState
     // for a pointer we never saw the Down for), reset to 0 now.
     if (_pointerCount < 0) _pointerCount = 0;
     final isStylus = StylusDetector.isStylus(event);
+    // 🎚️ B: Reset gap stats at every stroke start.
+    if (isStylus) {
+      _strokeFirstEventTimeUs = event.timeStamp.inMicroseconds;
+      _strokeLastEventTimeUs = event.timeStamp.inMicroseconds;
+      _strokeMoveEventCount = 0;
+      _strokeMaxGapUs = 0;
+      _strokeSumGapUs = 0;
+    }
 
     // 🖊️ STYLUS TRACKING: Inform HandednessSettings for temporal rejection
     if (isStylus) {
@@ -468,9 +475,6 @@ class _InfiniteCanvasGestureDetectorState
           event.pointer, event.localPosition);
     }
 
-    // ✂️ SPACE-SPLIT: Track individual pointer positions
-    _pointerPositions[event.pointer] = event.localPosition;
-
     _pointerCount++;
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
@@ -503,31 +507,6 @@ class _InfiniteCanvasGestureDetectorState
       } else if (_pointerCount == 3) {
         _multiTouchDownTime = DateTime.now().millisecondsSinceEpoch;
         _multiTouchMoved = false;
-      }
-
-      // ✂️ SPACE-SPLIT: Start long-press timer when 2nd finger arrives
-      if (_pointerCount == 2 && _pointerPositions.length >= 2) {
-        final positions = _pointerPositions.values.toList();
-        _splitInitialVerticalDistance = (positions[0].dy - positions[1].dy).abs();
-        _splitInitialHorizontalDistance = (positions[0].dx - positions[1].dx).abs();
-        _splitInitialHorizontalCenter = (positions[0].dx + positions[1].dx) / 2;
-        _splitInitialVerticalCenter = (positions[0].dy + positions[1].dy) / 2;
-        // Start 400ms long-press timer
-        _splitLongPressReady = false;
-        _splitLongPressTimer?.cancel();
-        _splitLongPressTimer = Timer(const Duration(milliseconds: 400), () {
-          _splitLongPressReady = true;
-          // 🔑 Re-record finger distances NOW (not from 400ms ago)
-          // so spread is measured from the moment split mode arms.
-          if (_pointerPositions.length >= 2) {
-            final pos = _pointerPositions.values.toList();
-            _splitInitialVerticalDistance = (pos[0].dy - pos[1].dy).abs();
-            _splitInitialHorizontalDistance = (pos[0].dx - pos[1].dx).abs();
-            _splitInitialHorizontalCenter = (pos[0].dx + pos[1].dx) / 2;
-            _splitInitialVerticalCenter = (pos[0].dy + pos[1].dy) / 2;
-          }
-          HapticFeedback.lightImpact(); // Confirm: split mode armed
-        });
       }
 
       // 🚫 3RD FINGER CANCEL: If selection pinch is active and 3rd finger arrives, cancel
@@ -657,80 +636,22 @@ class _InfiniteCanvasGestureDetectorState
   }
 
   void _onPointerMove(PointerMoveEvent event) {
-    // ✂️ SPACE-SPLIT: Update tracked pointer position
-    if (_pointerPositions.containsKey(event.pointer)) {
-      _pointerPositions[event.pointer] = event.localPosition;
-    }
-
-    // ✂️ SPACE-SPLIT: Detect spread (only after long-press armed it)
-    // Cancel long-press timer if zooming (scale change before 400ms timer fires)
-    if (_pointerCount == 2 && !_splitLongPressReady && !_isSpaceSplitting && _splitLongPressTimer != null) {
-      // Check if fingers moved significantly (= zoom, not hold-still)
-      if (_pointerPositions.length >= 2) {
-        final positions = _pointerPositions.values.toList();
-        final currentDist = (positions[0] - positions[1]).distance;
-        final initialDist = Offset(_splitInitialHorizontalDistance, _splitInitialVerticalDistance).distance;
-        if (initialDist > 0 && (currentDist / initialDist - 1.0).abs() > 0.15) {
-          // Scale changed > 15% before timer fired → this is zoom, not hold
-          _splitLongPressTimer?.cancel();
-          _splitLongPressTimer = null;
-        }
-      }
-    }
-    if (_pointerCount == 2 && _pointerPositions.length >= 2 && !_isDrawing && (_splitLongPressReady || _isSpaceSplitting)) {
-      final positions = _pointerPositions.values.toList();
-      final currentVerticalDist = (positions[0].dy - positions[1].dy).abs();
-      final currentHorizontalDist = (positions[0].dx - positions[1].dx).abs();
-      final verticalSpread = currentVerticalDist - _splitInitialVerticalDistance;
-      final horizontalSpread = currentHorizontalDist - _splitInitialHorizontalDistance;
-
-      if (_isSpaceSplitting) {
-        // Already splitting — update along the locked axis
-        final spread = _splitIsHorizontal ? horizontalSpread : verticalSpread;
-        final canvasSpread = spread / widget.controller.scale;
-        final canvasCenter = widget.controller.screenToCanvas(
-          Offset(_splitInitialHorizontalCenter, _splitInitialVerticalCenter),
-        );
-        final pos = _splitIsHorizontal ? canvasCenter.dx : canvasCenter.dy;
-        widget.onSpaceSplitUpdate?.call(pos, canvasSpread);
-        return;
-      }
-
-      // Detect which axis dominates
-      final absV = verticalSpread.abs();
-      final absH = horizontalSpread.abs();
-
-      if (absV > _splitActivationThreshold &&
-          absV > absH * _splitDirectionalityRatio &&
-          widget.onSpaceSplitStart != null) {
-        // Vertical split (horizontal line)
-        _isSpaceSplitting = true;
-        _splitIsHorizontal = false;
-        final splitLineY = widget.controller.screenToCanvas(
-          Offset(_splitInitialHorizontalCenter, _splitInitialVerticalCenter),
-        ).dy;
-        widget.onSpaceSplitStart?.call(splitLineY, isHorizontal: false);
-        HapticFeedback.lightImpact();
-        return;
-      } else if (absH > _splitActivationThreshold &&
-                 absH > absV * _splitDirectionalityRatio &&
-                 widget.onSpaceSplitStart != null) {
-        // Horizontal split (vertical line)
-        _isSpaceSplitting = true;
-        _splitIsHorizontal = true;
-        final splitLineX = widget.controller.screenToCanvas(
-          Offset(_splitInitialHorizontalCenter, _splitInitialVerticalCenter),
-        ).dx;
-        widget.onSpaceSplitStart?.call(splitLineX, isHorizontal: true);
-        HapticFeedback.lightImpact();
-        return;
-      }
-    }
     // 🖊️ Update pointer for stylus manager
     _stylusManager.updatePointer(event);
 
     // 🖊️ STYLUS TRACKING: Update pen position for wrist guard
     if (StylusDetector.isStylus(event)) {
+      // 🎚️ B: accumulate inter-event gap stats.
+      final nowUs = event.timeStamp.inMicroseconds;
+      if (_strokeLastEventTimeUs > 0) {
+        final gap = nowUs - _strokeLastEventTimeUs;
+        if (gap > 0) {
+          if (gap > _strokeMaxGapUs) _strokeMaxGapUs = gap;
+          _strokeSumGapUs += gap;
+          _strokeMoveEventCount++;
+        }
+      }
+      _strokeLastEventTimeUs = nowUs;
       HandednessSettings.instance.onStylusMove(event.localPosition);
     } else {
       // 📊 DEFERRED REJECTION: Pressure curve + drift analysis for non-stylus
@@ -1068,39 +989,17 @@ class _InfiniteCanvasGestureDetectorState
     // 🖊️ STYLUS TRACKING: Inform HandednessSettings stylus is up
     if (StylusDetector.isStylus(event)) {
       HandednessSettings.instance.onStylusUp();
+      // 🎚️ B: dump gap stats for this stroke.
+      _dumpStylusGapStats();
     } else {
       // 🧹 Clean up pressure/drift tracking for this pointer
       HandednessSettings.instance.clearPointerTracking(event.pointer);
     }
 
-    // ✂️ SPACE-SPLIT: Remove tracked pointer
-    _pointerPositions.remove(event.pointer);
-
     _previousPointerCount = _pointerCount;
     _pointerCount--;
     if (_pointerCount < 0) _pointerCount = 0; // 🛡️ SAFETY: Never go negative
 
-    // ✂️ SPACE-SPLIT: End split gesture when pointer lifts
-    if (_isSpaceSplitting && _pointerCount < 2) {
-      _isSpaceSplitting = false;
-      _splitLongPressReady = false;
-      _splitLongPressTimer?.cancel();
-      _splitLongPressTimer = null;
-      widget.onSpaceSplitEnd?.call();
-      HapticFeedback.mediumImpact();
-      // Skip normal pointer-up processing
-      _wasMultiTouch = false;
-      _firstPointerPosition = null;
-      _hasMoved = false;
-      _lastDrawPosition = null;
-      _lastCanvasPosition = null;
-      _lastPressure = 1.0;
-      _isSingleFingerPanning = false;
-      widget.controller.isPanning = false;
-      _panIntercepted = false;
-      _shouldEnableDrawing = true;
-      return;
-    }
     _lastPointerChangeTime = DateTime.now().millisecondsSinceEpoch;
 
     // 🔄 GESTURE CONTINUITY: When transitioning between pointer counts
@@ -1360,15 +1259,38 @@ class _InfiniteCanvasGestureDetectorState
     }
   }
 
+  // 🎚️ B: per-stroke gap stats dump. Helps diagnose whether Flutter
+  // framework is delivering pointer events at the device's native pen
+  // sample rate (e.g. 4-8 ms gap on a 120-240 Hz pen) or coalescing /
+  // dropping them (gaps consistently >16 ms = downsampled to vsync).
+  // Logs only if there were enough events to be meaningful (≥5).
+  void _dumpStylusGapStats() {
+    if (_strokeMoveEventCount < 5) {
+      _strokeFirstEventTimeUs = 0;
+      _strokeLastEventTimeUs = 0;
+      return;
+    }
+    final avgGapUs = _strokeSumGapUs ~/ _strokeMoveEventCount;
+    final durationMs =
+        (_strokeLastEventTimeUs - _strokeFirstEventTimeUs) / 1000.0;
+    final ratePerSec = (_strokeMoveEventCount / durationMs * 1000).round();
+    // ignore: avoid_print
+    debugPrint(
+      '🎚️ STYLUS-GAP events=$_strokeMoveEventCount '
+      'duration=${durationMs.toStringAsFixed(1)}ms '
+      'rate≈${ratePerSec}/s '
+      'avg=${(avgGapUs / 1000).toStringAsFixed(1)}ms '
+      'max=${(_strokeMaxGapUs / 1000).toStringAsFixed(1)}ms',
+    );
+    _strokeFirstEventTimeUs = 0;
+    _strokeLastEventTimeUs = 0;
+    _strokeMoveEventCount = 0;
+    _strokeMaxGapUs = 0;
+    _strokeSumGapUs = 0;
+  }
+
   void _onPointerCancel(PointerCancelEvent event) {
     _flushBatch(); // 🚀 COALESCING: Flush pending points
-
-    // ✂️ SPACE-SPLIT: Remove tracked pointer and cancel split
-    _pointerPositions.remove(event.pointer);
-    if (_isSpaceSplitting) {
-      _isSpaceSplitting = false;
-      // Cancel — don't apply split
-    }
 
     _pointerCount--;
     if (_pointerCount < 0) _pointerCount = 0; // 🛡️ SAFETY: Never go negative
@@ -1575,9 +1497,6 @@ class _InfiniteCanvasGestureDetectorState
       final scaled = (details.scale - 1.0).abs() > 0.02;
       if (panned || scaled) _multiTouchMoved = true;
     }
-
-    // ✂️ SPACE-SPLIT: Skip normal zoom/pan/rotate when splitting or armed
-    if (_isSpaceSplitting || _splitLongPressReady) return;
 
     // 🤏 SELECTION TRANSFORM: Route pinch to selection rotate+scale
     final shouldTransformSelection = widget.shouldRouteToSelectionTransform(details.localFocalPoint);

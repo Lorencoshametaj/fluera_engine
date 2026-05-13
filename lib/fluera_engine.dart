@@ -471,6 +471,31 @@ export 'src/canvas/infinite_canvas_controller.dart';
 export 'src/canvas/ai/srs_due_count_provider.dart'; // 📊 Gallery badge: due review count
 export 'src/canvas/ai/srs_stage_indicator.dart'; // 🌱→👻 5-stage mastery enum
 
+// Exam analytics (Sprint D — Dashboard)
+export 'src/canvas/ai/exam_session_model.dart'
+    show
+        ExamHistoryRecord,
+        ExamHistoryQuestion,
+        ExamSession,
+        ExamQuestion,
+        ExamAnswerResult,
+        ExamQuestionType;
+
+// Socratic analytics (V1.5 maturity sprint — Dashboard parity with Exam)
+export 'src/canvas/ai/socratic/socratic_model.dart'
+    show SocraticHistoryRecord, SocraticHistoryQuestion;
+export 'src/canvas/ai/socratic/socratic_controller.dart'
+    show SocraticController, SocraticCheckpointPreview;
+export 'src/canvas/ai/exam_session_controller.dart'
+    show ExamSessionController, ExamErrorCode;
+export 'src/canvas/ai/weakness_analyzer.dart' show WeaknessAnalyzer, WeaknessReport;
+// Exam past-answers viewer (V1.1 dashboard)
+export 'src/canvas/overlays/components/mini_canvas_scratchpad.dart'
+    show MiniCanvasScratchpad;
+export 'src/canvas/overlays/components/exam_stroke_storage.dart'
+    show ExamStrokeStorage;
+export 'src/drawing/models/pro_drawing_point.dart' show ProStroke;
+
 // Pedagogical Subsystems (P0 — 12-Step Methodology)
 export 'src/canvas/ai/pedagogical_accessibility_config.dart'; // ♿ A11 accessibility
 export 'src/canvas/ai/content_taxonomy.dart'; // 📋 A20.3 input method tracking
@@ -555,6 +580,7 @@ export 'src/config/advanced_split_layout.dart';
 
 // ────────────────────────── UTILS ──────────────────────────
 export 'src/utils/reduced_motion.dart';
+export 'src/utils/ai_language_preference.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/fluera_storage_adapter.dart';

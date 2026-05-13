@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../canvas/infinite_canvas_controller.dart';
+import '../canvas/canvas_view_tier.dart';
 import '../canvas/fluera_canvas_config.dart';
+import '../canvas/fluera_canvas_view.dart';
+import '../canvas/infinite_canvas_controller.dart';
 import '../canvas/overlays/canvas_radial_menu.dart';
 import '../config/advanced_split_layout.dart';
 import '../config/split_panel_content.dart';
+import '../config/v1_feature_gate.dart';
 import '../config/wheel_mode_pref.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../layers/layer_controller.dart';
@@ -54,6 +57,18 @@ class MultiviewOrchestrator extends StatefulWidget {
   /// Initial viewport scale (from main canvas).
   final double initialScale;
 
+  /// Optional builder that produces a [PdfReaderScreen]-equivalent widget
+  /// for a panel whose content type is `pdfReader`. The screen wrapper
+  /// provides this because it owns `_pdfProviders` + `_pdfPreviewCards`
+  /// (the per-document model + provider lookup is screen-private).
+  /// `onClose` is called by the embedded reader when the user wants to
+  /// drop back to a canvas panel; the orchestrator handles the swap.
+  final Widget Function(
+    BuildContext context,
+    String documentId,
+    VoidCallback onClose,
+  )? pdfReaderBuilder;
+
   const MultiviewOrchestrator({
     super.key,
     required this.config,
@@ -64,13 +79,14 @@ class MultiviewOrchestrator extends StatefulWidget {
     this.title,
     this.initialOffset = Offset.zero,
     this.initialScale = 1.0,
+    this.pdfReaderBuilder,
   });
 
   @override
-  State<MultiviewOrchestrator> createState() => _MultiviewOrchestratorState();
+  State<MultiviewOrchestrator> createState() => MultiviewOrchestratorState();
 }
 
-class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
+class MultiviewOrchestratorState extends State<MultiviewOrchestrator>
     with TickerProviderStateMixin {
   // ── Constants ──────────────────────────────────────────────────────────────
   static const _kAnimDuration = Duration(milliseconds: 350);
@@ -329,24 +345,79 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
 
       return LayoutBuilder(
         builder: (context, constraints) {
-          // Track actual panel size for accurate fit-to-content & minimap nav
-          _panelSizes[index] = Size(constraints.maxWidth, constraints.maxHeight);
-          return MultiviewPanel(
-            key: ValueKey('multiview_panel_$index'),
-            layerController: _layerController,
-            toolController: _toolController,
-            canvasController: controller,
-            panelIndex: index,
-            isActive: index == _state.activePanelIndex,
-            onActivate: () => _setActivePanel(index),
-            cursorPosition: _cursorPosition,
-            onCursorMoved: (pos) => _cursorPosition.value = pos,
-            onDoubleTap: () => _fitToContent(index),
-            onLongPress: (pos) => _showPanelContextMenu(index, pos),
+          _panelSizes[index] =
+              Size(constraints.maxWidth, constraints.maxHeight);
+          final isActive = index == _state.activePanelIndex;
+          final content = _state.layout.panelContents[index];
+
+          // Choose the active widget for this panel. A distinct
+          // `ValueKey` per content kind lets `AnimatedSwitcher` animate
+          // the transition canvas ↔ pdfReader (fade + subtle scale).
+          Widget body;
+          if (content?.type == SplitPanelContentType.pdfReader &&
+              content?.selectedId != null &&
+              widget.pdfReaderBuilder != null) {
+            body = KeyedSubtree(
+              key: ValueKey('panel_${index}_pdf_${content!.selectedId}'),
+              child: ClipRect(
+                child: widget.pdfReaderBuilder!(
+                  context,
+                  content.selectedId!,
+                  () => _convertPanelToCanvas(index),
+                ),
+              ),
+            );
+          } else if (V1FeatureGate.flueraCanvasViewExtractionMultiview) {
+            body = FlueraCanvasView(
+              key: ValueKey('panel_${index}_canvas_view'),
+              canvasController: controller,
+              tier:
+                  isActive ? CanvasViewTier.panel : CanvasViewTier.preview,
+              cacheName: 'panel_$index',
+              onTap: () => _setActivePanel(index),
+              onLongPress: (pos) => _showPanelContextMenu(index, pos),
+              onCursorMoved: (pos) => _cursorPosition.value = pos,
+            );
+          } else {
+            body = _buildLegacyPanel(index, controller, isActive);
+          }
+
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 280),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.96, end: 1.0).animate(anim),
+                child: child,
+              ),
+            ),
+            child: body,
           );
         },
       );
     });
+  }
+
+  Widget _buildLegacyPanel(
+    int index,
+    InfiniteCanvasController controller,
+    bool isActive,
+  ) {
+    return MultiviewPanel(
+      key: ValueKey('multiview_panel_$index'),
+      layerController: _layerController,
+      toolController: _toolController,
+      canvasController: controller,
+      panelIndex: index,
+      isActive: isActive,
+      onActivate: () => _setActivePanel(index),
+      cursorPosition: _cursorPosition,
+      onCursorMoved: (pos) => _cursorPosition.value = pos,
+      onDoubleTap: () => _fitToContent(index),
+      onLongPress: (pos) => _showPanelContextMenu(index, pos),
+    );
   }
 
   // ============================================================================
@@ -514,6 +585,65 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
     });
   }
 
+  // ── Public API (accessed via GlobalKey<MultiviewOrchestratorState>) ─────
+
+  /// Returns the panel index that owns [controller], or null if none does.
+  int? panelIndexFor(InfiniteCanvasController controller) {
+    for (final entry in _panelControllers.entries) {
+      if (identical(entry.value, controller)) return entry.key;
+    }
+    return null;
+  }
+
+  /// Public swap-to-PDF wrapper. See [_convertPanelToPdfReader].
+  void convertPanelToPdfReader(int panelIndex, String documentId) =>
+      _convertPanelToPdfReader(panelIndex, documentId);
+
+  /// Public swap-to-canvas wrapper. See [_convertPanelToCanvas].
+  void convertPanelToCanvas(int panelIndex) =>
+      _convertPanelToCanvas(panelIndex);
+
+  /// Swap a panel's content to the embedded PDF reader.
+  ///
+  /// Called when the user zoom-enters a PDF inside a multiview panel.
+  /// Preserves the split layout (other panels untouched) and resets the
+  /// panel's `InfiniteCanvasController` zoom so the user doesn't return
+  /// to a stuck >1.2 scale when they later go back to canvas content.
+  void _convertPanelToPdfReader(int panelIndex, String documentId) {
+    if (panelIndex < 0 || panelIndex >= _state.panelCount) return;
+    setState(() {
+      final newContents = Map<int, SplitPanelContent>.from(
+        _state.layout.panelContents,
+      );
+      newContents[panelIndex] = SplitPanelContent.pdfReader(documentId);
+      _state = _state.copyWith(
+        layout: _state.layout.copyWith(panelContents: newContents),
+      );
+    });
+    // Reset the panel's viewport so re-converting to canvas later starts
+    // at scale 1.0 (otherwise the panel re-enters the zoom-to-enter loop).
+    _panelControllers[panelIndex]?.stopAnimation();
+    _panelControllers[panelIndex]?.updateTransform(
+      offset: Offset.zero,
+      scale: 1.0,
+    );
+  }
+
+  /// Swap a panel's content back to canvas (called when the user closes
+  /// the embedded PDF reader).
+  void _convertPanelToCanvas(int panelIndex) {
+    if (panelIndex < 0 || panelIndex >= _state.panelCount) return;
+    setState(() {
+      final newContents = Map<int, SplitPanelContent>.from(
+        _state.layout.panelContents,
+      );
+      newContents[panelIndex] = SplitPanelContent.canvas();
+      _state = _state.copyWith(
+        layout: _state.layout.copyWith(panelContents: newContents),
+      );
+    });
+  }
+
   void _changeLayout(SplitLayoutType newType) {
     HapticFeedback.mediumImpact();
 
@@ -556,7 +686,18 @@ class _MultiviewOrchestratorState extends State<MultiviewOrchestrator>
           newType.panelCount - 1,
         ),
       );
+      // Shrink case: ready count must not exceed the new panel count.
+      if (_readyPanelCount > newType.panelCount) {
+        _readyPanelCount = newType.panelCount;
+      }
     });
+    // Grow case: kick the stagger so newly-added panel indices become
+    // ready. Without this they fall into the `index >= _readyPanelCount`
+    // branch in `_buildPanels` and render as a black placeholder
+    // (`Theme.surface`) instead of a FlueraCanvasView.
+    if (_readyPanelCount < newType.panelCount) {
+      _staggerPanels();
+    }
   }
 
   void _onProportionsChanged(Map<String, double> proportions) {
@@ -1016,7 +1157,7 @@ class _MultiviewMinimapState extends State<_MultiviewMinimap> {
   /// Keep mapping in sync — single source of truth for gesture conversion.
   void _updateMapping() {
     Rect? contentBounds =
-        _MultiviewOrchestratorState.computeContentBounds(widget.layerController);
+        MultiviewOrchestratorState.computeContentBounds(widget.layerController);
     contentBounds ??= const Rect.fromLTWH(-500, -500, 1000, 1000);
 
     for (final entry in widget.panelControllers.entries) {

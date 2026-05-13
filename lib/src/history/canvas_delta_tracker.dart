@@ -29,6 +29,13 @@ enum CanvasDeltaType {
   adjustmentAdded,
   adjustmentRemoved,
   adjustmentUpdated,
+  /// Composite delta: aggregates N child deltas as a single atomic undo
+  /// step. Produced by `UndoRedoManager.endBatchAsComposite` so cluster
+  /// actions (move/align/distribute/color/connect across many strokes)
+  /// land as one undo entry instead of N. The children are stored in
+  /// [CanvasDelta.childDeltas]; layerId is the first child's layer for
+  /// stack-filtering purposes.
+  composite,
 }
 
 /// 🔄 Single delta — represents an incremental modification to the canvas.
@@ -58,6 +65,30 @@ class CanvasDelta {
   /// - layerCleared: JSON of the full layer before clearing
   final Map<String, dynamic>? previousData;
 
+  /// Identifier of the actor that produced this delta. Populated by the
+  /// CRDT-aware mutation observer with the local peerId for ops the
+  /// local user authored, and with the remote peerId when the delta
+  /// arrived through `applyRemote`. `null` for legacy deltas predating
+  /// multi-user collab.
+  ///
+  /// `UndoRedoManager.undo()` filters its stack by this — Ctrl+Z only
+  /// reverts the local user's own deltas, never a teammate's. Without
+  /// it a single undo on a shared canvas can wipe out a peer's
+  /// concurrent edit silently.
+  final String? actorId;
+
+  /// Optional list of child deltas. Only populated when [type] is
+  /// [CanvasDeltaType.composite] — see the enum comment for rationale.
+  /// Lives in memory only: never serialized to JSONL (composite deltas
+  /// would already have been expanded by `applyInverseDelta` before any
+  /// persistence path).
+  final List<CanvasDelta>? childDeltas;
+
+  /// Human-readable label for composite deltas (e.g. "Sposta cluster").
+  /// Surfaced by the UI on the undo button tooltip; null for atomic
+  /// deltas which derive their label from [type].
+  final String? compositeLabel;
+
   CanvasDelta({
     required this.id,
     required this.type,
@@ -67,6 +98,9 @@ class CanvasDelta {
     this.elementData,
     this.elementId,
     this.previousData,
+    this.actorId,
+    this.childDeltas,
+    this.compositeLabel,
   });
 
   /// Serialize the delta for storage (compact JSONL format)
@@ -79,6 +113,7 @@ class CanvasDelta {
     if (elementData != null) 'data': elementData,
     if (elementId != null) 'elemId': elementId,
     if (previousData != null) 'prev': previousData,
+    if (actorId != null) 'actor': actorId,
   };
 
   /// Deserialize from JSON (safe for RTDB data with _Map<Object?, Object?>)
@@ -105,6 +140,7 @@ class CanvasDelta {
       elementData: elementData,
       elementId: json['elemId'] as String?,
       previousData: previousData,
+      actorId: json['actor'] as String?,
     );
   }
 
@@ -265,8 +301,19 @@ class CanvasDeltaTracker {
     }
   }
 
-  /// 📝 Record stroke removal
-  void recordStrokeRemoved(String layerId, String strokeId, {int? pageIndex}) {
+  /// 📝 Record stroke removal.
+  ///
+  /// [stroke] is optional but **strongly recommended**: without it the
+  /// inverse delta (undo) has no payload to reconstruct the deleted
+  /// stroke and the operation effectively becomes one-way. Always pass
+  /// the stroke when you have it at hand (typical: snapshot it just
+  /// before mutating the layer).
+  void recordStrokeRemoved(
+    String layerId,
+    String strokeId, {
+    int? pageIndex,
+    ProStroke? stroke,
+  }) {
     _addDelta(
       CanvasDelta(
         id: _generateDeltaId(),
@@ -275,8 +322,23 @@ class CanvasDeltaTracker {
         pageIndex: pageIndex,
         timestamp: DateTime.now(),
         elementId: strokeId,
+        elementData: stroke?.toJson(),
       ),
     );
+
+    // Auto-push to undo stack (mirror `recordStrokeAdded`). Without this,
+    // removals lived only in the WAL pending queue and never reached the
+    // undo manager — so Ctrl+Z couldn't restore a deleted stroke. Required
+    // for F10 composite delete + Atlas cluster recolor (remove + add).
+    try {
+      final delta = _pendingDeltas.last;
+      UndoRedoManager.instance.pushDelta(delta);
+    } catch (e) {
+      EngineLogger.debug(
+        'UndoRedoManager not ready, skipping auto-push',
+        tag: 'WAL',
+      );
+    }
   }
 
   /// 📝 Record shape addition
@@ -791,6 +853,17 @@ class CanvasDeltaTracker {
                 layer.images.map((i) => i.id == image.id ? image : i).toList();
             layerMap[delta.layerId] = layer.copyWith(images: updatedImages);
           }
+          break;
+
+        case CanvasDeltaType.composite:
+          // Composite deltas are an in-memory undo-stack construct
+          // (`UndoRedoManager.endBatchAsComposite`). They are NEVER pushed
+          // to disk via WAL — the children are persisted as individual
+          // strokeUpdated deltas at write time. Reaching this branch from
+          // `applyDeltas` (WAL replay) means an upstream bug; skip safely.
+          debugPrint(
+              '⚠️ CanvasDeltaTracker.applyDeltas: composite delta in WAL '
+              'replay path — skipped (children=${delta.childDeltas?.length ?? 0}).');
           break;
       }
     }

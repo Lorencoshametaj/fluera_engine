@@ -31,23 +31,53 @@ class UndoRedoManager extends ChangeNotifier {
   /// Active batch accumulator, or null if no batch is open.
   List<CanvasDelta>? _activeBatch;
 
-  /// Can undo?
-  bool get canUndo => _undoStack.isNotEmpty;
+  /// Local actor identifier (CRDT peerId) for filtering own-vs-other
+  /// deltas during undo/redo. When set, [undo] / [redo] only act on
+  /// deltas whose `actorId == localActorId`. Null in solo-canvas mode
+  /// (no filtering — legacy behavior).
+  String? localActorId;
 
-  /// Can redo?
-  bool get canRedo => _redoStack.isNotEmpty;
+  /// Can undo? True only if at least one entry in the stack belongs to
+  /// the local actor (so `Ctrl+Z` is a no-op when only teammate edits
+  /// are on top of the stack — UI can dim the button accordingly).
+  bool get canUndo => _topLocalIndex(_undoStack) >= 0;
 
-  /// Current undo stack size
+  /// Can redo? Symmetric with [canUndo].
+  bool get canRedo => _topLocalIndex(_redoStack) >= 0;
+
+  /// Current undo stack size (counts ALL entries including remote — used
+  /// for diagnostics, not for UI state).
   int get undoCount => _undoStack.length;
 
-  /// Current redo stack size
+  /// Current redo stack size.
   int get redoCount => _redoStack.length;
 
-  /// Label of the next undo delta, or null.
-  String? get undoLabel => canUndo ? _undoStack.last.type.name : null;
+  /// Label of the next undoable LOCAL delta (skips teammate entries).
+  String? get undoLabel {
+    final i = _topLocalIndex(_undoStack);
+    return i >= 0 ? _undoStack.elementAt(i).type.name : null;
+  }
 
-  /// Label of the next redo delta, or null.
-  String? get redoLabel => canRedo ? _redoStack.last.type.name : null;
+  /// Label of the next redoable LOCAL delta.
+  String? get redoLabel {
+    final i = _topLocalIndex(_redoStack);
+    return i >= 0 ? _redoStack.elementAt(i).type.name : null;
+  }
+
+  /// Find the topmost stack index whose delta belongs to the local
+  /// actor. Returns -1 when no such delta exists. When [localActorId]
+  /// is null we treat every entry as local (legacy single-user mode).
+  int _topLocalIndex(Queue<CanvasDelta> stack) {
+    if (stack.isEmpty) return -1;
+    final actor = localActorId;
+    if (actor == null) return stack.length - 1;
+    final list = stack.toList(growable: false);
+    for (var i = list.length - 1; i >= 0; i--) {
+      final a = list[i].actorId;
+      if (a == null || a == actor) return i; // legacy null = treat as local
+    }
+    return -1;
+  }
 
   /// 📝 Push delta to undo stack (called automatically by DeltaTracker).
   ///
@@ -112,11 +142,57 @@ class UndoRedoManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ⬅️ Undo: remove last delta
-  CanvasDelta? undo() {
-    if (!canUndo) return null;
+  /// End the current batch and push it as a single COMPOSITE delta — the
+  /// whole batch undoes/redoes as one entry. Use this for cluster actions
+  /// (move/align/color across many strokes) where the user mentally
+  /// thinks of the operation as atomic ("Sposta cluster") and would be
+  /// frustrated by N Ctrl+Z presses to revert a single command.
+  ///
+  /// If the batch is empty, nothing is pushed. If the batch has exactly
+  /// one delta the composite wrapper is elided (no nesting needed).
+  ///
+  /// [label] surfaces in undo-button tooltips (e.g. "Sposta cluster").
+  /// [actorId] propagates to the composite for CRDT/collab filtering;
+  /// when null, falls back to the first child's actorId.
+  void endBatchAsComposite(String label, {String? actorId}) {
+    final batch = _activeBatch;
+    _activeBatch = null;
+    if (batch == null || batch.isEmpty) return;
 
-    final delta = _undoStack.removeLast();
+    final composite = batch.length == 1
+        ? batch.single
+        : CanvasDelta(
+            id: 'composite_${DateTime.now().microsecondsSinceEpoch}',
+            type: CanvasDeltaType.composite,
+            layerId: batch.first.layerId,
+            timestamp: DateTime.now(),
+            actorId: actorId ?? batch.first.actorId,
+            childDeltas: List.unmodifiable(batch),
+            compositeLabel: label,
+          );
+
+    _undoStack.add(composite);
+
+    if (_redoStack.isNotEmpty) {
+      _redoStack.clear();
+    }
+    while (_undoStack.length > maxStackSize) {
+      _undoStack.removeFirst();
+    }
+    notifyListeners();
+  }
+
+  /// ⬅️ Undo: remove the most-recent local delta (skipping any teammate
+  /// edits that happened to land on top after concurrent collaboration).
+  CanvasDelta? undo() {
+    final i = _topLocalIndex(_undoStack);
+    if (i < 0) return null;
+
+    final list = _undoStack.toList();
+    final delta = list.removeAt(i);
+    _undoStack
+      ..clear()
+      ..addAll(list);
     _redoStack.add(delta);
 
     // Enforce redo stack limit
@@ -141,11 +217,18 @@ class UndoRedoManager extends ChangeNotifier {
     return delta;
   }
 
-  /// ➡️ Redo: reapply undone delta
+  /// ➡️ Redo: reapply the most-recent locally-undone delta (skips any
+  /// teammate-authored entries that landed on the redo stack via the
+  /// per-actor filter in [undo]).
   CanvasDelta? redo() {
-    if (!canRedo) return null;
+    final i = _topLocalIndex(_redoStack);
+    if (i < 0) return null;
 
-    final delta = _redoStack.removeLast();
+    final list = _redoStack.toList();
+    final delta = list.removeAt(i);
+    _redoStack
+      ..clear()
+      ..addAll(list);
     _undoStack.add(delta);
 
     // Enforce undo stack limit
@@ -178,12 +261,23 @@ class UndoRedoManager extends ChangeNotifier {
         break;
 
       case CanvasDeltaType.strokeRemoved:
-        // Undo stroke removal = re-add stroke
+        // Undo stroke removal = re-add stroke. Defensive: dedupe by id.
+        // Composite-undo of the pixel-eraser path produces
+        // `strokeRemoved(original) + addStroke(frag)*` children — if the
+        // inverse pass races against any other code path that already
+        // ressurrected the stroke (or the layer was never fully cleared
+        // because the same id is referenced elsewhere), the bare `..add`
+        // triggers `GroupNode.add`'s "Duplicate child ID" assert. Skip
+        // silently when the stroke is already present.
         if (delta.elementData != null) {
           final stroke = ProStroke.fromJson(delta.elementData!);
-          final updatedStrokes = List<ProStroke>.from(layer.strokes)
-            ..add(stroke);
-          layerMap[delta.layerId] = layer.copyWith(strokes: updatedStrokes);
+          final alreadyPresent =
+              layer.strokes.any((s) => s.id == stroke.id);
+          if (!alreadyPresent) {
+            final updatedStrokes = List<ProStroke>.from(layer.strokes)
+              ..add(stroke);
+            layerMap[delta.layerId] = layer.copyWith(strokes: updatedStrokes);
+          }
         }
         break;
 
@@ -306,17 +400,46 @@ class UndoRedoManager extends ChangeNotifier {
         // Adjustments live in the scene graph (AdjustmentLayerNode),
         // not in the CanvasLayer model. No CanvasLayer mutation needed.
         break;
+
+      case CanvasDeltaType.composite:
+        // Composite undo: unfold children in REVERSE order and apply the
+        // inverse of each. The recursion is bounded because composite
+        // deltas cannot nest (`endBatchAsComposite` flattens nested batches).
+        final children = delta.childDeltas;
+        if (children != null) {
+          var working = layerMap.values.toList();
+          for (final child in children.reversed) {
+            working = applyInverseDelta(working, child);
+          }
+          return working;
+        }
+        break;
     }
 
     return layerMap.values.toList();
   }
 
-  /// 🔄 Reapply delta (for redo operation)
+  /// 🔄 Reapply delta (for redo operation).
+  ///
+  /// Composite deltas are unfolded HERE — never sent to
+  /// `CanvasDeltaTracker.applyDeltas`, which is WAL-replay code and treats
+  /// composites as a "shouldn't happen" no-op. Children are reapplied in
+  /// FORWARD order (mirror image of `applyInverseDelta`'s reversed loop)
+  /// so the end state matches what the user originally produced.
   static List<CanvasLayer> reapplyDelta(
     List<CanvasLayer> layers,
     CanvasDelta delta,
   ) {
-    // Reapply is same as normal delta application
+    if (delta.type == CanvasDeltaType.composite) {
+      final children = delta.childDeltas;
+      if (children == null || children.isEmpty) return layers;
+      var working = layers;
+      for (final child in children) {
+        working = reapplyDelta(working, child);
+      }
+      return working;
+    }
+    // Non-composite: same as normal delta application.
     return CanvasDeltaTracker.applyDeltas(layers, [delta]);
   }
 

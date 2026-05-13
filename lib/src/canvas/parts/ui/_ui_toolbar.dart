@@ -19,6 +19,12 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
         // via undoRedoListenable, so only the undo/redo buttons rebuild.
         _toolController,
         _isRecordingNotifier,
+        // 📌 Rebuild the toolbar when bookmarks are added/removed so the
+        // bookmark count badge stays in sync with the canvas state.
+        _bookmarkController,
+        // ✂️ Rebuild when the eraser mode flips (whole-stroke ↔ pixel) so
+        // the eraser button icon updates immediately.
+        _eraserModeVersion,
       ]),
       builder: (context, child) {
         final activeLayer = _layerController.activeLayer;
@@ -73,7 +79,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               isLatexActive: _toolController.isLatexMode,
               isImageEditingMode: false,
               // ── Brush presets ─────────────────────────────────────────────────
-              brushPresets: BrushPreset.defaultPresets,
+              brushPresets: _wheelModeBrushPresets,
               selectedPresetId: _selectedPresetId,
               // ── Recording ───────────────────────────────────────────────────
               recordingDuration: _recordingDuration,
@@ -136,6 +142,10 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               isCrossZoneBridgeLoading: isCrossZoneBridgeLoading,
               suggestedStepIndex: _stepGateController.suggestedNextStep(
                 context: _buildZoneContext()).index,
+              // ── Bookmarks ──────────────────────────────────────────────
+              bookmarkCount: _bookmarkController.bookmarks.length,
+              // ── Tier (drives paywall gates inside the toolbar) ─────────
+              subscriptionTier: _subscriptionTier,
             ),
             callbacks: ToolbarCallbacks(
               // ── Drawing — required ───────────────────────────────────────────
@@ -269,6 +279,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               },
               onEraseWholeStrokeChanged: (value) {
                 _eraserTool.eraseWholeStroke = value;
+                _eraserModeVersion.value++;
                 setState(() {});
                 HapticFeedback.selectionClick();
               },
@@ -473,6 +484,8 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   }
                 });
               },
+              onWheelModeToggle: _toggleWheelMode,
+              onBookmarksPressed: _openBookmarkSheet,
               onPaperTypePressed: _showPaperTypePicker,
               onReadingLevelPressed: () {
                 final allText = _digitalTextElements
@@ -1525,6 +1538,23 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                     duration: const Duration(seconds: 2),
                     behavior: SnackBarBehavior.floating,
                     width: 260,
+                  ),
+                );
+              },
+              // ── Paywall prompt ───────────────────────────────────────────────
+              // Bridge into the canvas-config-level upgrade prompt. When the
+              // host wired one, we hand off; otherwise a SnackBar fallback
+              // keeps the user oriented instead of "tap that did nothing".
+              onUpgradePrompt: (message) {
+                final hosted = widget.config.onUpgradePrompt;
+                if (hosted != null) {
+                  hosted(context, message);
+                  return;
+                }
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(message),
+                    behavior: SnackBarBehavior.floating,
                   ),
                 );
               },

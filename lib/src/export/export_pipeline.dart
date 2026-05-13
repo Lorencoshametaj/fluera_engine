@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' hide Image;
 import 'package:logging/logging.dart';
 
+import '../canvas/fluera_canvas_config.dart' show FlueraSubscriptionTier;
 import '../core/scene_graph/canvas_node.dart';
 import '../core/scene_graph/scene_graph.dart';
 import '../core/nodes/group_node.dart';
@@ -202,14 +203,64 @@ class ExportPipeline {
   final SceneGraphRenderer _renderer;
   final RasterImageEncoder _rasterEncoder;
 
-  ExportPipeline(this._renderer, {RasterImageEncoder? rasterEncoder})
-    : _rasterEncoder = rasterEncoder ?? RasterImageEncoder();
+  /// 🔒 Tier under which the pipeline is operating. Defense-in-depth:
+  /// the UI gates Free users to PNG-only, but a programmatic caller
+  /// (or a future call site that forgets to gate) would still hit the
+  /// pipeline. We short-circuit here with an empty result + a logged
+  /// warning so a free-tier export to e.g. PDF returns nothing rather
+  /// than silently rendering. Defaults to Pro so existing callers that
+  /// don't pass a tier preserve their old behaviour.
+  final FlueraSubscriptionTier subscriptionTier;
+
+  ExportPipeline(
+    this._renderer, {
+    RasterImageEncoder? rasterEncoder,
+    this.subscriptionTier = FlueraSubscriptionTier.pro,
+  }) : _rasterEncoder = rasterEncoder ?? RasterImageEncoder();
+
+  /// Maps an [ExportFormat] to the canonical short name used by
+  /// [FlueraSubscriptionTier.canUseExportFormat].
+  static String _formatKey(ExportFormat f) {
+    switch (f) {
+      case ExportFormat.png:
+        return 'png';
+      case ExportFormat.jpeg:
+        return 'jpeg';
+      case ExportFormat.webp:
+        return 'webp';
+      case ExportFormat.svg:
+        return 'svg';
+      case ExportFormat.pdf:
+        return 'pdf';
+    }
+  }
+
+  /// True when the current tier is allowed to export [format].
+  /// Used by every entry-point ([exportSceneGraph], [exportNode],
+  /// [exportNodes]) before doing real work.
+  bool _isFormatAllowed(ExportFormat format) =>
+      subscriptionTier.canUseExportFormat(_formatKey(format));
+
+  ExportResult _emptyForBlocked(ExportFormat format) {
+    final logger = Logger('ExportPipeline');
+    logger.warning(
+      'Export to ${_formatKey(format)} blocked by tier '
+      '${subscriptionTier.name} — returning empty result.',
+    );
+    return ExportResult(
+      bytes: Uint8List(0),
+      format: format,
+      logicalSize: ui.Size.zero,
+      pixelSize: ui.Size.zero,
+    );
+  }
 
   /// Export the entire scene graph.
   Future<ExportResult> exportSceneGraph(
     SceneGraph sceneGraph, {
     ExportConfig config = const ExportConfig(),
   }) async {
+    if (!_isFormatAllowed(config.format)) return _emptyForBlocked(config.format);
     // Calculate export bounds.
     final bounds = config.region ?? _calculateContentBounds(sceneGraph);
     if (bounds.isEmpty) {
@@ -252,6 +303,7 @@ class ExportPipeline {
     CanvasNode node, {
     ExportConfig config = const ExportConfig(),
   }) async {
+    if (!_isFormatAllowed(config.format)) return _emptyForBlocked(config.format);
     final bounds = config.region ?? node.worldBounds;
     final expandedBounds = bounds.inflate(config.padding);
     switch (config.format) {
@@ -272,6 +324,7 @@ class ExportPipeline {
     List<CanvasNode> nodes, {
     ExportConfig config = const ExportConfig(),
   }) async {
+    if (!_isFormatAllowed(config.format)) return _emptyForBlocked(config.format);
     if (nodes.isEmpty) {
       return ExportResult(
         bytes: Uint8List(0),

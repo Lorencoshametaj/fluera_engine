@@ -537,6 +537,9 @@ class SelectionManager {
   ///
   /// Each node is removed from its parent [GroupNode]. Returns the number
   /// of nodes removed.
+  @Deprecated('Use LayerController.deleteNodes(selectedNodes.toList()) — '
+      'this method generates N separate undo entries. Lasso bulk delete '
+      'has migrated to the new path; remaining callers should follow.')
   int deleteAll() {
     if (_selectedIds.isEmpty) return 0;
     _pushHistory();
