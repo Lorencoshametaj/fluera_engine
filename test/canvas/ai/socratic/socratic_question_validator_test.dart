@@ -166,4 +166,89 @@ void main() {
       expect(result.outcome, ValidationOutcome.accept);
     });
   });
+
+  // 🛡️ Sprint F.2-post (2026-05-13 PM): cross-script regression.
+  // Function-word signature returns 'unknown' for non-Latin scripts (our
+  // dict covers IT/ES/FR/DE/PT/EN only). On short IT topics with no IT
+  // function words, both srcLang and qLang detect 'unknown' → cross-lang
+  // branch misses. B4 then fails because lexical overlap with Latin
+  // content is 0 by design. Fix: detect script via Unicode block and
+  // accept when q-script ≠ source-script.
+  group('Cross-script (Unicode block) → accept', () {
+    test('Korean anchor on IT thermodynamics topic', () {
+      final result = _v(
+        targetLang: 'ko',
+        clusterTopic: 'PRIMO PRINCIPIO TERMODINAMICA',
+        clusterRawOcr: 'PRIMO PRINCIPIO TERMODINAMICA',
+        stage: SocraticStage.anchor,
+      ).validate(
+          '열역학 제1법칙을 생각할 때 가장 먼저 떠오르는 것은 무엇입니까?');
+      expect(result.outcome, ValidationOutcome.accept);
+      expect(result.reason, 'cross_script');
+    });
+    test('Japanese elaboration on short IT topic (no function words)', () {
+      // Short IT topic with no function words → srcLang='unknown'. q is
+      // CJK → qLang='unknown'. Cross-language branch misses; cross-script
+      // catches it via Unicode block check.
+      final result = _v(
+        targetLang: 'ja',
+        clusterTopic: 'PRIMO PRINCIPIO TERMODINAMICA',
+        clusterRawOcr: 'PRIMO PRINCIPIO TERMODINAMICA',
+        stage: SocraticStage.elaboration,
+      ).validate(
+          '熱力学第一法則が宇宙空間でなぜ成り立つのか、あなたの直感で説明してください。');
+      expect(result.outcome, ValidationOutcome.accept);
+      expect(result.reason, 'cross_script');
+    });
+    test('Arabic anchor on IT topic', () {
+      final result = _v(
+        targetLang: 'ar',
+        clusterTopic: 'PRIMO PRINCIPIO TERMODINAMICA',
+        clusterRawOcr: 'PRIMO PRINCIPIO TERMODINAMICA',
+        stage: SocraticStage.anchor,
+      ).validate(
+          'ما هو أول شيء يخطر ببالك عندما تفكر في القانون الأول للديناميكا الحرارية؟');
+      expect(result.outcome, ValidationOutcome.accept);
+      expect(result.reason, 'cross_script');
+    });
+    test('Chinese counterfactual on IT topic (script + scenario stage)', () {
+      // Even without cross-script, counterfactual is scenario-stage so
+      // would accept via scenario_stage_semantic. Script triggers first.
+      final result = _v(
+        targetLang: 'zh',
+        clusterTopic: 'PRIMO PRINCIPIO TERMODINAMICA',
+        clusterRawOcr: 'PRIMO PRINCIPIO TERMODINAMICA',
+        stage: SocraticStage.counterfactual,
+      ).validate(
+          '想象一个完全封闭的系统，如果能量守恒定律不成立，会发生什么？');
+      expect(result.outcome, ValidationOutcome.accept);
+      expect(result.reason, 'cross_script');
+    });
+    test('Cyrillic (Russian) anchor on IT topic', () {
+      final result = _v(
+        targetLang: 'ru',
+        clusterTopic: 'PRIMO PRINCIPIO TERMODINAMICA',
+        clusterRawOcr: 'PRIMO PRINCIPIO TERMODINAMICA',
+        stage: SocraticStage.anchor,
+      ).validate(
+          'Что первое приходит вам в голову, когда вы думаете о первом '
+          'законе термодинамики?');
+      expect(result.outcome, ValidationOutcome.accept);
+      expect(result.reason, 'cross_script');
+    });
+    test('Same-script Italian on IT topic NOT flagged cross-script', () {
+      // Sanity: both Latin script → fall through to Step 3 (B4 overlap).
+      // Italian question mentions the concept → accept via overlap_match.
+      final result = _v(
+        targetLang: 'it',
+        clusterTopic: 'PRIMO PRINCIPIO TERMODINAMICA',
+        clusterRawOcr: 'PRIMO PRINCIPIO TERMODINAMICA',
+        stage: SocraticStage.anchor,
+      ).validate(
+          'Quando pensi al primo principio della termodinamica, qual è '
+          'la prima cosa che ti viene in mente?');
+      expect(result.outcome, ValidationOutcome.accept);
+      expect(result.reason, isNot('cross_script'));
+    });
+  });
 }

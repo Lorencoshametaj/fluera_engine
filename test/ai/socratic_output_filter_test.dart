@@ -317,5 +317,61 @@ void main() {
         expect(result.violationType, OutputViolationType.declaration);
       });
     });
+
+    // ── Sprint F.2-post (2026-05-13 PM) — multi-script question marks ────
+    // Device repro: JA/AR/ZH sessions produced native questions ending with
+    // full-width `？` (CJK U+FF1F) or `؟` (Arabic U+061F). The old check
+    // `text.endsWith('?')` only accepted ASCII '?' → all CJK/Arabic
+    // questions flagged as missingQuestionMark → replaced with IT
+    // fallback template. Fix: `_endsWithQuestionMark` accepts all 3 scripts.
+    group('Multi-script question mark recognition (Sprint F.2-post)', () {
+      test('Japanese question ending with full-width ？ passes', () {
+        final result = SocraticOutputFilter.scanQuestion(
+          'ある熱力学エンジニアが、気体の最終的な内部エネルギーをどう予測しますか？',
+        );
+        expect(result.passed, isTrue,
+            reason: 'CJK full-width ？ (U+FF1F) must be recognised as question terminator');
+      });
+
+      test('Arabic question ending with ؟ passes', () {
+        final result = SocraticOutputFilter.scanQuestion(
+          'ضع في اعتبارك الفرضية القائلة بأن الجسم المتحرك يحتاج إلى قوة مستمرة؟',
+        );
+        expect(result.passed, isTrue,
+            reason: 'Arabic ؟ (U+061F) must be recognised as question terminator');
+      });
+
+      test('Chinese question ending with ？ passes', () {
+        final result = SocraticOutputFilter.scanQuestion(
+          '考虑这个假设：移动的物体需要持续的力才能保持速度。这与你观察到的现象一致吗？',
+        );
+        expect(result.passed, isTrue,
+            reason: 'Chinese full-width ？ must be recognised');
+      });
+
+      test('Japanese question ending with ASCII ? still passes', () {
+        final result = SocraticOutputFilter.scanQuestion(
+          'これは何ですか?',
+        );
+        expect(result.passed, isTrue);
+      });
+
+      test('Japanese question with NO terminator is still rejected', () {
+        final result = SocraticOutputFilter.scanQuestion(
+          'これは何ですか',
+        );
+        expect(result.passed, isFalse,
+            reason: 'A genuine missing-terminator must still be flagged');
+        expect(result.violationType, OutputViolationType.missingQuestionMark);
+      });
+
+      test('Trailing whitespace before ？ is tolerated', () {
+        final result = SocraticOutputFilter.scanQuestion(
+          'これは何ですか？   ',
+        );
+        expect(result.passed, isTrue,
+            reason: 'Trailing whitespace must not defeat the terminator check');
+      });
+    });
   });
 }

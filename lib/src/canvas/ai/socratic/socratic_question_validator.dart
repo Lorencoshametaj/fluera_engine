@@ -100,6 +100,20 @@ class SocraticQuestionValidator {
           reason: 'cross_language');
     }
 
+    // Step 2b — cross-SCRIPT session. Sprint F.2-post (2026-05-13 PM):
+    // function-word signature returns 'unknown' for non-Latin scripts
+    // (Korean/Japanese/Chinese/Arabic/Hindi/Cyrillic — our dict only
+    // covers IT/ES/FR/DE/PT/EN). For these scripts the cross-lang
+    // detection above misses, and B4 specificity (Step 3) fails because
+    // lexical overlap with Latin content is 0 by design.
+    // Fix: detect cross-script via Unicode block. If q and source use
+    // different writing systems, lexical overlap is meaningless →
+    // accept and trust the model's semantic match.
+    if (_isNonLatinScript(text) != _isNonLatinScript(sourceSample)) {
+      return const ValidationResult(ValidationOutcome.accept,
+          reason: 'cross_script');
+    }
+
     // Step 3 — same-language session. Lexical concept overlap check.
     final hasOverlap = _mentionsClusterConcept(text);
     if (!hasOverlap) {
@@ -144,6 +158,60 @@ class SocraticQuestionValidator {
   bool _isGenericCeremonial(String text) {
     final lower = text.toLowerCase();
     return _ceremonialPatterns.any(lower.contains);
+  }
+
+  /// True when [text] is predominantly written in a non-Latin script
+  /// (CJK ideographs, Japanese kana, Korean Hangul, Arabic, Hebrew,
+  /// Cyrillic, Devanagari, Thai, etc.). Skips ASCII digits/punctuation/
+  /// whitespace; counts the ratio of non-Latin code points among
+  /// "content" runes. ≥50% non-Latin → returns true.
+  ///
+  /// Used for cross-script session detection where function-word
+  /// signatures fail (our dictionaries only cover IT/ES/FR/DE/PT/EN).
+  /// Sprint F.2-post (2026-05-13 PM).
+  static bool _isNonLatinScript(String text) {
+    int contentRunes = 0;
+    int nonLatin = 0;
+    for (final rune in text.runes) {
+      // Skip ASCII control + space + digits + basic punctuation.
+      if (rune < 0x30) continue; // controls + whitespace + a few puncts
+      if (rune >= 0x30 && rune <= 0x39) continue; // digits
+      if (rune == 0x20) continue; // space
+      if (rune >= 0x21 && rune <= 0x2F) continue; // ! to /
+      if (rune >= 0x3A && rune <= 0x40) continue; // : to @
+      if (rune >= 0x5B && rune <= 0x60) continue; // [ to `
+      if (rune >= 0x7B && rune <= 0x7E) continue; // { to ~
+      contentRunes++;
+      // Latin script ranges: Basic Latin letters, Latin-1 supplement,
+      // Latin Extended-A/B (accents, Italian/Spanish/French chars).
+      if ((rune >= 0x41 && rune <= 0x5A) ||
+          (rune >= 0x61 && rune <= 0x7A) ||
+          (rune >= 0xC0 && rune <= 0x024F)) {
+        continue; // Latin
+      }
+      // Non-Latin scripts of interest:
+      //   CJK punct + Hiragana + Katakana + CJK Unified: 0x3000-0x9FFF
+      //   CJK Extension B-G: 0x20000-0x2FFFF
+      //   Hangul (Korean): 0xAC00-0xD7AF
+      //   Arabic: 0x0600-0x06FF + 0xFE70-0xFEFF (Arabic Presentation)
+      //   Devanagari (Hindi): 0x0900-0x097F
+      //   Cyrillic (Russian): 0x0400-0x04FF
+      //   Hebrew: 0x0590-0x05FF
+      //   Thai: 0x0E00-0x0E7F
+      if ((rune >= 0x3000 && rune <= 0x9FFF) ||
+          (rune >= 0xAC00 && rune <= 0xD7AF) ||
+          (rune >= 0x0600 && rune <= 0x06FF) ||
+          (rune >= 0xFE70 && rune <= 0xFEFF) ||
+          (rune >= 0x0900 && rune <= 0x097F) ||
+          (rune >= 0x0400 && rune <= 0x04FF) ||
+          (rune >= 0x0590 && rune <= 0x05FF) ||
+          (rune >= 0x0E00 && rune <= 0x0E7F) ||
+          (rune >= 0x20000 && rune <= 0x2FFFF)) {
+        nonLatin++;
+      }
+    }
+    if (contentRunes == 0) return false;
+    return nonLatin / contentRunes > 0.5;
   }
 
   // Stopwords kept short — only what's necessary to avoid false matches.

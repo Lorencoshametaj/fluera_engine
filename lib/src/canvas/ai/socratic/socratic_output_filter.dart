@@ -298,8 +298,13 @@ class SocraticOutputFilter {
       }
     }
 
-    // A2-06: Question must end with "?"
-    if (!text.endsWith('?')) {
+    // A2-06: Question must end with a question mark (multi-script).
+    // 🛡️ Sprint F.2-post (2026-05-13 PM): device repro showed
+    // Japanese/Arabic/Chinese sessions producing native questions ending
+    // with `？` (full-width CJK U+FF1F) or `؟` (Arabic U+061F) — not
+    // ASCII `?`. Previously G2 flagged these as missing-question-mark
+    // → replaced with IT fallback template. Now accept all 3 scripts.
+    if (!_endsWithQuestionMark(text)) {
       return OutputFilterResult.violation(
         output: text,
         type: OutputViolationType.missingQuestionMark,
@@ -308,6 +313,18 @@ class SocraticOutputFilter {
     }
 
     return OutputFilterResult.clean(text);
+  }
+
+  /// Returns true if [text] ends with any recognised question mark:
+  /// ASCII `?`, CJK full-width `？` (U+FF1F), or Arabic `؟` (U+061F).
+  /// Trims trailing whitespace before checking so "...?  " still passes.
+  static bool _endsWithQuestionMark(String text) {
+    final trimmed = text.trimRight();
+    if (trimmed.isEmpty) return false;
+    final last = trimmed.codeUnitAt(trimmed.length - 1);
+    // 0x3F = ASCII '?', 0xFF1F = CJK full-width '？',
+    // 0x061F = Arabic '؟'
+    return last == 0x3F || last == 0xFF1F || last == 0x061F;
   }
 
   /// Scan a batch of questions from the LLM response.
