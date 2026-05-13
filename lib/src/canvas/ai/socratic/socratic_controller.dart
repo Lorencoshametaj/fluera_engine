@@ -115,6 +115,22 @@ class SocraticController extends ChangeNotifier {
   void testRecordRecentQuestions(SocraticSession s) =>
       _recordRecentQuestions(s);
 
+  /// Test-only hook for Sprint F.4 re-run stage rotation. Returns the
+  /// stage sequence produced by [_buildBatchPlan] for the given inputs.
+  /// Lets tests verify determinism + floor protection without standing
+  /// up the full activation pipeline.
+  @visibleForTesting
+  List<SocraticStage> testBuildBatchPlanStages(
+    List<ContentCluster> sortedClusters,
+    Map<String, int> recallData,
+    int targetSize, {
+    String? rotationSeed,
+  }) =>
+      _buildBatchPlan(sortedClusters, recallData, targetSize,
+              rotationSeed: rotationSeed)
+          .map((e) => e.stage)
+          .toList();
+
   /// Records the queue's question texts into [_recentQuestionsByCluster].
   /// Called from [dismiss] before clearing `_session` so subsequent
   /// activations on the same clusters can pass them as `avoidPrompts`.
@@ -410,11 +426,31 @@ class SocraticController extends ChangeNotifier {
     //   1 cluster → 3 stages   2 → 3    3 → 5
     //   4 → 6                  5+ → 8 (capped)
     final targetSize = (((toProcess.length * 3) + 1) ~/ 2).clamp(3, 8);
+    // 🎲 Sprint F.4 (2026-05-13 PM): detect Socratic re-activation on the
+    // same cluster set BEFORE plan construction so the seed can also drive
+    // stage rotation (not just stems). Without this, re-running on the
+    // same cluster set (no history signals) yields the same stage sequence
+    // each time — only stems vary. Now both stems AND stage vary.
+    final candidateClusterIdSet = {for (final c in toProcess) c.id};
+    final isReRun = _history.any((record) {
+      final recordIds = record.clusterIds.toSet();
+      return recordIds.intersection(candidateClusterIdSet).length >=
+          (candidateClusterIdSet.length * 0.6).ceil(); // ≥60% overlap
+    });
+    final variationSeed = isReRun
+        ? DateTime.now().millisecondsSinceEpoch.toRadixString(36)
+        : null;
+    if (variationSeed != null) {
+      debugPrint('🎲 Socratic re-run detected on overlapping clusters → '
+          'variation seed=$variationSeed');
+    }
+
     final batchPlan = _buildBatchPlan(
       toProcess,
       recallData,
       targetSize,
       typeMap: typeMap,
+      rotationSeed: variationSeed,
     );
 
     // Infer discipline once for the batch (uses cluster OCR + AI titles
@@ -447,24 +483,11 @@ class SocraticController extends ChangeNotifier {
         '${inferredDiscipline.name} stages=${batchPlan.map((s) => s.stage.name).join(",")}'
         '${misconception != null ? " misconception=${misconception.id}@slot$counterfactualSlotIdx" : ""}');
 
-    // ─── BATCH AI GENERATION (single call) ──────────────────────────────
-    // 🎲 Detect Socratic re-activation on the same cluster set → mint a
-    // variation seed so the AI generates materially different stems.
-    // Without this, re-runs yield near-identical questions (Bjork
-    // desirable-difficulty violation; see Legge 9 prompt_engineering doc).
-    final clusterIdSet = {for (final s in batchPlan) s.cluster.id};
-    final isReRun = _history.any((record) {
-      final recordIds = record.clusterIds.toSet();
-      return recordIds.intersection(clusterIdSet).length >=
-          (clusterIdSet.length * 0.6).ceil(); // ≥60% overlap = same set
-    });
-    final variationSeed = isReRun
-        ? DateTime.now().millisecondsSinceEpoch.toRadixString(36)
-        : null;
-    if (variationSeed != null) {
-      debugPrint('🎲 Socratic re-run detected on overlapping clusters → '
-          'variation seed=$variationSeed');
-    }
+    // ─── BATCH AI GENERATION (per-stage parallel streams) ──────────────
+    // 🎲 variationSeed already minted above and passed to _buildBatchPlan
+    // (so it can drive stage rotation too). It's also passed below so the
+    // AI generates materially different STEMS on top of materially
+    // different STAGES (Bjork desirable-difficulty / Legge 9).
 
     if (provider != null) {
       try {
@@ -1392,6 +1415,7 @@ class SocraticController extends ChangeNotifier {
     Map<String, int> recallData,
     int targetSize, {
     Map<String, SocraticQuestionType>? typeMap,
+    String? rotationSeed,
   }) {
     if (sortedClusters.isEmpty) return const [];
 
@@ -1410,7 +1434,47 @@ class SocraticController extends ChangeNotifier {
       debugPrint('🎯 S1.C: consolidation map ${consolidation.entries.map((e) => "${e.key}=${e.value.name}").join(", ")}');
     }
 
-    final plan = _stagePlanFor(targetSize);
+    var plan = _stagePlanFor(targetSize);
+
+    // 🎲 Sprint F.4 (2026-05-13 PM) — Re-run stage rotation.
+    // When the user re-runs Socratic on the same cluster set without
+    // history signals (no consolidation/struggling/hypercorrection yet),
+    // the canonical _stagePlanFor sequence yields identical stage TYPES
+    // each run — only stems vary via the AI variation seed. To diversify
+    // the pedagogical experience across re-runs, rotate slot 1 (the
+    // post-anchor stage) deterministically from the seed.
+    //
+    // Invariants preserved:
+    //   • Anchor stays at slot 0 (psychological safety / cued retrieval).
+    //   • Counterfactual presence preserved (peak-difficulty probe).
+    //   • S1.C consolidation + S1.B hypercorrection override paths still
+    //     fire below — they may rewrite stages further. Rotation here is
+    //     the BASELINE, not a final commitment.
+    //   • No stage duplicated: only candidates not already in the plan.
+    if (rotationSeed != null && plan.length >= 2) {
+      const rotationPool = [
+        SocraticStage.elaboration,
+        SocraticStage.application,
+        SocraticStage.interleave,
+        SocraticStage.metacognitive,
+      ];
+      final present = plan.toSet();
+      final candidates = rotationPool
+          .where((s) => s != plan[1] && !present.contains(s))
+          .toList();
+      if (candidates.isNotEmpty) {
+        final seedHash = rotationSeed.codeUnits
+            .fold<int>(0, (a, b) => (a + b) & 0x7fffffff);
+        final newStage = candidates[seedHash % candidates.length];
+        debugPrint('🎲 Re-run stage rotation: slot 1 '
+            '${plan[1].name}→${newStage.name} (seed=$rotationSeed)');
+        final mutable = List<SocraticStage>.from(plan);
+        mutable[1] = newStage;
+        plan = mutable;
+      }
+      // candidates empty → plan is already diverse (N≥7), no rotation.
+    }
+
     final n = sortedClusters.length;
 
     // Index helpers (sortedClusters is ascending recall → low recall first).

@@ -347,6 +347,142 @@ void main() {
     });
   });
 
+  // 🎲 Sprint F.4 (2026-05-13 PM): re-run stage rotation determinism.
+  // When the user re-runs Socratic on the same cluster set without
+  // history signals (no consolidation/struggling/hyper), the canonical
+  // _stagePlanFor sequence yields identical stage TYPES each run — only
+  // stems vary. Rotation diversifies slot 1 deterministically from seed.
+  group('Sprint F.4 — re-run stage rotation', () {
+    test('No seed → canonical plan unchanged (no rotation)', () {
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      final stages = ctrl.testBuildBatchPlanStages(
+        [_cluster('c1')],
+        const {'c1': 3},
+        3,
+      );
+      expect(stages, const [
+        SocraticStage.anchor,
+        SocraticStage.elaboration,
+        SocraticStage.counterfactual,
+      ]);
+    });
+
+    test('With seed → slot 1 rotates AWAY from elaboration', () {
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      final stages = ctrl.testBuildBatchPlanStages(
+        [_cluster('c1')],
+        const {'c1': 3},
+        3,
+        rotationSeed: 'abc123',
+      );
+      expect(stages.first, SocraticStage.anchor,
+          reason: 'anchor must stay at slot 0 (psychological safety)');
+      expect(stages.last, SocraticStage.counterfactual,
+          reason: 'counterfactual presence preserved (peak-difficulty)');
+      expect(stages[1], isNot(SocraticStage.elaboration),
+          reason: 'slot 1 must rotate to non-elaboration stage');
+      expect(stages[1], isNot(SocraticStage.anchor));
+      expect(stages[1], isNot(SocraticStage.counterfactual));
+    });
+
+    test('Determinism: same seed → same plan', () {
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      final a = ctrl.testBuildBatchPlanStages(
+        [_cluster('c1')],
+        const {'c1': 3},
+        3,
+        rotationSeed: 'seed-xyz',
+      );
+      final b = ctrl.testBuildBatchPlanStages(
+        [_cluster('c1')],
+        const {'c1': 3},
+        3,
+        rotationSeed: 'seed-xyz',
+      );
+      expect(a, b, reason: 'same seed must produce identical rotation');
+    });
+
+    test('Different seeds → coverage of rotation pool', () {
+      // Try 20 seeds; the rotation pool for N=3 has 3 candidates
+      // (application/interleave/metacognitive). With 20 trials we expect
+      // ≥2 distinct rotated stages by birthday-paradox simple coverage.
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      final distinct = <SocraticStage>{};
+      for (var i = 0; i < 20; i++) {
+        final stages = ctrl.testBuildBatchPlanStages(
+          [_cluster('c1')],
+          const {'c1': 3},
+          3,
+          rotationSeed: 'seed-$i',
+        );
+        distinct.add(stages[1]);
+      }
+      expect(distinct.length, greaterThanOrEqualTo(2),
+          reason: '20 seeds should hit ≥2 distinct stages in the pool');
+    });
+
+    test('No duplicate stages introduced by rotation', () {
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      // N=4 plan: [anchor, elaboration, comparative, counterfactual].
+      // Rotation pool: elaboration (excluded as current), application,
+      // interleave, metacognitive — comparative is in-plan so excluded.
+      // Whatever lands at slot 1 must not already appear elsewhere.
+      for (var i = 0; i < 10; i++) {
+        final stages = ctrl.testBuildBatchPlanStages(
+          [_cluster('c1'), _cluster('c2')],
+          const {'c1': 1, 'c2': 5},
+          4,
+          rotationSeed: 'iter-$i',
+        );
+        expect(stages.toSet().length, stages.length,
+            reason: 'no duplicate stages allowed (stages=$stages)');
+      }
+    });
+
+    test('Floor protection: ≥1 counterfactual after rotation', () {
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      for (var n = 3; n <= 6; n++) {
+        final stages = ctrl.testBuildBatchPlanStages(
+          List.generate(n, (i) => _cluster('c$i')),
+          {for (var i = 0; i < n; i++) 'c$i': i + 1},
+          n,
+          rotationSeed: 'floor-test',
+        );
+        expect(stages, contains(SocraticStage.counterfactual),
+            reason: 'every batch keeps ≥1 counterfactual (n=$n)');
+        expect(stages.first, SocraticStage.anchor,
+            reason: 'anchor stays at slot 0 (n=$n)');
+      }
+    });
+
+    test('N=7 with seed → no rotation (pool exhausted in plan)', () {
+      final ctrl = SocraticController();
+      addTearDown(ctrl.dispose);
+      // N=7 plan already contains application + interleave + metacognitive
+      // + elaboration → rotation pool has no available candidates → plan
+      // unchanged. Verified by comparing against no-seed baseline.
+      final baseline = ctrl.testBuildBatchPlanStages(
+        List.generate(5, (i) => _cluster('c$i')),
+        {for (var i = 0; i < 5; i++) 'c$i': i + 1},
+        7,
+      );
+      final rotated = ctrl.testBuildBatchPlanStages(
+        List.generate(5, (i) => _cluster('c$i')),
+        {for (var i = 0; i < 5; i++) 'c$i': i + 1},
+        7,
+        rotationSeed: 'n7-test',
+      );
+      expect(rotated, baseline,
+          reason: 'N=7 plan is already diverse; rotation is a no-op');
+    });
+  });
+
   group('_stagePlanFor — sequence shape (via activate())', () {
     test('N=3 has counterfactual at end (peak difficulty)', () async {
       final fake = FakeGeminiProvider()..socraticBatchResponse = '';
