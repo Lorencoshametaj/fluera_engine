@@ -17,6 +17,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fluera_engine/src/ai/exam/pedagogy/exam_pedagogy_registry.dart';
 import 'package:fluera_engine/src/ai/exam/pedagogy/exam_phase.dart';
+import 'package:fluera_engine/src/canvas/ai/socratic/socratic_discipline.dart';
 import 'package:fluera_engine/src/utils/ai_language_preference.dart';
 
 const _bootstrapLangs = <String>[
@@ -97,6 +98,44 @@ void main() {
             reason: '$lang must report ai_bootstrap');
       }
     });
+  });
+
+  // 🎓 Sprint EX-H — discipline-aware Exam: per-discipline Bloom-verb
+  // hints injected into the V2 generation payload as a small
+  // "DISCIPLINA:" block.
+  group('ExamPedagogyRegistry — discipline hints (Sprint EX-H)', () {
+    for (final disc in Discipline.values) {
+      test('${disc.name} IT hint is non-empty + ≤700 chars + mentions Bloom', () {
+        final block = ExamPedagogyRegistry.disciplineHintsFor(disc, 'it');
+        expect(block, isNotEmpty);
+        expect(block.length, lessThanOrEqualTo(700));
+        if (disc != Discipline.generic) {
+          expect(block.toLowerCase(), contains('bloom'),
+              reason: 'IT ${disc.name} hint should reference Bloom verbs');
+        }
+      });
+
+      test('${disc.name} EN hint is non-empty + ≤700 chars + mentions Bloom', () {
+        final block = ExamPedagogyRegistry.disciplineHintsFor(disc, 'en');
+        expect(block, isNotEmpty);
+        expect(block.length, lessThanOrEqualTo(700));
+        if (disc != Discipline.generic) {
+          expect(block.toLowerCase(), contains('bloom'),
+              reason: 'EN ${disc.name} hint should reference Bloom verbs');
+        }
+      });
+
+      test('${disc.name} bootstrap (es) falls back to EN '
+          '(no bootstrap entries yet)', () {
+        // discipline_hints_exam_bootstrap.dart is currently empty
+        // scaffold → caller falls back to EN. Verify EN cell returns.
+        final block =
+            ExamPedagogyRegistry.disciplineHintsFor(disc, 'es');
+        final en = ExamPedagogyRegistry.disciplineHintsFor(disc, 'en');
+        expect(block, equals(en),
+            reason: '${disc.name} ES falls back to EN until bootstrap runs');
+      });
+    }
   });
 
   group('ExamPedagogyRegistry — EN fallback for unknown lang', () {

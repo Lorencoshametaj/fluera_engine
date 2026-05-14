@@ -14,6 +14,9 @@ import 'noop_ai_usage_tracker.dart';
 import 'telemetry_recorder.dart';
 import '../canvas/ai/bloom_classifier.dart';
 import '../canvas/ai/exam_session_model.dart';
+import '../canvas/ai/socratic/socratic_discipline.dart';
+import '../canvas/ai/socratic/socratic_misconception_library.dart'
+    show inferDiscipline;
 import 'exam/pedagogy/exam_pedagogy_registry.dart';
 import 'exam/pedagogy/exam_phase.dart';
 import '../canvas/ai/socratic/socratic_model.dart' show SocraticStage;
@@ -1434,6 +1437,16 @@ FLUERA AI:''';
     // type-distribution rule (no formulaRecall expected if no math present).
     final hasFormulaContent = _hasMathContent(validTexts.values);
 
+    // 🎓 Sprint EX-H — infer discipline once per batch from cluster
+    // texts, so the V2 payload can inject the discipline-specific
+    // Bloom-verb hint block. `inferDiscipline` is the same heuristic
+    // Socratic uses → semantic consistency between the two features.
+    final langCode = AiLanguagePreference.code();
+    final inferredDiscipline = inferDiscipline(
+      validTexts.values,
+      language: langCode,
+    );
+
     // Up to 2 attempts: the first is plain, the second adds a corrective
     // addendum if Bloom or type distribution missed target.
     String correctiveAddendum = '';
@@ -1449,6 +1462,8 @@ FLUERA AI:''';
               clusterSummary: clusterSummary,
               correctiveAddendum: correctiveAddendum,
               avoidPrompts: avoidPrompts,
+              discipline: inferredDiscipline,
+              langCode: langCode,
             )
           : _buildExamPrompt(
               count: count,
@@ -1956,12 +1971,19 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
   /// (Bloom rubric, anti-patterns, OUTPUT_SCHEMA) lives in
   /// `systemInstruction`, cached server-side. Per-call payload =
   /// vars only → ~80% input-token reduction vs `_buildExamPrompt`.
+  ///
+  /// Sprint EX-H: optional `discipline` injects a discipline-specific
+  /// Bloom-verb hint block (~200-400 chars), pulled from
+  /// `ExamPedagogyRegistry.disciplineHintsFor`. Defaults to generic
+  /// (no-op block for unknown discipline).
   String _buildExamPayloadV2({
     required int count,
     required String difficulty,
     required String clusterSummary,
     String correctiveAddendum = '',
     List<String> avoidPrompts = const [],
+    Discipline discipline = Discipline.generic,
+    required String langCode,
   }) {
     final seed = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
     final minAtLevel = (count * 0.4).ceil();
@@ -1971,13 +1993,18 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
             for (var i = 0; i < avoidPrompts.length && i < 30; i++)
               '${i + 1}. ${avoidPrompts[i].length > 120 ? '${avoidPrompts[i].substring(0, 120)}…' : avoidPrompts[i]}'
           ].join('\n')}\n</AVOID_REPETITION>';
+    // 🎓 Sprint EX-H — discipline-specific Bloom-verb hint block.
+    // Skip injection when generic (no-op block adds tokens for nothing).
+    final disciplineBlock = discipline == Discipline.generic
+        ? ''
+        : '\n\n${ExamPedagogyRegistry.disciplineHintsFor(discipline, langCode)}';
     return '''
 <EXAM_PARAMS>
 count: $count
 difficulty: $difficulty
 min_at_target_bloom_level: $minAtLevel / $count
 seed: $seed
-</EXAM_PARAMS>
+</EXAM_PARAMS>$disciplineBlock
 
 <STUDENT_NOTES>
 $clusterSummary

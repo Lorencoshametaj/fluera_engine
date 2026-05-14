@@ -17,8 +17,12 @@
 // driven (Anderson & Krathwohl 2001), distinct from Socratic which is
 // stage-driven (Bjork/Dunlosky/Hestenes).
 
+import '../../../canvas/ai/socratic/socratic_discipline.dart';
 import '../../../utils/ai_language_preference.dart'
     show AiLanguagePreference, SocraticValidationStatus;
+import 'discipline_hints_exam_bootstrap.dart';
+import 'discipline_hints_exam_en.dart';
+import 'discipline_hints_exam_it.dart';
 import 'exam_pedagogy_bootstrap.dart';
 import 'exam_pedagogy_en.dart';
 import 'exam_pedagogy_it.dart';
@@ -67,6 +71,19 @@ class ExamPedagogyRegistry {
       // Both IT ("12 parole") and EN ("12 words") preserve the digit
       // 12 — robust marker across all 14 bootstrap langs.
       ExamPhase.hint => cell.contains('12'),
+    };
+  }
+
+  /// Returns the small per-call "DISCIPLINA: ..." block to inject in
+  /// the V2 payload of [ExamPhase.generation]. Kept ≤400 chars per
+  /// discipline to preserve the output token budget. Falls back to EN
+  /// when the bootstrap entry is missing for [langCode].
+  static String disciplineHintsFor(Discipline d, String langCode) {
+    return switch (langCode) {
+      'it' => disciplineHintsExamIt(d),
+      'en' => disciplineHintsExamEn(d),
+      _ => bootstrapExamDisciplineHintsFor(d, langCode) ??
+          disciplineHintsExamEn(d),
     };
   }
 
