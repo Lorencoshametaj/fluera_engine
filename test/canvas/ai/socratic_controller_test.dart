@@ -11,6 +11,7 @@ import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fluera_engine/src/ai/telemetry_recorder.dart';
 import 'package:fluera_engine/src/canvas/ai/socratic/socratic_controller.dart';
 import 'package:fluera_engine/src/canvas/ai/socratic/socratic_model.dart';
 import 'package:fluera_engine/src/reflow/content_cluster.dart';
@@ -1145,6 +1146,79 @@ void main() {
           reason: 'streamForStage must be called twice: original + retry');
     });
   });
+
+  // 🚩 Sprint F.5 (2026-05-13 PM): native-validation report path.
+  // Pure telemetry, no state mutation. Verifies the event emits with
+  // the expected properties so the aggregation dashboard stays stable.
+  group('SocraticController — reportQuestion telemetry (Sprint F.5)', () {
+    test('emits socratic_question_reported with lang/stage/type/reason',
+        () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = SocraticController(telemetry: telemetry);
+      addTearDown(ctrl.dispose);
+      const q = SocraticQuestion(
+        id: 'q-test-1',
+        clusterId: 'c1',
+        anchorPosition: Offset(0, 0),
+        type: SocraticQuestionType.lacuna,
+        text: 'Quale legge governa il moto rettilineo uniforme?',
+        stage: SocraticStage.anchor,
+      );
+      ctrl.reportQuestion(q, 'ko', reason: 'sounds machine-translated');
+      expect(telemetry.events, hasLength(1));
+      final e = telemetry.events.single;
+      expect(e.event, 'socratic_question_reported');
+      expect(e.props['lang_code'], 'ko');
+      expect(e.props['stage'], 'anchor');
+      expect(e.props['type'], 'lacuna');
+      expect(e.props['cluster_id'], 'c1');
+      expect(e.props['question_id'], 'q-test-1');
+      expect(e.props['reason'], 'sounds machine-translated');
+    });
+
+    test('null/empty reason → recorded as "unspecified"', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = SocraticController(telemetry: telemetry);
+      addTearDown(ctrl.dispose);
+      const q = SocraticQuestion(
+        id: 'q-test-2',
+        clusterId: 'c2',
+        anchorPosition: Offset(0, 0),
+        type: SocraticQuestionType.challenge,
+        text: 'short',
+        stage: SocraticStage.elaboration,
+      );
+      ctrl.reportQuestion(q, 'ja');
+      expect(telemetry.events.single.props['reason'], 'unspecified');
+    });
+
+    test('question_text + reason both capped at 500 chars', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = SocraticController(telemetry: telemetry);
+      addTearDown(ctrl.dispose);
+      final q = SocraticQuestion(
+        id: 'q-long',
+        clusterId: 'c3',
+        anchorPosition: const Offset(0, 0),
+        type: SocraticQuestionType.depth,
+        text: 'x' * 800,
+        stage: SocraticStage.counterfactual,
+      );
+      ctrl.reportQuestion(q, 'ar', reason: 'y' * 800);
+      final p = telemetry.events.single.props;
+      expect((p['question_text'] as String).length, 500);
+      expect((p['reason'] as String).length, 500);
+    });
+  });
+}
+
+class _ReportTelemetry implements TelemetryRecorder {
+  final List<({String event, Map<String, dynamic> props})> events = [];
+
+  @override
+  void logEvent(String eventType, {Map<String, dynamic>? properties}) {
+    events.add((event: eventType, props: properties ?? const {}));
+  }
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

@@ -54,6 +54,14 @@ The question MUST name ≥1 concept word from the notes (≥4 chars).
 Ceremonial phrasings like "Regarding 'X', what can you explain in your
 own words" are BANNED — they name nothing.
 
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
+
 📤 OUTPUT — strict JSON, no prefixes or markdown:
 {"q":"<question in English, ≤2 sentences, starts with the first word of the question>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}
 
@@ -132,6 +140,14 @@ Examples of CORRECT elaboration questions:
 The question names ≥1 concept word from the notes (≥4 chars).
 Ceremonial phrasings BANNED.
 
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
+
 📤 OUTPUT — strict JSON, no prefixes:
 {"q":"<question in English, ≤2 sentences>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}
 
@@ -176,6 +192,14 @@ similar: what distinguishes them?".
 📝 SPECIFICITY (hard rule)
 The question names ≥2 concepts from the notes (the two objects of the
 comparison), each ≥4 chars. Ceremonial phrasings banned.
+
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
 
 📤 OUTPUT — strict JSON:
 {"q":"<question in English, ≤2 sentences, max 2 objects>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}
@@ -229,6 +253,14 @@ delivered X. The student must recall X themselves from scenario Y.
 📝 SPECIFICITY + CONCRETE SCENARIO (hard rule)
 The scenario contains at least ONE concrete detail: numerical value,
 physical object, operational situation. Never "in a generic system…".
+
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
 
 📤 OUTPUT — strict JSON:
 {"q":"<question in English with concrete scenario, ≤2 sentences>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}
@@ -299,6 +331,14 @@ Examples of CORRECT application questions:
 Agent + setting + task are all specific. Never "someone in some
 situation…".
 
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
+
 📤 OUTPUT — strict JSON:
 {"q":"<question in English with agent+scenario+task, ≤2 sentences>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}
 
@@ -339,6 +379,14 @@ Do not enunciate the link. The student constructs it.
 📝 SPECIFICITY + 2 NAMED CLUSTERS (hard rule)
 The question names both concepts of the clusters being linked, each
 ≥4 chars, drawn from the batch payload.
+
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
 
 📤 OUTPUT — strict JSON:
 {"q":"<question in English naming 2 clusters, ≤2 sentences>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}
@@ -383,6 +431,14 @@ student's answer is meta, not on the content.
 📝 SPECIFICITY (hard rule)
 The question names ≥1 specific concept from the notes, not
 abstractions like "the material".
+
+📚 REGISTER CALIBRATION
+Match the vocabulary register to what you see in the cluster OCR.
+If the notes use everyday language ("push makes it move"), frame the
+question with everyday metaphors and simple terms. If the notes use
+formalism (F = m·a, vector definitions, dense symbols), use the
+discipline's native technical register. Never patronize: a student
+with university-level notes is not a middle-schooler.
 
 📤 OUTPUT — strict JSON:
 {"q":"<metacognitive question in English, ≤2 sentences>","h":["<distant echo, ≤12 words>","<path, ≤15 words>","<threshold, ≤20 words>"]}

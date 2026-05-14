@@ -12,6 +12,10 @@ library;
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
 
+import 'socratic_discipline.dart';
+
+export 'socratic_discipline.dart' show Discipline;
+
 // ============================================================================
 // QUESTION TYPE (P3-09 → P3-13)
 // ============================================================================
@@ -54,18 +58,9 @@ enum SocraticStage {
 /// signal is ambiguous (e.g. interdisciplinary canvas). When generic,
 /// the prompt's discipline-specific section is skipped and misconception
 /// injection is suppressed.
-enum Discipline {
-  physics,
-  math,
-  chemistry,
-  biology,
-  medicine,
-  law,
-  economics,
-  philosophy,
-  history,
-  generic,
-}
+// Discipline enum moved to socratic_discipline.dart (pure-Dart, no
+// flutter/dart:ui import) and re-exported via `export` at the top of
+// this file. Callers that use `Discipline` here keep working unchanged.
 
 /// The 4 types of Socratic questions, each activated by a different principle.
 enum SocraticQuestionType {

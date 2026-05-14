@@ -2484,6 +2484,31 @@ class SocraticController extends ChangeNotifier {
     next();
   }
 
+  /// 🚩 Sprint F.5 (2026-05-13 PM) — user reports a question as not native /
+  /// poorly translated / culturally off. Available to the user only when the
+  /// active `AiLanguagePreference` is in `aiBootstrap` tier (per
+  /// `docs/socratic_native_validation_protocol.md`). The signal feeds the
+  /// continuous native-validation loop: aggregated reports per language ×
+  /// stage tell us which cells need priority review.
+  ///
+  /// Pure telemetry — no state mutation, no UI side-effects, no async I/O.
+  /// Reason is optional free-text (kept ≤500 chars to fit in Sentry tag).
+  void reportQuestion(SocraticQuestion q, String langCode, {String? reason}) {
+    _telemetry.logEvent('socratic_question_reported', properties: {
+      'question_id': q.id,
+      'question_text': q.text.length > 500
+          ? q.text.substring(0, 500)
+          : q.text,
+      'stage': q.stage?.name ?? 'unknown',
+      'type': q.type.name,
+      'cluster_id': q.clusterId,
+      'lang_code': langCode,
+      'reason': (reason == null || reason.isEmpty)
+          ? 'unspecified'
+          : (reason.length > 500 ? reason.substring(0, 500) : reason),
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // ZPD ADAPTATION (P3-14)
   // ─────────────────────────────────────────────────────────────────────────

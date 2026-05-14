@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../l10n/generated/fluera_localizations.g.dart';
+import '../../utils/ai_language_preference.dart';
 import '../ai/socratic/socratic_model.dart';
 import 'socratic_info_screen.dart';
 import 'socratic_inline_scratchpad.dart';
@@ -53,6 +54,11 @@ class SocraticBubble extends StatefulWidget {
   /// Called when student picks one of the 3-state reflection outcomes
   /// at the end of a multi-turn dialogue.
   final ValueChanged<SocraticReflectionOutcome>? onRecordReflection;
+
+  /// 🚩 Sprint F.5 — called when student taps the "report this question"
+  /// flag. Visible only when the active language is in `aiBootstrap` tier.
+  /// Optional free-text reason can be collected via dialog.
+  final ValueChanged<String?>? onReportQuestion;
   final String? currentBreadcrumbText;
   final int breadcrumbsUsed;
   final bool canRequestBreadcrumb;
@@ -84,6 +90,7 @@ class SocraticBubble extends StatefulWidget {
     this.onSubmitSketch,
     this.onCancelSketch,
     this.onRecordReflection,
+    this.onReportQuestion,
   });
 
   @override
@@ -484,6 +491,26 @@ class _SocraticBubbleState extends State<SocraticBubble>
             ),
           ),
         ),
+        // 🚩 Report-question button (Sprint F.5). Visible ONLY when the
+        // active AI Output Language is in `aiBootstrap` tier. Collects
+        // native-speaker feedback for the continuous validation queue
+        // (see docs/socratic_native_validation_protocol.md).
+        if (widget.onReportQuestion != null &&
+            AiLanguagePreference.validationStatusFor(
+                  AiLanguagePreference.code(),
+                ) ==
+                SocraticValidationStatus.aiBootstrap)
+          GestureDetector(
+            onTap: () => _showReportDialog(l10n),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Icon(
+                Icons.flag_outlined,
+                size: 16,
+                color: Colors.amber.withValues(alpha: 0.55),
+              ),
+            ),
+          ),
         // Skip/dismiss button (P3-15).
         if (!_isResolved && widget.isActiveQuestion)
           GestureDetector(
@@ -498,6 +525,80 @@ class _SocraticBubbleState extends State<SocraticBubble>
             ),
           ),
       ],
+    );
+  }
+
+  // ── Report dialog (Sprint F.5) ─────────────────────────────────────────
+
+  Future<void> _showReportDialog(FlueraLocalizations l10n) async {
+    HapticFeedback.selectionClick();
+    final reasonController = TextEditingController();
+    final isItalian =
+        Localizations.localeOf(context).languageCode == 'it';
+    final title = isItalian
+        ? 'Segnala questa domanda'
+        : 'Report this question';
+    final body = isItalian
+        ? 'Aiutaci a migliorare le traduzioni: se la domanda non suona '
+            'naturale, ha un registro errato o sembra "tradotta a macchina", '
+            'segnalala. Verrà aggregata anonima per la review nativa.'
+        : 'Help us improve translations: if the question doesn\'t sound '
+            'natural, uses the wrong register, or feels machine-translated, '
+            'report it. We aggregate reports anonymously for native review.';
+    final placeholder = isItalian
+        ? 'Motivo (opzionale)…'
+        : 'Reason (optional)…';
+    final cancelLabel = isItalian ? 'Annulla' : 'Cancel';
+    final submitLabel = isItalian ? 'Invia' : 'Submit';
+    final thanksLabel = isItalian
+        ? 'Grazie — segnalazione inviata'
+        : 'Thanks — report sent';
+
+    final submitted = await showDialog<String?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(body, style: const TextStyle(fontSize: 13)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 2,
+              maxLength: 500,
+              decoration: InputDecoration(
+                hintText: placeholder,
+                isDense: true,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: Text(cancelLabel),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(ctx).pop(reasonController.text.trim()),
+            child: Text(submitLabel),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (submitted == null) return; // user cancelled
+    widget.onReportQuestion?.call(submitted.isEmpty ? null : submitted);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(thanksLabel),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 

@@ -20,7 +20,9 @@
 // Pure data + pure functions — no I/O, no Gemini calls, no async.
 // ============================================================================
 
-import 'socratic_model.dart';
+import 'socratic_discipline.dart';
+import 'socratic_misconception_bootstrap.dart'
+    show bootstrapMisconceptionKeywordsFor, bootstrapMisconceptionTextFor;
 
 /// Per-language text payload of a misconception (3 strings).
 class MisconceptionText {
@@ -88,17 +90,24 @@ class Misconception {
 
   // ─── Language-aware accessors ─────────────────────────────────────────
 
-  /// Keywords for [language], falling back to IT when missing.
+  /// Keywords for [language], falling back through:
+  ///   1. Inline `conceptKeywordsByLang[language]` (curated IT/EN)
+  ///   2. AI-bootstrap map for [language] (14 Tier-1/2 langs)
+  ///   3. Inline IT payload (last-resort fallback)
   List<String> keywordsFor(String language) =>
       conceptKeywordsByLang[language] ??
+      bootstrapMisconceptionKeywordsFor(id, language) ??
       conceptKeywordsByLang['it'] ??
       const <String>[];
 
-  /// Text payload for [language], falling back to IT when missing. May
-  /// return null only when the entry has no `it` payload (shouldn't happen
-  /// — `it` is mandatory by convention).
+  /// Text payload for [language], falling back through the same chain
+  /// as [keywordsFor]: inline → bootstrap → IT. May return null only
+  /// when the entry has no `it` payload (shouldn't happen — `it` is
+  /// mandatory by convention).
   MisconceptionText? textFor(String language) =>
-      textsByLang[language] ?? textsByLang['it'];
+      textsByLang[language] ??
+      bootstrapMisconceptionTextFor(id, language) ??
+      textsByLang['it'];
 }
 
 // ─── Discipline keyword sets (for inferDiscipline) ─────────────────────────

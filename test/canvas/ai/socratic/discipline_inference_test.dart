@@ -170,14 +170,18 @@ void main() {
     });
 
     test('Missing language falls back to IT in textFor', () {
+      // Post Sprint F.2 misconception bootstrap, FR/ES/etc are in the
+      // bootstrap map → no longer fall back to IT. Use a lang code that
+      // is NOT in the 14 Tier-1/2 bootstrap set (e.g. 'zu' Zulu) to
+      // exercise the IT fallback path.
       final m = pickMisconceptionFor(
         Discipline.physics,
         ['inerzia'],
         language: 'it',
       );
-      expect(m?.textFor('fr'),
+      expect(m?.textFor('zu'),
           equals(m?.textFor('it')), // fallback to IT
-          reason: 'unknown language returns IT payload');
+          reason: 'unknown language (not bootstrap-covered) returns IT payload');
     });
   });
 }

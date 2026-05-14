@@ -1,0 +1,271 @@
+// ignore_for_file: avoid_print
+/// ═══════════════════════════════════════════════════════════════════════════
+/// 🧠 SOCRATIC MISCONCEPTION BOOTSTRAP — IT → 14 lang translator
+///
+/// One-shot script that uses Gemini 2.5 Flash to translate the 30 hand-
+/// written Italian misconception entries (source-of-truth in
+/// `socratic_misconception_library.dart`) into the 14 Tier-1/2 target
+/// languages. Output replaces the scaffold map in
+/// `lib/src/canvas/ai/socratic/socratic_misconception_bootstrap.dart`.
+///
+/// USAGE:
+///   cd fluera_engine
+///   # Full bootstrap (all 14 langs)
+///   GEMINI_API_KEY=sk-xxx dart run tool/bootstrap_misconceptions.dart
+///
+///   # Subset (CLI lang filter)
+///   GEMINI_API_KEY=sk-xxx dart run tool/bootstrap_misconceptions.dart es,fr
+///
+///   # Dry-run on 1 lang (no file write)
+///   GEMINI_API_KEY=sk-xxx dart run tool/bootstrap_misconceptions.dart es --dry-run
+///
+/// MODEL: `gemini-2.5-flash` (same as runtime + pedagogy bootstrap).
+///
+/// COST: ~$0.30-0.50 on Flash (30 entries × 14 langs = 420 calls,
+/// ~600 input tokens + ~400 output per call). Likely $0 on free tier.
+///
+/// QUALITY GATE: each output is structurally validated (JSON shape,
+/// non-empty fields, `[concept]` placeholder preserved in probePattern).
+/// Failed entries fall back to IT silently — pipeline never blocks.
+///
+/// IDEMPOTENT: re-running regenerates from the IT source. Review
+/// `git diff` to spot regressions.
+/// ═══════════════════════════════════════════════════════════════════════════
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:fluera_engine/src/canvas/ai/socratic/socratic_misconception_library.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+
+/// 14 Tier-1/2 langs (IT + EN are inline-curated in the library file).
+const Map<String, String> _targetLanguages = {
+  'es': 'Spanish',
+  'pt': 'Portuguese',
+  'fr': 'French',
+  'de': 'German',
+  'ja': 'Japanese',
+  'ko': 'Korean',
+  'zh': 'Chinese (Simplified)',
+  'ar': 'Arabic',
+  'hi': 'Hindi',
+  'ru': 'Russian',
+  'nl': 'Dutch',
+  'sv': 'Swedish',
+  'pl': 'Polish',
+  'tr': 'Turkish',
+};
+
+Future<void> main(List<String> args) async {
+  final apiKey = Platform.environment['GEMINI_API_KEY'];
+  if (apiKey == null || apiKey.isEmpty) {
+    stderr.writeln('❌ GEMINI_API_KEY env var is required.');
+    exit(1);
+  }
+
+  final dryRun = args.contains('--dry-run');
+  final langArg =
+      args.firstWhere((a) => !a.startsWith('--'), orElse: () => '');
+  final selectedLangs = langArg.isEmpty
+      ? _targetLanguages.keys.toList()
+      : langArg.split(',').map((s) => s.trim()).toList();
+
+  for (final code in selectedLangs) {
+    if (!_targetLanguages.containsKey(code)) {
+      stderr.writeln('❌ Unknown language code: "$code". '
+          'Valid: ${_targetLanguages.keys.join(", ")}');
+      exit(1);
+    }
+  }
+
+  print(selectedLangs.length == _targetLanguages.length
+      ? '🌍 Full bootstrap: translating to all 14 languages'
+      : '🌍 Partial bootstrap: ${selectedLangs.length} lang(s) — '
+          '${selectedLangs.join(", ")}${dryRun ? " (DRY RUN)" : ""}');
+
+  final model = GenerativeModel(
+    model: 'gemini-2.5-flash',
+    apiKey: apiKey,
+    generationConfig: GenerationConfig(
+      temperature: 0.3,
+      responseMimeType: 'application/json',
+    ),
+  );
+
+  // Flatten all 30 misconceptions into a single list with discipline tag.
+  final allEntries = <Misconception>[];
+  for (final disc in kMisconceptionLibrary.keys) {
+    allEntries.addAll(kMisconceptionLibrary[disc]!);
+  }
+  print('  ✓ Loaded ${allEntries.length} misconceptions from IT source');
+
+  // results[id][langCode] = (text, keywords)
+  final results =
+      <String, Map<String, ({MisconceptionText text, List<String> keywords})>>{};
+
+  for (final code in selectedLangs) {
+    final langName = _targetLanguages[code]!;
+    print('🌐 Translating ${allEntries.length} misconceptions to $langName ($code)...');
+    for (final m in allEntries) {
+      stdout.write('  → ${m.id}... ');
+      try {
+        final translated = await _translateOne(model, m, langName);
+        if (translated == null) {
+          print('FAILED (fallback to IT)');
+          continue;
+        }
+        results.putIfAbsent(m.id, () => {})[code] = translated;
+        print('ok');
+      } catch (e) {
+        print('ERROR: $e');
+      }
+    }
+  }
+
+  if (dryRun) {
+    print('\n🌵 Dry-run complete. Sample for first id:');
+    final firstId = results.keys.firstOrNull;
+    if (firstId != null) {
+      print('  $firstId: ${results[firstId]}');
+    }
+    return;
+  }
+
+  // Write output file.
+  final out = StringBuffer();
+  out.writeln('// ============================================================================');
+  out.writeln('// 🌍 SocraticMisconceptionBootstrap — AI-translated misconception payloads');
+  out.writeln('// for the 14 Tier-1/2 bootstrap languages.');
+  out.writeln('//');
+  out.writeln('// Generated by `tool/bootstrap_misconceptions.dart` (last run: ${DateTime.now().toIso8601String()}).');
+  out.writeln('// Source-of-truth: IT payloads of each entry in');
+  out.writeln('// `socratic_misconception_library.dart`. Model: gemini-2.5-flash.');
+  out.writeln('//');
+  out.writeln('// Status: `ai_bootstrap` per docs/socratic_native_validation_protocol.md.');
+  out.writeln('// ============================================================================');
+  out.writeln();
+  out.writeln("import 'socratic_misconception_library.dart' show MisconceptionText;");
+  out.writeln();
+  out.writeln('const Map<String, Map<String, MisconceptionText>> _bootstrapTexts = {');
+  for (final id in results.keys) {
+    out.writeln("  '$id': {");
+    for (final entry in results[id]!.entries) {
+      final t = entry.value.text;
+      out.writeln("    '${entry.key}': MisconceptionText(");
+      out.writeln("      misconception: ${_dartString(t.misconception)},");
+      out.writeln("      correctView: ${_dartString(t.correctView)},");
+      out.writeln("      probePattern: ${_dartString(t.probePattern)},");
+      out.writeln('    ),');
+    }
+    out.writeln('  },');
+  }
+  out.writeln('};');
+  out.writeln();
+  out.writeln('const Map<String, Map<String, List<String>>> _bootstrapKeywords = {');
+  for (final id in results.keys) {
+    out.writeln("  '$id': {");
+    for (final entry in results[id]!.entries) {
+      final kws = entry.value.keywords.map(_dartString).join(', ');
+      out.writeln("    '${entry.key}': [$kws],");
+    }
+    out.writeln('  },');
+  }
+  out.writeln('};');
+  out.writeln();
+  out.writeln('MisconceptionText? bootstrapMisconceptionTextFor(String id, String language) =>');
+  out.writeln('    _bootstrapTexts[id]?[language];');
+  out.writeln();
+  out.writeln('List<String>? bootstrapMisconceptionKeywordsFor(String id, String language) =>');
+  out.writeln('    _bootstrapKeywords[id]?[language];');
+
+  final outFile = File(
+      'lib/src/canvas/ai/socratic/socratic_misconception_bootstrap.dart');
+  await outFile.writeAsString(out.toString());
+  print('\n✅ Wrote ${outFile.path}');
+  final entryCount = results.values
+      .fold<int>(0, (sum, m) => sum + m.length);
+  print('   $entryCount entries (${results.length} misconceptions × '
+      '${selectedLangs.length} langs)');
+}
+
+Future<({MisconceptionText text, List<String> keywords})?> _translateOne(
+  GenerativeModel model,
+  Misconception m,
+  String langName,
+) async {
+  final src = m.textFor('it')!;
+  final keywords = m.keywordsFor('it');
+
+  final prompt = '''
+You are translating a Socratic pedagogy misconception payload from Italian
+to $langName. Output ONLY a single JSON object with this exact shape:
+
+{
+  "misconception": "<translation of misconception statement>",
+  "correctView": "<translation of correct view>",
+  "probePattern": "<translation of probe pattern; PRESERVE the literal token [concept] unchanged>",
+  "keywords": ["<kw1>", "<kw2>", ...]
+}
+
+RULES:
+- Translate IDIOMATICALLY (no calques). Adapt to native register.
+- KEEP scientific terms in their $langName conventional form
+  (e.g. "Newton" stays "Newton" in all langs; "inertia" → native form).
+- Keywords are short concept hooks (1-3 words each). Translate to the
+  $langName form a textbook would use. Same count as Italian.
+- The probePattern MUST keep "[concept]" verbatim — it is a runtime
+  placeholder substituted by the calling code.
+
+ITALIAN SOURCE:
+- misconception: ${src.misconception}
+- correctView: ${src.correctView}
+- probePattern: ${src.probePattern}
+- keywords: ${keywords.join(", ")}
+''';
+
+  final response = await model.generateContent([Content.text(prompt)]);
+  final text = response.text;
+  if (text == null || text.trim().isEmpty) return null;
+  try {
+    final json = jsonDecode(text) as Map<String, dynamic>;
+    final mis = (json['misconception'] as String?)?.trim() ?? '';
+    final cor = (json['correctView'] as String?)?.trim() ?? '';
+    final probe = (json['probePattern'] as String?)?.trim() ?? '';
+    final kws = (json['keywords'] as List?)
+            ?.map((e) => e.toString().trim())
+            .where((s) => s.isNotEmpty)
+            .toList() ??
+        const <String>[];
+    if (mis.isEmpty || cor.isEmpty || probe.isEmpty || kws.isEmpty) {
+      return null;
+    }
+    // Validate the [concept] placeholder survived translation.
+    if (!probe.contains('[concept]')) {
+      stderr.writeln('  ⚠️ [concept] placeholder lost in probe for ${m.id}/$langName — skipping');
+      return null;
+    }
+    return (
+      text: MisconceptionText(
+        misconception: mis,
+        correctView: cor,
+        probePattern: probe,
+      ),
+      keywords: kws,
+    );
+  } catch (e) {
+    stderr.writeln('  ⚠️ JSON parse failed for ${m.id}/$langName: $e');
+    return null;
+  }
+}
+
+/// Quote a Dart string literal safely (escape backslash, quotes, newlines).
+String _dartString(String s) {
+  final escaped = s
+      .replaceAll(r'\', r'\\')
+      .replaceAll("'", r"\'")
+      .replaceAll('\n', r'\n')
+      .replaceAll('\r', r'\r')
+      .replaceAll('\t', r'\t')
+      .replaceAll(r'$', r'\$');
+  return "'$escaped'";
+}

@@ -60,6 +60,15 @@ La domanda DEVE nominare ≥1 parola concetto dagli appunti (≥4 caratteri).
 Cerimonialità tipo "Riguardo a 'X', cosa puoi spiegare a parole tue"
 sono BANNATE — non nominano nulla, sono ceremonia.
 
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
+
 📤 OUTPUT — solo JSON, niente prefissi né markdown:
 {"q":"<domanda in italiano, ≤2 frasi, inizia con la prima parola della domanda>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
 
@@ -140,6 +149,15 @@ Esempi di elaboration CORRETTE:
 La domanda nomina ≥1 parola concetto dagli appunti (≥4 caratteri).
 Cerimonialità BANNATE.
 
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
+
 📤 OUTPUT — solo JSON, niente prefissi:
 {"q":"<domanda in italiano, ≤2 frasi>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
 
@@ -184,6 +202,15 @@ simili: cosa li distingue?".
 📝 SPECIFICITÀ (hard rule)
 La domanda nomina ≥2 concetti dagli appunti (i due oggetti del
 confronto), ognuno ≥4 caratteri. Cerimonialità bannate.
+
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
 
 📤 OUTPUT — solo JSON:
 {"q":"<domanda in italiano, ≤2 frasi, max 2 oggetti>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
@@ -237,6 +264,15 @@ Lo studente deve richiamare X da solo dallo scenario Y.
 📝 SPECIFICITÀ + SCENARIO CONCRETO (hard rule)
 Lo scenario contiene almeno UN dettaglio concreto: valore numerico,
 oggetto fisico, situazione operativa. Mai "in un sistema generico…".
+
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
 
 📤 OUTPUT — solo JSON:
 {"q":"<domanda in italiano con scenario concreto, ≤2 frasi>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
@@ -309,6 +345,15 @@ Esempi di application CORRETTE:
 Agente + setting + compito specifici. Mai "qualcuno in qualche
 situazione…".
 
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
+
 📤 OUTPUT — solo JSON:
 {"q":"<domanda in italiano con agente+scenario+compito, ≤2 frasi>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
 
@@ -349,6 +394,15 @@ Non enunciare il legame. Lo studente lo costruisce.
 📝 SPECIFICITÀ + 2 CLUSTER NOMINATI (hard rule)
 La domanda nomina entrambi i concetti dei cluster da collegare,
 ognuno ≥4 caratteri, presi dal batch payload.
+
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
 
 📤 OUTPUT — solo JSON:
 {"q":"<domanda in italiano che nomina 2 cluster, ≤2 frasi>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
@@ -393,6 +447,15 @@ La risposta DELLO STUDENTE è meta, non sul contenuto.
 📝 SPECIFICITÀ (hard rule)
 La domanda nomina ≥1 concetto specifico dagli appunti, non astrazioni
 tipo "il materiale".
+
+📚 CALIBRAZIONE DEL REGISTRO
+Adatta il vocabolario al registro che vedi nell'OCR del cluster.
+Se gli appunti usano linguaggio quotidiano ("la spinta fa muovere"),
+formula la domanda con metafore quotidiane e termini semplici. Se gli
+appunti usano formalismo (F = m·a, definizione vettoriale, simboli
+densi), usa il registro tecnico nativo della disciplina. Non
+condiscendere mai: uno studente con appunti universitari non è un
+dodicenne.
 
 📤 OUTPUT — solo JSON:
 {"q":"<domanda metacognitiva in italiano, ≤2 frasi>","h":["<echo distante, ≤12 parole>","<sentiero, ≤15 parole>","<soglia, ≤20 parole>"]}
