@@ -108,7 +108,7 @@ class GeminiProvider implements AiProvider {
     GeminiProxyConfig? proxy,
     AiUsageTracker? tracker,
     TelemetryRecorder? telemetry,
-    bool useExamPedagogyV34 = false,
+    bool useExamPedagogyV34 = true,
   })  : _apiKey = apiKey,
         _proxyConfig = proxy,
         _tracker = tracker ?? NoopAiUsageTracker(),
