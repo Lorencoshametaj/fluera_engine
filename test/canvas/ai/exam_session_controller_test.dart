@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fluera_engine/src/ai/telemetry_recorder.dart';
+import 'package:fluera_engine/src/canvas/ai/bloom_classifier.dart';
 import 'package:fluera_engine/src/canvas/ai/exam_session_controller.dart';
 import 'package:fluera_engine/src/canvas/ai/exam_session_model.dart';
 import 'package:fluera_engine/src/config/v1_feature_gate.dart';
@@ -624,4 +626,114 @@ void main() {
       expect(ctrl.crossDomainCorrectRate, closeTo(0.5, 1e-9));
     });
   });
+
+  // 🚩 Sprint EX-F (2026-05-14): native-validation report path.
+  // Pure telemetry, no LLM call, no state mutation. Mirror of Socratic
+  // Sprint F.5 — verifies the event emits with the expected properties
+  // so the aggregation dashboard query stays stable.
+  group('ExamSessionController — reportQuestion telemetry (Sprint EX-F)', () {
+    test('emits exam_question_reported with phase/type/bloom/reason', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = ExamSessionController(
+        provider: FakeGeminiProvider(),
+        telemetry: telemetry,
+      );
+      addTearDown(ctrl.dispose);
+      final q = ExamQuestion(
+        id: 'q-exam-1',
+        questionText: 'Calcola la forza netta su un blocco di 5 kg con accelerazione 3 m/s².',
+        type: ExamQuestionType.openEnded,
+        correctAnswer: '15 N',
+        explanation: 'F = m·a',
+        choices: const [],
+        sourceClusterId: 'c1',
+        sourceText: 'F = ma',
+        bloomLevel: BloomLevel.apply,
+      );
+      ctrl.reportQuestion(q, 'ko', reason: 'sounds machine-translated');
+      expect(telemetry.events, hasLength(1));
+      final e = telemetry.events.single;
+      expect(e.event, 'exam_question_reported');
+      expect(e.props['lang_code'], 'ko');
+      expect(e.props['type'], 'openEnded');
+      expect(e.props['bloom_level'], 'apply');
+      expect(e.props['cluster_id'], 'c1');
+      expect(e.props['question_id'], 'q-exam-1');
+      expect(e.props['reason'], 'sounds machine-translated');
+    });
+
+    test('null reason → recorded as "unspecified"', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = ExamSessionController(
+        provider: FakeGeminiProvider(),
+        telemetry: telemetry,
+      );
+      addTearDown(ctrl.dispose);
+      final q = ExamQuestion(
+        id: 'q-exam-2',
+        questionText: 'short',
+        type: ExamQuestionType.multipleChoice,
+        correctAnswer: 'A',
+        explanation: '',
+        choices: const ['A', 'B', 'C', 'D'],
+        sourceClusterId: 'c2',
+        sourceText: '',
+      );
+      ctrl.reportQuestion(q, 'ja');
+      expect(telemetry.events.single.props['reason'], 'unspecified');
+    });
+
+    test('null bloomLevel → recorded as "unknown"', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = ExamSessionController(
+        provider: FakeGeminiProvider(),
+        telemetry: telemetry,
+      );
+      addTearDown(ctrl.dispose);
+      final q = ExamQuestion(
+        id: 'q-exam-3',
+        questionText: 'short',
+        type: ExamQuestionType.trueOrFalse,
+        correctAnswer: 'True',
+        explanation: '',
+        choices: const ['True', 'False'],
+        sourceClusterId: 'c3',
+        sourceText: '',
+      );
+      ctrl.reportQuestion(q, 'ar');
+      expect(telemetry.events.single.props['bloom_level'], 'unknown');
+    });
+
+    test('question_text + reason both capped at 500 chars', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = ExamSessionController(
+        provider: FakeGeminiProvider(),
+        telemetry: telemetry,
+      );
+      addTearDown(ctrl.dispose);
+      final q = ExamQuestion(
+        id: 'q-long',
+        questionText: 'x' * 800,
+        type: ExamQuestionType.openEnded,
+        correctAnswer: 'answer',
+        explanation: '',
+        choices: const [],
+        sourceClusterId: 'c4',
+        sourceText: '',
+      );
+      ctrl.reportQuestion(q, 'ar', reason: 'y' * 800);
+      final p = telemetry.events.single.props;
+      expect((p['question_text'] as String).length, 500);
+      expect((p['reason'] as String).length, 500);
+    });
+  });
+}
+
+class _ReportTelemetry implements TelemetryRecorder {
+  final List<({String event, Map<String, dynamic> props})> events = [];
+
+  @override
+  void logEvent(String eventType, {Map<String, dynamic>? properties}) {
+    events.add((event: eventType, props: properties ?? const {}));
+  }
 }

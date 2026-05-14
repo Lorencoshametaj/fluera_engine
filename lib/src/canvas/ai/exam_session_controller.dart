@@ -562,6 +562,32 @@ class ExamSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 🚩 Sprint EX-F (2026-05-14) — user reports an exam question as
+  /// poorly translated / culturally off / not native-sounding. Available
+  /// to the user only when the active `AiLanguagePreference` is in
+  /// `aiBootstrap` tier (per docs/socratic_native_validation_protocol.md,
+  /// scope extended to cover Exam phases). The signal feeds the
+  /// continuous native-validation queue: aggregated reports per
+  /// (lang, phase) tell us which cells need priority review.
+  ///
+  /// Pure telemetry — no state mutation, no LLM call, no UI side-effects.
+  /// Reason is optional free-text (kept ≤500 chars to fit Sentry tags).
+  void reportQuestion(ExamQuestion q, String langCode, {String? reason}) {
+    _telemetry.logEvent('exam_question_reported', properties: {
+      'question_id': q.id,
+      'question_text': q.questionText.length > 500
+          ? q.questionText.substring(0, 500)
+          : q.questionText,
+      'type': q.type.name,
+      'bloom_level': q.bloomLevel?.name ?? 'unknown',
+      'cluster_id': q.sourceClusterId,
+      'lang_code': langCode,
+      'reason': (reason == null || reason.isEmpty)
+          ? 'unspecified'
+          : (reason.length > 500 ? reason.substring(0, 500) : reason),
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Navigation
   // ─────────────────────────────────────────────────────────────────────────
