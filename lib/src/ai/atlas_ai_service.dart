@@ -20,6 +20,7 @@ import '../canvas/ai/socratic/socratic_misconception_library.dart'
 import 'chat/pedagogy/chat_pedagogy_registry.dart';
 import 'exam/pedagogy/exam_pedagogy_registry.dart';
 import 'exam/pedagogy/exam_phase.dart';
+import 'security/prompt_injection_filter.dart';
 import '../canvas/ai/socratic/socratic_model.dart' show SocraticStage;
 import 'socratic/pedagogy/pedagogy_registry.dart';
 import '../canvas/ai/ghost_map_model.dart';
@@ -2124,6 +2125,18 @@ Correct answer (DO NOT REVEAL): $correctAnswer''';
     if (!_initialized || _evaluationModel == null) {
       throw StateError('Atlas non inizializzato.');
     }
+
+    // 🛡️ Sprint Security-1: scan student's open-answer for prompt-injection
+    // patterns BEFORE sending to the eval model. Monitoring-only mitigation
+    // (Gemini systemInstruction has priority over user content). Future
+    // Sprint S-2 will add untrusted-input wrapping rule to eval system prompt.
+    PromptInjectionFilter.scanAndReport(
+      userAnswer,
+      telemetry: _telemetry,
+      feature: 'exam',
+      langCode: AiLanguagePreference.code(),
+      mitigation: 'monitoring_only',
+    );
 
     // 🎓 Sprint EX-D: V2 short payload when flag is on (rubric +
     // anti-patterns + output format are cached in the model's

@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/chat_context_builder.dart';
+import '../../ai/security/prompt_injection_filter.dart';
 import '../../ai/telemetry_recorder.dart';
+import '../../utils/ai_language_preference.dart';
 import '../../utils/safe_path_provider.dart';
 import 'chat_session_model.dart';
 
@@ -137,6 +139,19 @@ class ChatSessionController extends ChangeNotifier {
         'scope': _session!.scope.name,
       });
     }
+
+    // 🛡️ Sprint Security-1: scan user input for prompt-injection patterns.
+    // Emits `prompt_injection_detected` telemetry when matched. Content
+    // is NOT modified (Gemini systemInstruction has priority over user
+    // content; this is monitoring + visibility layer). Future Sprint S-2
+    // will add `<UNTRUSTED_USER_INPUT>` wrapping rule to chat system prompt.
+    PromptInjectionFilter.scanAndReport(
+      trimmed,
+      telemetry: _telemetry,
+      feature: 'chat',
+      langCode: AiLanguagePreference.code(),
+      mitigation: 'monitoring_only',
+    );
 
     // 1. Add user message
     final userMsg = ChatMessage(
