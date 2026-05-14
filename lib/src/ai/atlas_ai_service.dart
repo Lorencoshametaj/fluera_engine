@@ -17,6 +17,7 @@ import '../canvas/ai/exam_session_model.dart';
 import '../canvas/ai/socratic/socratic_discipline.dart';
 import '../canvas/ai/socratic/socratic_misconception_library.dart'
     show inferDiscipline;
+import 'chat/pedagogy/chat_pedagogy_registry.dart';
 import 'exam/pedagogy/exam_pedagogy_registry.dart';
 import 'exam/pedagogy/exam_phase.dart';
 import '../canvas/ai/socratic/socratic_model.dart' show SocraticStage;
@@ -69,6 +70,13 @@ class GeminiProvider implements AiProvider {
   final Map<ExamPhase, GeminiClient> _examPhaseModels =
       <ExamPhase, GeminiClient>{};
 
+  /// 💬 Sprint Chat-D feature flag. When true (default), the `_chatModel`
+  /// systemInstruction is sourced from `ChatPedagogyRegistry.chatPromptFor`
+  /// (lang-native cell). When false, the legacy `_chatSystemPrompt(langName)`
+  /// monolith is used. Chat is low-risk (1 cell, no JSON shape) so default
+  /// is `true` from V3.4 launch — set false only if telemetry shows regressions.
+  final bool _useChatPedagogyV34;
+
   /// 🚦 Sprint EX-D feature flag. When true:
   ///   - `initialize()` builds the per-ExamPhase model cache
   ///   - `generateExamQuestions` / `evaluateOpenAnswer` / `generateHint`
@@ -112,11 +120,13 @@ class GeminiProvider implements AiProvider {
     AiUsageTracker? tracker,
     TelemetryRecorder? telemetry,
     bool useExamPedagogyV34 = true,
+    bool useChatPedagogyV34 = true,
   })  : _apiKey = apiKey,
         _proxyConfig = proxy,
         _tracker = tracker ?? NoopAiUsageTracker(),
         _telemetry = telemetry ?? TelemetryRecorder.noop,
-        _useExamPedagogyV34 = useExamPedagogyV34;
+        _useExamPedagogyV34 = useExamPedagogyV34,
+        _useChatPedagogyV34 = useChatPedagogyV34;
 
   /// True when the provider is configured to route through the Edge Function.
   bool get usesProxy => _proxyConfig != null;
@@ -343,9 +353,17 @@ class GeminiProvider implements AiProvider {
     // question). Per-call payload carries only conversation + canvas context.
     // Temperature 0.4 mirrors _socraticModel — low enough for rule adherence,
     // high enough for question variety.
+    // 💬 Sprint Chat-D: when V34 flag is on, source the systemInstruction
+    // from `ChatPedagogyRegistry.chatPromptFor(langCode)` (lang-native
+    // cell IT/EN production_native + 14 bootstrap fallback). When off,
+    // use the legacy `_chatSystemPrompt(langName)` monolith. Default
+    // ON because Chat is low-risk: 1 cell, no JSON shape contract,
+    // gracefully degrades to EN cell if bootstrap entry truncated.
     _chatModel = _buildClient(
       modelName: _modelFlashLite,
-      systemInstruction: _chatSystemPrompt(langName),
+      systemInstruction: _useChatPedagogyV34
+          ? ChatPedagogyRegistry.chatPromptFor(langCode)
+          : _chatSystemPrompt(langName),
       generationConfig: const {
         'temperature': 0.4,
       },

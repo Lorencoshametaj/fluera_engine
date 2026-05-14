@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/chat_context_builder.dart';
+import '../../ai/telemetry_recorder.dart';
 import '../../utils/safe_path_provider.dart';
 import 'chat_session_model.dart';
 
@@ -54,6 +55,7 @@ class ChatActionRouter {
 class ChatSessionController extends ChangeNotifier {
   final AiProvider _provider;
   final ChatActionRouter _router;
+  final TelemetryRecorder _telemetry;
 
   ChatSession? _session;
   ChatSession? get session => _session;
@@ -79,8 +81,10 @@ class ChatSessionController extends ChangeNotifier {
   ChatSessionController({
     required AiProvider provider,
     ChatActionRouter? router,
+    TelemetryRecorder? telemetry,
   })  : _provider = provider,
-        _router = router ?? const ChatActionRouter() {
+        _router = router ?? const ChatActionRouter(),
+        _telemetry = telemetry ?? TelemetryRecorder.noop {
     _loadHistory();
   }
 
@@ -123,6 +127,17 @@ class ChatSessionController extends ChangeNotifier {
 
     _error = null;
 
+    // 💬 Sprint Chat-F telemetry: first message → step_12_chat_started.
+    // (Step numbering after Exam step_11; chat is post-V1 cognitive
+    // feature ordering.)
+    final isFirstMessage = _session!.messages.isEmpty;
+    if (isFirstMessage) {
+      _telemetry.logEvent('step_12_chat_started', properties: {
+        'session_id': _session!.sessionId,
+        'scope': _session!.scope.name,
+      });
+    }
+
     // 1. Add user message
     final userMsg = ChatMessage(
       id: 'msg_${DateTime.now().microsecondsSinceEpoch}',
@@ -130,6 +145,14 @@ class ChatSessionController extends ChangeNotifier {
       text: trimmed,
     );
     _session!.messages.add(userMsg);
+
+    // 💬 Per-message telemetry. Properties capped to avoid PII leak.
+    _telemetry.logEvent('step_12_chat_message_sent', properties: {
+      'session_id': _session!.sessionId,
+      'message_id': userMsg.id,
+      'message_index': _session!.messages.length,
+      'message_length': trimmed.length,
+    });
 
     // Auto-set title from first message
     _session!.title ??= trimmed.length > 50
@@ -302,8 +325,39 @@ class ChatSessionController extends ChangeNotifier {
     }
   }
 
+  /// 🚩 Sprint Chat-F — user reports a chat message as poorly translated /
+  /// not natural / fake-AI. Available only when the active
+  /// `AiLanguagePreference` is in `aiBootstrap` tier (per
+  /// `docs/socratic_native_validation_protocol.md`). Pure telemetry —
+  /// no state mutation, no LLM call.
+  ///
+  /// Reason is optional free-text (cap 500 chars to fit Sentry tags).
+  void reportMessage(ChatMessage m, String langCode, {String? reason}) {
+    _telemetry.logEvent('chat_message_reported', properties: {
+      'message_id': m.id,
+      'message_text':
+          m.text.length > 500 ? m.text.substring(0, 500) : m.text,
+      'role': m.role.name,
+      'session_id': _session?.sessionId ?? 'unknown',
+      'lang_code': langCode,
+      'reason': (reason == null || reason.isEmpty)
+          ? 'unspecified'
+          : (reason.length > 500 ? reason.substring(0, 500) : reason),
+    });
+  }
+
   /// Clear the current session and start fresh.
   void clearSession() {
+    // 💬 Sprint Chat-F telemetry: emit session-ended on a session that
+    // had at least 1 message (else it's a noop clear, no value to log).
+    final s = _session;
+    if (s != null && s.messages.isNotEmpty) {
+      _telemetry.logEvent('step_12_chat_session_ended', properties: {
+        'session_id': s.sessionId,
+        'message_count': s.messages.length,
+        'scope': s.scope.name,
+      });
+    }
     _session = null;
     _error = null;
     _isStreaming = false;
