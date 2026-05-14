@@ -14,6 +14,8 @@ import 'noop_ai_usage_tracker.dart';
 import 'telemetry_recorder.dart';
 import '../canvas/ai/bloom_classifier.dart';
 import '../canvas/ai/exam_session_model.dart';
+import 'exam/pedagogy/exam_pedagogy_registry.dart';
+import 'exam/pedagogy/exam_phase.dart';
 import '../canvas/ai/socratic/socratic_model.dart' show SocraticStage;
 import 'socratic/pedagogy/pedagogy_registry.dart';
 import '../canvas/ai/ghost_map_model.dart';
@@ -56,6 +58,23 @@ class GeminiProvider implements AiProvider {
   /// [_socraticStageModelFor]. Key format: `"$stageName::$langCode"`.
   final Map<String, GeminiClient> _stageModels = <String, GeminiClient>{};
 
+  /// 🎓 Atlas Exam V3.4 ω — per-ExamPhase cached models. Each phase has
+  /// its own `systemInstruction` (~1.5-3KB) loaded from
+  /// `ExamPedagogyRegistry.phasePromptFor(phase, langCode)`. Active only
+  /// when [_useExamPedagogyV34] is true (Sprint EX-D wire); otherwise
+  /// the legacy `_examModel`/`_evaluationModel` path is used.
+  final Map<ExamPhase, GeminiClient> _examPhaseModels =
+      <ExamPhase, GeminiClient>{};
+
+  /// 🚦 Sprint EX-D feature flag. When true:
+  ///   - `initialize()` builds the per-ExamPhase model cache
+  ///   - `generateExamQuestions` / `evaluateOpenAnswer` / `generateHint`
+  ///      route through the V2 (lang-native cells) pipeline
+  /// When false (default), legacy monolithic prompts in
+  /// `_buildExamPrompt`, `_buildHintPrompt`, inline eval prompt are
+  /// used unchanged → zero behavior delta until Sprint EX-G flips.
+  final bool _useExamPedagogyV34;
+
   bool _initialized = false;
 
   /// Direct-mode Gemini API key (baked into the client binary). Null when
@@ -89,10 +108,12 @@ class GeminiProvider implements AiProvider {
     GeminiProxyConfig? proxy,
     AiUsageTracker? tracker,
     TelemetryRecorder? telemetry,
+    bool useExamPedagogyV34 = false,
   })  : _apiKey = apiKey,
         _proxyConfig = proxy,
         _tracker = tracker ?? NoopAiUsageTracker(),
-        _telemetry = telemetry ?? TelemetryRecorder.noop;
+        _telemetry = telemetry ?? TelemetryRecorder.noop,
+        _useExamPedagogyV34 = useExamPedagogyV34;
 
   /// True when the provider is configured to route through the Edge Function.
   bool get usesProxy => _proxyConfig != null;
@@ -369,6 +390,35 @@ class GeminiProvider implements AiProvider {
         'maxOutputTokens': socraticFollowUpMaxOut,
       },
     );
+
+    // 🎓 Sprint EX-D 2026-05-14 — per-ExamPhase model cache when the V3.4
+    // ω flag is on. Each phase loads its `systemInstruction` from the
+    // ExamPedagogyRegistry (production_native IT/EN or ai_bootstrap),
+    // and the per-call payload becomes a short vars-only block. The
+    // legacy `_examModel` / `_evaluationModel` stay alive in parallel
+    // until Sprint EX-G flips the default and cleans up.
+    if (_useExamPedagogyV34) {
+      for (final phase in ExamPhase.values) {
+        final systemPrompt =
+            ExamPedagogyRegistry.phasePromptFor(phase, langCode);
+        _examPhaseModels[phase] = _buildClient(
+          modelName: _modelFlash,
+          systemInstruction: systemPrompt,
+          generationConfig: switch (phase) {
+            // Generation: JSON output, high temp for variation (same as
+            // legacy `_examModel`).
+            ExamPhase.generation => const {
+                'responseMimeType': 'application/json',
+                'temperature': 0.85,
+              },
+            // Evaluation: streaming text, default temp.
+            ExamPhase.evaluation => const {},
+            // Hint: short text, low temp for predictability.
+            ExamPhase.hint => const {'temperature': 0.4},
+          },
+        );
+      }
+    }
 
     _initialized = true;
   }
@@ -1390,14 +1440,24 @@ FLUERA AI:''';
     List<ExamQuestion> best = const [];
 
     for (int attempt = 0; attempt < 2; attempt++) {
-      final prompt = _buildExamPrompt(
-        count: count,
-        difficulty: difficulty,
-        language: language,
-        clusterSummary: clusterSummary,
-        correctiveAddendum: correctiveAddendum,
-        avoidPrompts: avoidPrompts,
-      );
+      // 🎓 Sprint EX-D: V2 short payload when flag is on (system prompt
+      // cached on the model). Legacy monolithic prompt otherwise.
+      final prompt = _useExamPedagogyV34
+          ? _buildExamPayloadV2(
+              count: count,
+              difficulty: difficulty,
+              clusterSummary: clusterSummary,
+              correctiveAddendum: correctiveAddendum,
+              avoidPrompts: avoidPrompts,
+            )
+          : _buildExamPrompt(
+              count: count,
+              difficulty: difficulty,
+              language: language,
+              clusterSummary: clusterSummary,
+              correctiveAddendum: correctiveAddendum,
+              avoidPrompts: avoidPrompts,
+            );
 
       final batch = await _runExamGeneration(prompt, clusterTexts, labelToId);
       if (batch.isEmpty) {
@@ -1717,18 +1777,26 @@ Output language remains $language.
 
   /// Run a single Gemini call with the given prompt and parse the JSON.
   /// Pulled out so the retry loop can reuse it with a corrective addendum.
+  ///
+  /// 🎓 Sprint EX-D: when [_useExamPedagogyV34] is on, routes through the
+  /// per-phase cached model with a short payload. When off, uses the
+  /// legacy `_examModel` with the full monolithic prompt — same behavior
+  /// as before this sprint.
   Future<List<ExamQuestion>> _runExamGeneration(
     String prompt,
     Map<String, String> clusterTexts,
     Map<String, String> labelToId,
   ) async {
+    final client = _useExamPedagogyV34
+        ? _examPhaseModels[ExamPhase.generation]!
+        : _examModel!;
     try {
       return await _meter<List<ExamQuestion>>(
         'generateExamQuestions',
         estimate: 2500,
-        client: _examModel!,
+        client: client,
         run: () async {
-          final response = await _examModel!.generateContent(
+          final response = await client.generateContent(
             [Content.text(prompt)],
             featureTag: 'generateExamQuestions',
             estimate: 2500,
@@ -1883,6 +1951,68 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
 </OUTPUT_SCHEMA>$correctiveAddendum''';
   }
 
+  /// 🎓 Sprint EX-D V2 — per-call payload for the cached
+  /// `_examPhaseModels[ExamPhase.generation]`. System prompt
+  /// (Bloom rubric, anti-patterns, OUTPUT_SCHEMA) lives in
+  /// `systemInstruction`, cached server-side. Per-call payload =
+  /// vars only → ~80% input-token reduction vs `_buildExamPrompt`.
+  String _buildExamPayloadV2({
+    required int count,
+    required String difficulty,
+    required String clusterSummary,
+    String correctiveAddendum = '',
+    List<String> avoidPrompts = const [],
+  }) {
+    final seed = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+    final minAtLevel = (count * 0.4).ceil();
+    final avoidSection = avoidPrompts.isEmpty
+        ? ''
+        : '\n\n<AVOID_REPETITION>\nDo NOT repeat or paraphrase these recent questions:\n${[
+            for (var i = 0; i < avoidPrompts.length && i < 30; i++)
+              '${i + 1}. ${avoidPrompts[i].length > 120 ? '${avoidPrompts[i].substring(0, 120)}…' : avoidPrompts[i]}'
+          ].join('\n')}\n</AVOID_REPETITION>';
+    return '''
+<EXAM_PARAMS>
+count: $count
+difficulty: $difficulty
+min_at_target_bloom_level: $minAtLevel / $count
+seed: $seed
+</EXAM_PARAMS>
+
+<STUDENT_NOTES>
+$clusterSummary
+</STUDENT_NOTES>$avoidSection$correctiveAddendum''';
+  }
+
+  /// 🎓 Sprint EX-D V2 — per-call payload for
+  /// `_examPhaseModels[ExamPhase.evaluation]`. System prompt
+  /// (rubric, anti-patterns, output format) is cached. Payload =
+  /// the 3 vars: question, correct answer, student answer.
+  String _buildEvalPayloadV2({
+    required String question,
+    required String correctAnswer,
+    required String userAnswer,
+  }) {
+    return '''
+<EVAL_CONTEXT>
+Question: $question
+Correct Answer: $correctAnswer
+Student's Answer: ${userAnswer.isEmpty ? "(no answer provided)" : userAnswer}
+</EVAL_CONTEXT>''';
+  }
+
+  /// 🎓 Sprint EX-D V2 — per-call payload for
+  /// `_examPhaseModels[ExamPhase.hint]`. System prompt (≤12 words,
+  /// no preamble, no reveal) is cached. Payload = question + answer.
+  String _buildHintPayloadV2({
+    required String question,
+    required String correctAnswer,
+  }) {
+    return '''
+Question: $question
+Correct answer (DO NOT REVEAL): $correctAnswer''';
+  }
+
   ExamQuestion? _parseExamQuestion(
     Map<String, dynamic> d,
     Map<String, String> clusterTexts,
@@ -1950,7 +2080,16 @@ Field "cluster_id" must use the note labels: appunto_1, appunto_2, etc.
       throw StateError('Atlas non inizializzato.');
     }
 
-    final prompt = '''
+    // 🎓 Sprint EX-D: V2 short payload when flag is on (rubric +
+    // anti-patterns + output format are cached in the model's
+    // systemInstruction). Legacy monolithic prompt otherwise.
+    final prompt = _useExamPedagogyV34
+        ? _buildEvalPayloadV2(
+            question: question,
+            correctAnswer: correctAnswer,
+            userAnswer: userAnswer,
+          )
+        : '''
 <SYSTEM>
 You are a rigorous but encouraging university professor. You evaluate a student's answer against the correct answer.
 </SYSTEM>
@@ -1981,6 +2120,10 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
 </OUTPUT_FORMAT>
 ''';
 
+    final evalClient = _useExamPedagogyV34
+        ? _examPhaseModels[ExamPhase.evaluation]!
+        : _evaluationModel!;
+
     String fullText = '';
     ExamAnswerResult result = ExamAnswerResult.incorrect;
     int tokens = 800; // fallback estimate
@@ -1990,7 +2133,7 @@ FEEDBACK: [Your 1-2 sentence constructive feedback in $language]
     try {
       await _tracker.ensureBalance(estimate: 800, feature: 'evaluateOpenAnswer');
       try {
-        final stream = _evaluationModel!.generateContentStream(
+        final stream = evalClient.generateContentStream(
           [Content.text(prompt)],
           featureTag: 'evaluateOpenAnswer',
           estimate: 800,
@@ -2735,23 +2878,30 @@ HINT:''';
     required String correctAnswer,
     String language = 'Italian',
   }) async {
-    // Use _streamModel (text mode, no JSON wrap, no canvas-action system
-    // instruction) instead of _model — _model would JSON-wrap the response
-    // into `{spiegazione: ..., azioni: ...}` and the model would dump
-    // meta-commentary about the prompt into `spiegazione` instead of
-    // generating a hint. _streamModel is configured with "Respond directly
-    // with the analysis text. No JSON wrapping" → exactly what we need.
-    final hintModel = _streamModel ?? _model;
+    // 🎓 Sprint EX-D: when flag is on, route through the per-phase
+    // cached model. Otherwise use the legacy `_streamModel` with the
+    // monolithic `_buildHintPrompt` switch.
+    //
+    // Legacy: _streamModel (text mode, no JSON wrap, no canvas-action
+    // system instruction) — not _model which would JSON-wrap into
+    // `{spiegazione, azioni}` and dump meta-commentary instead of hint.
+    final hintModel = _useExamPedagogyV34
+        ? _examPhaseModels[ExamPhase.hint]
+        : (_streamModel ?? _model);
     if (!_initialized || hintModel == null) return _hintFallback(language);
     try {
-      // Prompt fully localized to avoid the model "explaining the
-      // instructions in the target language" pattern (was happening with
-      // the previous English-only prompt + Italian language target).
-      final prompt = _buildHintPrompt(
-        question: question,
-        correctAnswer: correctAnswer,
-        language: language,
-      );
+      // V2: short payload (just question + correctAnswer). Legacy: full
+      // 6-lang switch monolith from `_buildHintPrompt`.
+      final prompt = _useExamPedagogyV34
+          ? _buildHintPayloadV2(
+              question: question,
+              correctAnswer: correctAnswer,
+            )
+          : _buildHintPrompt(
+              question: question,
+              correctAnswer: correctAnswer,
+              language: language,
+            );
       return await _meter<String>(
         'generateHint',
         estimate: 200,
