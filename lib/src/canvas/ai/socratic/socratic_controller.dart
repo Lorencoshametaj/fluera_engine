@@ -2491,14 +2491,25 @@ class SocraticController extends ChangeNotifier {
   /// continuous native-validation loop: aggregated reports per language ×
   /// stage tell us which cells need priority review.
   ///
+  /// 📋 GDPR (2026-05-14): `includeText` defaults to `false` — opt-in
+  /// per GDPR Art. 7 (separate consent for distinct processing purposes).
+  /// When false, `question_text` is redacted before telemetry emit; the
+  /// metadata-only event still lets us count reports per (lang, stage).
+  ///
   /// Pure telemetry — no state mutation, no UI side-effects, no async I/O.
   /// Reason is optional free-text (kept ≤500 chars to fit in Sentry tag).
-  void reportQuestion(SocraticQuestion q, String langCode, {String? reason}) {
+  void reportQuestion(
+    SocraticQuestion q,
+    String langCode, {
+    String? reason,
+    bool includeText = false,
+  }) {
     _telemetry.logEvent('socratic_question_reported', properties: {
       'question_id': q.id,
-      'question_text': q.text.length > 500
-          ? q.text.substring(0, 500)
-          : q.text,
+      'question_text': includeText
+          ? (q.text.length > 500 ? q.text.substring(0, 500) : q.text)
+          : '(redacted: user did not consent to text inclusion)',
+      'text_included': includeText,
       'stage': q.stage?.name ?? 'unknown',
       'type': q.type.name,
       'cluster_id': q.clusterId,

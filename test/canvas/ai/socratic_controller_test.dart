@@ -1192,7 +1192,8 @@ void main() {
       expect(telemetry.events.single.props['reason'], 'unspecified');
     });
 
-    test('question_text + reason both capped at 500 chars', () {
+    test('question_text + reason both capped at 500 chars (with includeText=true)',
+        () {
       final telemetry = _ReportTelemetry();
       final ctrl = SocraticController(telemetry: telemetry);
       addTearDown(ctrl.dispose);
@@ -1204,10 +1205,57 @@ void main() {
         text: 'x' * 800,
         stage: SocraticStage.counterfactual,
       );
-      ctrl.reportQuestion(q, 'ar', reason: 'y' * 800);
+      ctrl.reportQuestion(q, 'ar', reason: 'y' * 800, includeText: true);
       final p = telemetry.events.single.props;
       expect((p['question_text'] as String).length, 500);
       expect((p['reason'] as String).length, 500);
+      expect(p['text_included'], true);
+    });
+
+    // 📋 GDPR opt-in (2026-05-14): default `includeText=false` redacts
+    // question_text from telemetry. Metadata-only event still useful for
+    // counting reports per (lang, stage). User must explicitly opt in
+    // via dialog checkbox to share the question text.
+    test('default includeText=false → question_text is redacted', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = SocraticController(telemetry: telemetry);
+      addTearDown(ctrl.dispose);
+      const q = SocraticQuestion(
+        id: 'q-test-redacted',
+        clusterId: 'c1',
+        anchorPosition: Offset(0, 0),
+        type: SocraticQuestionType.lacuna,
+        text: 'Sensitive question text the user might not want shared',
+        stage: SocraticStage.anchor,
+      );
+      ctrl.reportQuestion(q, 'ko', reason: 'bad register');
+      final p = telemetry.events.single.props;
+      expect(p['question_text'], startsWith('(redacted:'),
+          reason: 'opt-in default false must redact text');
+      expect(p['text_included'], false);
+      // Metadata still present for aggregation.
+      expect(p['stage'], 'anchor');
+      expect(p['lang_code'], 'ko');
+      expect(p['reason'], 'bad register');
+    });
+
+    test('includeText=true → question_text passes through', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = SocraticController(telemetry: telemetry);
+      addTearDown(ctrl.dispose);
+      const q = SocraticQuestion(
+        id: 'q-test-passthrough',
+        clusterId: 'c1',
+        anchorPosition: Offset(0, 0),
+        type: SocraticQuestionType.lacuna,
+        text: 'Question text the user consents to share',
+        stage: SocraticStage.anchor,
+      );
+      ctrl.reportQuestion(q, 'ko', includeText: true);
+      final p = telemetry.events.single.props;
+      expect(p['question_text'],
+          'Question text the user consents to share');
+      expect(p['text_included'], true);
     });
   });
 }

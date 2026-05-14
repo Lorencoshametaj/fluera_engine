@@ -1929,8 +1929,14 @@ extension SocraticModeWiring on _FlueraCanvasScreenState {
                   : null,
               // 🚩 Sprint F.5 — native-validation feedback loop. Button
               // is gated to aiBootstrap langs by the bubble itself.
-              onReportQuestion: (reason) => _socraticController
-                  .reportQuestion(q, AiLanguagePreference.code(), reason: reason),
+              // 📋 GDPR opt-in: includeText flag from dialog checkbox.
+              onReportQuestion: (submission) =>
+                  _socraticController.reportQuestion(
+                q,
+                AiLanguagePreference.code(),
+                reason: submission.reason,
+                includeText: submission.includeText,
+              ),
               currentBreadcrumbText: breadcrumbText,
               breadcrumbsUsed: q.breadcrumbsUsed,
               canRequestBreadcrumb:

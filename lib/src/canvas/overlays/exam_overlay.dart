@@ -1594,6 +1594,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   Future<void> _showReportQuestionDialog(ExamQuestion q) async {
     HapticFeedback.selectionClick();
     final reasonController = TextEditingController();
+    bool includeText = false; // 📋 GDPR opt-in
     final isItalian =
         Localizations.localeOf(context).languageCode == 'it';
     final title = isItalian
@@ -1609,45 +1610,63 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
     final placeholder = isItalian
         ? 'Motivo (opzionale)…'
         : 'Reason (optional)…';
+    final consentLabel = isItalian
+        ? 'Includi anche il testo della domanda nel report (anonimizzato)'
+        : 'Also include the question text in the report (anonymized)';
     final cancelLabel = isItalian ? 'Annulla' : 'Cancel';
     final submitLabel = isItalian ? 'Invia' : 'Submit';
     final thanksLabel = isItalian
         ? 'Grazie — segnalazione inviata'
         : 'Thanks — report sent';
 
-    final submitted = await showDialog<String?>(
+    final submitted = await showDialog<({String? reason, bool includeText})?>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(body, style: const TextStyle(fontSize: 13)),
-            const SizedBox(height: 12),
-            TextField(
-              controller: reasonController,
-              maxLines: 2,
-              maxLength: 500,
-              decoration: InputDecoration(
-                hintText: placeholder,
-                isDense: true,
-                border: const OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(title),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(body, style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                maxLines: 2,
+                maxLength: 500,
+                decoration: InputDecoration(
+                  hintText: placeholder,
+                  isDense: true,
+                  border: const OutlineInputBorder(),
+                ),
               ),
+              const SizedBox(height: 4),
+              CheckboxListTile(
+                value: includeText,
+                onChanged: (v) =>
+                    setDialogState(() => includeText = v ?? false),
+                title: Text(consentLabel,
+                    style: const TextStyle(fontSize: 12)),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                dense: true,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: Text(cancelLabel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop((
+                reason: reasonController.text.trim(),
+                includeText: includeText,
+              )),
+              child: Text(submitLabel),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: Text(cancelLabel),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(ctx).pop(reasonController.text.trim()),
-            child: Text(submitLabel),
-          ),
-        ],
       ),
     );
     reasonController.dispose();
@@ -1655,7 +1674,10 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
     widget.controller.reportQuestion(
       q,
       AiLanguagePreference.code(),
-      reason: submitted.isEmpty ? null : submitted,
+      reason: (submitted.reason == null || submitted.reason!.isEmpty)
+          ? null
+          : submitted.reason,
+      includeText: submitted.includeText,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

@@ -570,14 +570,27 @@ class ExamSessionController extends ChangeNotifier {
   /// continuous native-validation queue: aggregated reports per
   /// (lang, phase) tell us which cells need priority review.
   ///
+  /// 📋 GDPR (2026-05-14): `includeText` defaults to `false` — opt-in
+  /// per GDPR Art. 7. When false, `question_text` is redacted before
+  /// telemetry emit; the metadata-only event still lets us count
+  /// reports per (lang, bloom_level).
+  ///
   /// Pure telemetry — no state mutation, no LLM call, no UI side-effects.
   /// Reason is optional free-text (kept ≤500 chars to fit Sentry tags).
-  void reportQuestion(ExamQuestion q, String langCode, {String? reason}) {
+  void reportQuestion(
+    ExamQuestion q,
+    String langCode, {
+    String? reason,
+    bool includeText = false,
+  }) {
     _telemetry.logEvent('exam_question_reported', properties: {
       'question_id': q.id,
-      'question_text': q.questionText.length > 500
-          ? q.questionText.substring(0, 500)
-          : q.questionText,
+      'question_text': includeText
+          ? (q.questionText.length > 500
+              ? q.questionText.substring(0, 500)
+              : q.questionText)
+          : '(redacted: user did not consent to text inclusion)',
+      'text_included': includeText,
       'type': q.type.name,
       'bloom_level': q.bloomLevel?.name ?? 'unknown',
       'cluster_id': q.sourceClusterId,

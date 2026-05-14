@@ -721,10 +721,38 @@ void main() {
         sourceClusterId: 'c4',
         sourceText: '',
       );
-      ctrl.reportQuestion(q, 'ar', reason: 'y' * 800);
+      ctrl.reportQuestion(q, 'ar', reason: 'y' * 800, includeText: true);
       final p = telemetry.events.single.props;
       expect((p['question_text'] as String).length, 500);
       expect((p['reason'] as String).length, 500);
+      expect(p['text_included'], true);
+    });
+
+    // 📋 GDPR opt-in (2026-05-14): default `includeText=false` redacts
+    // question_text from telemetry. Metadata-only event still useful.
+    test('default includeText=false → question_text is redacted', () {
+      final telemetry = _ReportTelemetry();
+      final ctrl = ExamSessionController(
+        provider: FakeGeminiProvider(),
+        telemetry: telemetry,
+      );
+      addTearDown(ctrl.dispose);
+      final q = ExamQuestion(
+        id: 'q-redacted',
+        questionText: 'Sensitive exam question — user did not consent',
+        type: ExamQuestionType.openEnded,
+        correctAnswer: 'answer',
+        explanation: '',
+        choices: const [],
+        sourceClusterId: 'c1',
+        sourceText: '',
+        bloomLevel: BloomLevel.apply,
+      );
+      ctrl.reportQuestion(q, 'ko', reason: 'bad register');
+      final p = telemetry.events.single.props;
+      expect(p['question_text'], startsWith('(redacted:'));
+      expect(p['text_included'], false);
+      expect(p['bloom_level'], 'apply');
     });
   });
 }

@@ -331,12 +331,24 @@ class ChatSessionController extends ChangeNotifier {
   /// `docs/socratic_native_validation_protocol.md`). Pure telemetry —
   /// no state mutation, no LLM call.
   ///
+  /// 📋 GDPR (2026-05-14): `includeText` defaults to `false` — opt-in
+  /// per GDPR Art. 7. When false, `message_text` is redacted before
+  /// telemetry emit; the metadata-only event still lets us count
+  /// reports per (lang, role).
+  ///
   /// Reason is optional free-text (cap 500 chars to fit Sentry tags).
-  void reportMessage(ChatMessage m, String langCode, {String? reason}) {
+  void reportMessage(
+    ChatMessage m,
+    String langCode, {
+    String? reason,
+    bool includeText = false,
+  }) {
     _telemetry.logEvent('chat_message_reported', properties: {
       'message_id': m.id,
-      'message_text':
-          m.text.length > 500 ? m.text.substring(0, 500) : m.text,
+      'message_text': includeText
+          ? (m.text.length > 500 ? m.text.substring(0, 500) : m.text)
+          : '(redacted: user did not consent to text inclusion)',
+      'text_included': includeText,
       'role': m.role.name,
       'session_id': _session?.sessionId ?? 'unknown',
       'lang_code': langCode,
