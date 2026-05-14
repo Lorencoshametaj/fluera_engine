@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/ai_usage_tracker.dart' show AiQuotaExceededException;
 import '../../ai/atlas_ai_service.dart';
+import '../../ai/experiments/experiment_manager.dart';
 import '../../ai/telemetry_recorder.dart';
 import '../../utils/safe_path_provider.dart';
 import '../../config/v1_feature_gate.dart'; // 🚀 v1 DEFER kill switches
@@ -646,6 +647,10 @@ class ExamSessionController extends ChangeNotifier {
             .where((q) => q.result == ExamAnswerResult.correct)
             .length;
         _telemetry.logEvent('step_11_exam_completed', properties: {
+          // 🧪 Sprint AB-E: A/B variant assignment for analysis.
+          'variants_assigned':
+              ExperimentManager.activeInstance?.currentAssignmentsMap() ??
+                  const <String, String>{},
           'question_count': s.questions.length,
           'correct_count': correctCount,
           'difficulty_boosted': s.difficultyBoosted,

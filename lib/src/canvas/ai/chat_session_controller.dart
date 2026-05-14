@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../ai/ai_provider.dart';
 import '../../ai/chat_context_builder.dart';
+import '../../ai/experiments/experiment_manager.dart';
 import '../../ai/security/prompt_injection_filter.dart';
 import '../../ai/telemetry_recorder.dart';
 import '../../utils/ai_language_preference.dart';
@@ -380,6 +381,10 @@ class ChatSessionController extends ChangeNotifier {
     final s = _session;
     if (s != null && s.messages.isNotEmpty) {
       _telemetry.logEvent('step_12_chat_session_ended', properties: {
+        // 🧪 Sprint AB-E: A/B variant assignment for analysis.
+        'variants_assigned':
+            ExperimentManager.activeInstance?.currentAssignmentsMap() ??
+                const <String, String>{},
         'session_id': s.sessionId,
         'message_count': s.messages.length,
         'scope': s.scope.name,

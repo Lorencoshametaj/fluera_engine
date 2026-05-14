@@ -20,6 +20,7 @@
 import '../../../canvas/ai/socratic/socratic_discipline.dart';
 import '../../../utils/ai_language_preference.dart'
     show AiLanguagePreference, SocraticValidationStatus;
+import '../../experiments/variant_overrides_provider.dart';
 import 'discipline_hints_exam_bootstrap.dart';
 import 'discipline_hints_exam_en.dart';
 import 'discipline_hints_exam_it.dart';
@@ -30,6 +31,11 @@ import 'exam_phase.dart';
 
 class ExamPedagogyRegistry {
   ExamPedagogyRegistry._();
+
+  /// 🧪 Sprint AB-D — optional A/B variant override resolver. Mirror of
+  /// `PedagogyRegistry.variantOverrides`. Null by default; host app
+  /// injects at startup. Additive: when null, default dispatch unchanged.
+  static VariantOverridesProvider? variantOverrides;
 
   /// Returns the full system prompt cell for [phase] in [langCode].
   /// This string becomes the cached `systemInstruction` of the per-phase
@@ -50,6 +56,13 @@ class ExamPedagogyRegistry {
   ///      token presence (the word-limit number is universal across
   ///      languages and is the canonical hint contract).
   static String phasePromptFor(ExamPhase phase, String langCode) {
+    // 🧪 Sprint AB-D: variant override hook (unit = phase enum name).
+    final override = variantOverrides?.cellOverrideFor(
+      feature: 'exam',
+      unit: phase.name,
+      langCode: langCode,
+    );
+    if (override != null) return override;
     return switch (langCode) {
       'it' => _phaseIt(phase),
       'en' => _phaseEn(phase),
@@ -79,6 +92,13 @@ class ExamPedagogyRegistry {
   /// discipline to preserve the output token budget. Falls back to EN
   /// when the bootstrap entry is missing for [langCode].
   static String disciplineHintsFor(Discipline d, String langCode) {
+    // 🧪 Sprint AB-D: variant override hook.
+    final override = variantOverrides?.cellOverrideFor(
+      feature: 'exam',
+      unit: 'discipline.${d.name}',
+      langCode: langCode,
+    );
+    if (override != null) return override;
     return switch (langCode) {
       'it' => disciplineHintsExamIt(d),
       'en' => disciplineHintsExamEn(d),

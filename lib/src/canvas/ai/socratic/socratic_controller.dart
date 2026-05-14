@@ -11,6 +11,7 @@ import 'socratic_output_filter.dart';
 import 'socratic_question_validator.dart';
 import '../../../ai/ai_provider.dart';
 import '../../../ai/socratic/pedagogy/pedagogy_registry.dart';
+import '../../../ai/experiments/experiment_manager.dart';
 import '../../../ai/telemetry_recorder.dart';
 import '../../../reflow/content_cluster.dart';
 import '../../../utils/safe_path_provider.dart';
@@ -2665,6 +2666,11 @@ class SocraticController extends ChangeNotifier {
           ? _validationAcceptCount / totalEvaluated
           : 0.0;
       _telemetry.logEvent('step_3_socratic_completed', properties: {
+        // 🧪 Sprint AB-E (2026-05-14) — variant assignment tag for A/B
+        // analysis. Empty map when no active experiment / no userId set.
+        'variants_assigned':
+            ExperimentManager.activeInstance?.currentAssignmentsMap() ??
+                const <String, String>{},
         'questions_answered': session.totalAnswered,
         'questions_correct': session.totalCorrect,
         'questions_wrong': session.totalWrong,

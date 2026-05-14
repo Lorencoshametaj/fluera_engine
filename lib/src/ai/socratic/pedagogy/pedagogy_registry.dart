@@ -15,6 +15,7 @@ import '../../../canvas/ai/socratic/socratic_model.dart'
     show Discipline, SocraticStage;
 import '../../../utils/ai_language_preference.dart'
     show AiLanguagePreference, SocraticValidationStatus;
+import '../../experiments/variant_overrides_provider.dart';
 import 'discipline_hints_en.dart';
 import 'discipline_hints_it.dart';
 import 'stage_pedagogy_bootstrap.dart';
@@ -23,6 +24,14 @@ import 'stage_pedagogy_it.dart';
 
 class PedagogyRegistry {
   PedagogyRegistry._();
+
+  /// 🧪 Sprint AB-D — optional A/B variant override resolver. Host app
+  /// injects via `PedagogyRegistry.variantOverrides = ...` at startup.
+  /// When null (default), behavior is identical to pre-A/B baseline.
+  /// When set, consulted FIRST before the default dispatch — if the
+  /// current user is assigned to a non-control variant whose definition
+  /// overrides this cell, the variant text is returned instead.
+  static VariantOverridesProvider? variantOverrides;
 
   /// Returns the full system_prompt for the given (stage, langCode).
   /// This string becomes the cached `systemInstruction` of the
@@ -43,6 +52,13 @@ class PedagogyRegistry {
   /// where a 700-char cell can be complete because each character
   /// carries more meaning than in Latin scripts.
   static String stagePedagogyFor(SocraticStage stage, String langCode) {
+    // 🧪 Sprint AB-D: variant override hook (additive, default no-op).
+    final override = variantOverrides?.cellOverrideFor(
+      feature: 'socratic',
+      unit: stage.name,
+      langCode: langCode,
+    );
+    if (override != null) return override;
     return switch (langCode) {
       'it' => _stageIt(stage),
       'en' => _stageEn(stage),
@@ -65,6 +81,13 @@ class PedagogyRegistry {
   /// Returns the small per-call "DISCIPLINE: ..." block to inject in
   /// the per-call payload. Kept ≤400 chars to preserve output budget.
   static String disciplineHintsFor(Discipline d, String langCode) {
+    // 🧪 Sprint AB-D: variant override hook (unit format = 'discipline.<name>').
+    final override = variantOverrides?.cellOverrideFor(
+      feature: 'socratic',
+      unit: 'discipline.${d.name}',
+      langCode: langCode,
+    );
+    if (override != null) return override;
     return switch (langCode) {
       'it' => disciplineHintsIt(d),
       'en' => disciplineHintsEn(d),

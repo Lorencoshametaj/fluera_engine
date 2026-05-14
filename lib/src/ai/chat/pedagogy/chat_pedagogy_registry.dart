@@ -19,12 +19,18 @@
 
 import '../../../utils/ai_language_preference.dart'
     show AiLanguagePreference, SocraticValidationStatus;
+import '../../experiments/variant_overrides_provider.dart';
 import 'chat_pedagogy_bootstrap.dart';
 import 'chat_pedagogy_en.dart';
 import 'chat_pedagogy_it.dart';
 
 class ChatPedagogyRegistry {
   ChatPedagogyRegistry._();
+
+  /// 🧪 Sprint AB-D — optional A/B variant override resolver. Mirror of
+  /// `PedagogyRegistry.variantOverrides` and `ExamPedagogyRegistry.variantOverrides`.
+  /// Null by default; host app injects at startup. Additive — no-op when null.
+  static VariantOverridesProvider? variantOverrides;
 
   /// Returns the full Chat system prompt cell for [langCode]. This string
   /// becomes the cached `systemInstruction` of the `_chatModel` in
@@ -37,6 +43,13 @@ class ChatPedagogyRegistry {
   /// either `"HARD"` OR `"Fluera AI"` (the latter is a brand name
   /// kept verbatim across all languages per bootstrap rules).
   static String chatPromptFor(String langCode) {
+    // 🧪 Sprint AB-D: variant override hook (Chat has 1 phase named 'chat').
+    final override = variantOverrides?.cellOverrideFor(
+      feature: 'chat',
+      unit: 'chat',
+      langCode: langCode,
+    );
+    if (override != null) return override;
     return switch (langCode) {
       'it' => chatPedagogyIt,
       'en' => chatPedagogyEn,
