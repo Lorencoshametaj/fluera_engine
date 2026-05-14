@@ -125,15 +125,17 @@ void main() {
         }
       });
 
-      test('${disc.name} bootstrap (es) falls back to EN '
-          '(no bootstrap entries yet)', () {
-        // discipline_hints_exam_bootstrap.dart is currently empty
-        // scaffold → caller falls back to EN. Verify EN cell returns.
+      test('${disc.name} bootstrap (es) returns non-empty (native or EN-fallback)',
+          () {
+        // Post-bootstrap (tool/bootstrap_exam_discipline_hints.dart ran):
+        // ES has native cells for most disciplines. Cells that failed the
+        // Bloom-Apply marker check during bootstrap (rare, ~5%) fall back
+        // to EN. Either way, the block must be non-empty.
         final block =
             ExamPedagogyRegistry.disciplineHintsFor(disc, 'es');
-        final en = ExamPedagogyRegistry.disciplineHintsFor(disc, 'en');
-        expect(block, equals(en),
-            reason: '${disc.name} ES falls back to EN until bootstrap runs');
+        expect(block, isNotEmpty);
+        expect(block.length, lessThanOrEqualTo(900),
+            reason: '${disc.name} ES bootstrap should stay ≤900 chars');
       });
     }
   });
