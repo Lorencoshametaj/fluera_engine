@@ -41,11 +41,17 @@ import 'package:flutter/material.dart';
 ///
 /// MEMORY BUDGET
 /// ─────────────
-/// Worst case: [maxTilesPerTier] × [_numTiers] = 48 × 3 = 144 cached
+/// Worst case: [maxTilesPerTier] × [_numTiers] = 96 × 3 = 288 cached
 /// pictures. Pictures are vector command lists (typically < 1 MB each),
 /// not bitmaps, so the realistic ceiling is ~50–100 MB even on dense
 /// scenes. Bitmap rasterization is left to Skia / Impeller on the raster
 /// thread, where the GPU caches the resulting textures with its own LRU.
+///
+/// 🔧 2026-05-18: bumped from 48 → 96 to accommodate bucketed [TileKey]
+/// variants. Each `(tx, ty)` can have up to 4 ink-bucket variants × 4
+/// god-bucket variants during a pinch through the semantic-morph band.
+/// In practice only 2-3 buckets are active per visible tile during a
+/// single gesture; the ×2 bump leaves headroom without ballooning.
 ///
 /// TILE COORDINATE SYSTEM
 /// ──────────────────────
@@ -67,9 +73,11 @@ class TileCacheManager {
 
   /// Maximum cached tiles per LOD tier (LRU-evicted).
   ///
-  /// 48 covers a generous viewport plus a 2-ring pre-warm halo at any
-  /// zoom level supported by the engine.
-  static const int maxTilesPerTier = 48;
+  /// 🔧 2026-05-18: 48 → 96 to host bucketed [TileKey] variants without
+  /// thrashing during a pinch through the semantic-morph band. Steady
+  /// state (no morph active) still occupies < 30 entries because tiles
+  /// outside the morph band share a single bucket key.
+  static const int maxTilesPerTier = 96;
 
   /// Number of LOD tiers managed by this cache.
   static const int _numTiers = 3;
@@ -110,6 +118,26 @@ class TileCacheManager {
   // tile is drawn as Picture for the current frame, then becomes a
   // baked image from the next frame onward — invisible to the user.
   final List<MapEntry<TileKey, ui.Picture>> _pendingBakeQueue = [];
+
+  // 🌫️ B.1: per-tier fade-in spawn frame. When a tile is first cached
+  // (key NEW to its tier map), record _frameCounter. drawWithParentFallback
+  // uses this to overlay the new render with an alpha ramp 0→1 over
+  // kTileFadeFrames frames so a cold-cache fill doesn't visibly "pop":
+  // the previous parent-fallback render stays on screen and the new tile
+  // fades in over the top. See plan: quando-si-muove-tra-structured-puzzle.md.
+  static const int kTileFadeFrames = 5;
+  final List<Map<TileKey, int>> _fadeSpawnByTier = List.generate(
+    _numTiers,
+    (_) => <TileKey, int>{},
+  );
+  // Separate fade tracker for tier-2 baked thumbnails, which land on a
+  // different code path (flushPendingBakes, not cacheTile).
+  final Map<TileKey, int> _bakedThumbFadeSpawn = <TileKey, int>{};
+  // Reusable paint for fading composites; mutated alpha each draw.
+  final Paint _fadePicturePaint = Paint();
+  final Paint _fadeBakedPaint = Paint()
+    ..filterQuality = FilterQuality.low
+    ..isAntiAlias = false;
 
   /// Frame index at which each tier was last drawn from. Used by
   /// [evictIdleTiers] to drop pictures the user has not visited recently.
@@ -297,8 +325,20 @@ class TileCacheManager {
       // For currentTier=0 the order is: tier 1, then tier 2.
       for (final candidate in [currentTier - delta, currentTier + delta]) {
         if (candidate < 0 || candidate >= _numTiers) continue;
-        final pic = _tilesByTier[candidate][key];
-        if (pic != null) return pic;
+        // 🔧 2026-05-18: bucket-agnostic lookup. During a pinch the
+        // requested `key.inkBucket` / `key.godBucket` may not yet be
+        // baked at the parent tier — accept any sibling bucket at the
+        // same `(tx, ty)` as a 1-2 frame stand-in. The proper-bucket
+        // bake lands within `kTileFadeFrames` and the fade-in math in
+        // `drawWithParentFallback` blends it on top.
+        final tier = _tilesByTier[candidate];
+        final exact = tier[key];
+        if (exact != null) return exact;
+        for (final entry in tier.entries) {
+          if (entry.key.tx == key.tx && entry.key.ty == key.ty) {
+            return entry.value;
+          }
+        }
       }
     }
     return null;
@@ -317,15 +357,31 @@ class TileCacheManager {
   List<TileKey> drawWithParentFallback(
     Canvas canvas,
     Rect viewport,
-    int currentTier,
-  ) {
+    int currentTier, {
+    int inkBucket = 3,
+    int godBucket = 0,
+  }) {
     _activeTier = currentTier;
     _frameCounter++;
     _lastVisitFrame[currentTier] = _frameCounter;
 
-    final visibleKeys = tileKeysForRect(viewport);
+    // 🔧 2026-05-18: re-key visible tiles with the caller's current morph
+    // buckets so we look up the variant that matches the live alpha state,
+    // not whatever was previously baked at the same `(tx, ty)`. Without
+    // this rebuild a stroke baked at `inkCrossfade = 1.0` would still
+    // appear at scale 0.14 where `inkCrossfade = 0` → ghost ink inside
+    // the semantic node.
+    final coordKeys = tileKeysForRect(viewport);
+    final visibleKeys = (inkBucket == 3 && godBucket == 0)
+        ? coordKeys
+        : [
+            for (final k in coordKeys)
+              TileKey(k.tx, k.ty,
+                  inkBucket: inkBucket, godBucket: godBucket),
+          ];
     final missing = <TileKey>[];
     final tier = _tilesByTier[currentTier];
+    final fadeSpawnMap = _fadeSpawnByTier[currentTier];
 
     final bool isTier2 = currentTier == 2;
     for (final key in visibleKeys) {
@@ -333,14 +389,44 @@ class TileCacheManager {
       if (isTier2) {
         final baked = _bakedThumbsTier2[key];
         if (baked != null) {
-          _drawBakedThumb(canvas, key, baked);
+          final fadeSpawn = _bakedThumbFadeSpawn[key];
+          if (fadeSpawn != null) {
+            final age = _frameCounter - fadeSpawn;
+            if (age >= kTileFadeFrames) {
+              _bakedThumbFadeSpawn.remove(key);
+              _drawBakedThumb(canvas, key, baked);
+            } else {
+              // 🌫️ B.1: keep parent fallback visible while the new baked
+              // thumb fades in. Alpha climbs 0 → 1 over kTileFadeFrames.
+              final alpha = (age + 1) / (kTileFadeFrames + 1);
+              final fb = getParentFallback(currentTier, key);
+              if (fb != null) canvas.drawPicture(fb);
+              _drawBakedThumbWithAlpha(canvas, key, baked, alpha);
+            }
+          } else {
+            _drawBakedThumb(canvas, key, baked);
+          }
           _cacheHits++;
           continue;
         }
       }
       final picture = tier[key];
       if (picture != null) {
-        canvas.drawPicture(picture);
+        final fadeSpawn = fadeSpawnMap[key];
+        if (fadeSpawn != null) {
+          final age = _frameCounter - fadeSpawn;
+          if (age >= kTileFadeFrames) {
+            fadeSpawnMap.remove(key);
+            canvas.drawPicture(picture);
+          } else {
+            final alpha = (age + 1) / (kTileFadeFrames + 1);
+            final fb = getParentFallback(currentTier, key);
+            if (fb != null) canvas.drawPicture(fb);
+            _drawPictureWithAlpha(canvas, picture, key, alpha);
+          }
+        } else {
+          canvas.drawPicture(picture);
+        }
         _cacheHits++;
       } else {
         final fallback = getParentFallback(currentTier, key);
@@ -353,6 +439,42 @@ class TileCacheManager {
       }
     }
     return missing;
+  }
+
+  /// 🌫️ B.1: replay a Picture into [canvas] inside a saveLayer that
+  /// applies `alpha`. saveLayer cost is ~0.2-0.4ms per call but bounded
+  /// to the few tiles in fade band (~5 frames × ~12 visible tiles max).
+  void _drawPictureWithAlpha(
+    Canvas canvas,
+    ui.Picture picture,
+    TileKey key,
+    double alpha,
+  ) {
+    if (alpha >= 1.0) {
+      canvas.drawPicture(picture);
+      return;
+    }
+    _fadePicturePaint.color = Color.fromRGBO(0, 0, 0, alpha.clamp(0.0, 1.0));
+    canvas.saveLayer(tileBounds(key), _fadePicturePaint);
+    canvas.drawPicture(picture);
+    canvas.restore();
+  }
+
+  /// 🌫️ B.1: alpha-blended variant of [_drawBakedThumb] for fade-in.
+  void _drawBakedThumbWithAlpha(
+    Canvas canvas,
+    TileKey key,
+    _BakedThumb baked,
+    double alpha,
+  ) {
+    final size = baked.image.width.toDouble();
+    _fadeBakedPaint.color = Color.fromRGBO(0, 0, 0, alpha.clamp(0.0, 1.0));
+    canvas.drawImageRect(
+      baked.image,
+      Rect.fromLTWH(0, 0, size, size),
+      tileBounds(key),
+      _fadeBakedPaint,
+    );
   }
 
   /// Replay a tier-2 baked thumbnail at [key] onto [canvas] in canvas
@@ -385,16 +507,28 @@ class TileCacheManager {
   /// Collect missing tiles in a 2-ring around [viewport] at [tier],
   /// EXCLUDING the visible viewport itself. Used for predictive pre-warm
   /// during idle frames.
-  List<TileKey> collectMissingPreWarm(int tier, Rect viewport) {
+  ///
+  /// 🔧 2026-05-18: bucket-aware. Pre-warm targets the SAME bucket the
+  /// painter will look up next frame; otherwise idle pre-bakes would
+  /// be wasted against the live morph state.
+  List<TileKey> collectMissingPreWarm(
+    int tier,
+    Rect viewport, {
+    int inkBucket = 3,
+    int godBucket = 0,
+  }) {
     final inflated = viewport.inflate(tileSize * 2);
-    final allKeys = tileKeysForRect(inflated);
-    final visibleKeys = tileKeysForRect(viewport).toSet();
+    final coordAll = tileKeysForRect(inflated);
+    final coordVisible = tileKeysForRect(viewport).toSet();
     final missing = <TileKey>[];
     final map = _tilesByTier[tier];
-    for (final key in allKeys) {
-      if (!visibleKeys.contains(key) && !map.containsKey(key)) {
-        missing.add(key);
-      }
+    for (final coord in coordAll) {
+      if (coordVisible.contains(coord)) continue;
+      final key = (inkBucket == 3 && godBucket == 0)
+          ? coord
+          : TileKey(coord.tx, coord.ty,
+              inkBucket: inkBucket, godBucket: godBucket);
+      if (!map.containsKey(key)) missing.add(key);
     }
     return missing;
   }
@@ -402,10 +536,22 @@ class TileCacheManager {
   /// Replay only tiles cached at [tier] that are visible in [viewport],
   /// without falling back to other tiers. Used when adopting tiles into a
   /// global stroke-cache picture (we want a clean, single-tier render).
-  void drawCachedOnlyForTier(int tier, Canvas canvas, Rect viewport) {
-    final visibleKeys = tileKeysForRect(viewport);
+  ///
+  /// 🔧 2026-05-18: bucket-aware to match `drawWithParentFallback`.
+  void drawCachedOnlyForTier(
+    int tier,
+    Canvas canvas,
+    Rect viewport, {
+    int inkBucket = 3,
+    int godBucket = 0,
+  }) {
+    final coordKeys = tileKeysForRect(viewport);
     final map = _tilesByTier[tier];
-    for (final key in visibleKeys) {
+    for (final coord in coordKeys) {
+      final key = (inkBucket == 3 && godBucket == 0)
+          ? coord
+          : TileKey(coord.tx, coord.ty,
+              inkBucket: inkBucket, godBucket: godBucket);
       final picture = map[key];
       if (picture != null) canvas.drawPicture(picture);
     }
@@ -421,16 +567,22 @@ class TileCacheManager {
   void cacheTile(int tier, TileKey key, ui.Picture picture, int sceneVersion) {
     final map = _tilesByTier[tier];
     final versions = _versionsByTier[tier];
+    // 🌫️ B.1: register fade spawn when this key is genuinely new (not a
+    // re-cache of an already-visible tile — the user has already seen it).
+    final wasPresent = map.containsKey(key);
     map.remove(key)?.dispose();
     map[key] = picture; // Insert at end (newest)
     versions[key] = sceneVersion;
+    if (!wasPresent) _fadeSpawnByTier[tier][key] = _frameCounter;
 
     while (map.length > maxTilesPerTier) {
       final oldest = map.keys.first;
       map.remove(oldest)?.dispose();
       versions.remove(oldest);
+      _fadeSpawnByTier[tier].remove(oldest);
       // Also evict the baked thumb if this tile was at tier 2.
       _bakedThumbsTier2.remove(oldest)?.dispose();
+      _bakedThumbFadeSpawn.remove(oldest);
     }
 
     // 🎚️ A+F1: enqueue bake for tier 2; the actual toImageSync is
@@ -473,9 +625,14 @@ class TileCacheManager {
       final bakedPic = wrapRec.endRecording();
       final image = bakedPic.toImageSync(_bakedThumbSizePx, _bakedThumbSizePx);
       bakedPic.dispose();
+      final hadBaked = _bakedThumbsTier2.containsKey(key);
       _bakedThumbsTier2.remove(key)?.dispose();
       _bakedThumbsTier2[key] =
           _BakedThumb(image, _versionsByTier[2][key] ?? -1);
+      // 🌫️ B.1: fade-in the new baked thumb only if it's the first one
+      // for this key. A re-bake of an already-visible thumb shouldn't
+      // re-fade — the user has already seen it.
+      if (!hadBaked) _bakedThumbFadeSpawn[key] = _frameCounter;
       processed++;
     }
     return _pendingBakeQueue.isNotEmpty;
@@ -500,14 +657,17 @@ class TileCacheManager {
     for (int t = 0; t < _numTiers; t++) {
       final map = _tilesByTier[t];
       final versions = _versionsByTier[t];
+      final fadeMap = _fadeSpawnByTier[t];
       for (final key in keys) {
         map.remove(key)?.dispose();
         versions.remove(key);
+        fadeMap.remove(key);
       }
     }
     // 🎚️ A: also drop tier-2 baked thumbs for these keys.
     for (final key in keys) {
       _bakedThumbsTier2.remove(key)?.dispose();
+      _bakedThumbFadeSpawn.remove(key);
     }
   }
 
@@ -523,11 +683,15 @@ class TileCacheManager {
     for (final v in _versionsByTier) {
       v.clear();
     }
+    for (final fade in _fadeSpawnByTier) {
+      fade.clear();
+    }
     // 🎚️ A: drop all tier-2 baked thumbs.
     for (final t in _bakedThumbsTier2.values) {
       t.dispose();
     }
     _bakedThumbsTier2.clear();
+    _bakedThumbFadeSpawn.clear();
     _cachedStrokeCount = 0;
     _cachedVersion = -1;
   }
@@ -541,12 +705,14 @@ class TileCacheManager {
     }
     map.clear();
     _versionsByTier[tier].clear();
+    _fadeSpawnByTier[tier].clear();
     // 🎚️ A: if evicting tier 2, also drop the baked thumbs.
     if (tier == 2) {
       for (final t in _bakedThumbsTier2.values) {
         t.dispose();
       }
       _bakedThumbsTier2.clear();
+      _bakedThumbFadeSpawn.clear();
     }
   }
 
@@ -577,11 +743,15 @@ class TileCacheManager {
     for (final v in _versionsByTier) {
       v.clear();
     }
+    for (final fade in _fadeSpawnByTier) {
+      fade.clear();
+    }
     // 🎚️ A: dispose tier-2 baked thumbs.
     for (final t in _bakedThumbsTier2.values) {
       t.dispose();
     }
     _bakedThumbsTier2.clear();
+    _bakedThumbFadeSpawn.clear();
   }
 }
 
@@ -589,25 +759,53 @@ class TileCacheManager {
 // TILE KEY
 // ===========================================================================
 
-/// Immutable tile coordinate key. The same (tx, ty) refers to the same
+/// Immutable tile coordinate key. The same `(tx, ty)` refers to the same
 /// canvas region across every LOD tier.
+///
+/// 🔧 2026-05-18: extended with [inkBucket] / [godBucket] so the cache
+/// stores one variant per `(crossfade, godViewProgress)` band. A tile
+/// baked while `inkCrossfade ≈ 1.0` keeps stroke alpha at its baked
+/// value forever — even after the user dezooms into the morph band
+/// where `inkCrossfade = 0` and strokes should disappear. Without
+/// bucketing the painter would replay the stale tile and show "ghost
+/// ink" (e.g. visible stroke fragments inside the semantic node at
+/// scale 0.14). Encoding the morph state into the key produces a
+/// fresh bake per band and lets the LRU keep both variants for the
+/// duration of a pinch gesture.
+///
+/// 4 discrete steps per axis (`round(value * 3)`) — `Δalpha < 25%`
+/// per bucket is under the perceptual threshold during a normal pinch.
 @immutable
 class TileKey {
   final int tx;
   final int ty;
 
-  const TileKey(this.tx, this.ty);
+  /// `round(inkCrossfade * 3)`. Range 0..3. Default 3 == strokes
+  /// opaque (no semantic morph active) so any pre-2026-05-18 call site
+  /// constructing `TileKey(tx, ty)` lands in the same bucket as before.
+  final int inkBucket;
+
+  /// `round(godViewProgress * 3)`. Range 0..3. Default 0 == not in
+  /// god view. Same backward-compat reasoning as [inkBucket].
+  final int godBucket;
+
+  const TileKey(this.tx, this.ty, {this.inkBucket = 3, this.godBucket = 0});
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is TileKey && other.tx == tx && other.ty == ty;
+      other is TileKey &&
+          other.tx == tx &&
+          other.ty == ty &&
+          other.inkBucket == inkBucket &&
+          other.godBucket == godBucket;
 
   @override
-  int get hashCode => tx.hashCode ^ (ty.hashCode * 31);
+  int get hashCode => Object.hash(tx, ty, inkBucket, godBucket);
 
   @override
-  String toString() => 'TileKey($tx, $ty)';
+  String toString() =>
+      'TileKey($tx, $ty, ink=$inkBucket, god=$godBucket)';
 }
 
 // ===========================================================================

@@ -241,6 +241,15 @@ class DrawingPainter extends CustomPainter {
   /// Shared across DrawingPainter instances via EngineScope or static fallback.
   static final TileCacheManager _tileCache = TileCacheManager();
 
+  /// 🎚️ A.3: dynamic bake budget. null = default 2 bakes/post-frame. Set
+  /// to 0 by the canvas screen while a zoom physics simulation is running
+  /// to keep the on-frame budget free; the parent-fallback path keeps the
+  /// viewport visually intact and bakes resume at animation settle.
+  static int? _bakeBudgetOverride;
+  static set bakeBudgetOverride(int? value) {
+    _bakeBudgetOverride = value;
+  }
+
   // 🎚️ C: SMOOTH TIER TRANSITION
   // Old strokeCache picture, kept around for [kFadeoutFrames] frames after
   // a tier commit so the cost of building the new tier is amortized via
@@ -558,6 +567,39 @@ class DrawingPainter extends CustomPainter {
   final Color?
   backgroundColor; // 🚀 LAYER MERGE — not in shouldRepaint (cosmetic only)
 
+  /// 🏛️ MONUMENT BOUNDS — canvas-space bboxes of clusters classified as
+  /// monuments by MonumentResolver. Strokes whose bounds fall inside any
+  /// of these rects are *preserved* at LOD Tier 1/2 instead of being
+  /// rasterized into the thumbnail/polyline batches. Pedagogical contract
+  /// (§22 §504-507): monuments are the visible landmarks of the Memory
+  /// Palace and must remain recognizable at every zoom level. Pass an
+  /// empty set to disable this layer (e.g. on small canvases).
+  final List<Rect> monumentBounds;
+
+  /// Semantic morph progress propagated from `SemanticMorphController`.
+  ///
+  /// Range `[0.0, 1.0]`:
+  ///   0.0  — canvasScale ≥ morphStartScale (0.30): pure ink, no morph
+  ///   1.0  — canvasScale ≤ morphEndScale   (0.18): full semantic nodes
+  ///
+  /// 2026-05-17 (FX1): used to coordinate the stroke alpha fade with the
+  /// semantic crossfade so we don't end up with the ink and the semantic
+  /// nodes both visible at half opacity in the 0.30→0.18 range. Tier 1/2
+  /// stroke opacities are multiplied by `(1.0 - semanticMorphProgress)`.
+  /// Default 0.0 = no coordination = legacy behaviour.
+  ///
+  /// 2026-05-17 (FX2): when this value is ≥ 0.5 the monument bypass is
+  /// disabled (monument pill XXL takes over as the only semantic anchor).
+  final double semanticMorphProgress;
+
+  /// 🌍 2026-05-18: god-view progress, parallel to [semanticMorphProgress]
+  /// but for the deeper transition between semantic nodes and super-node
+  /// circles (scale band 0.16 → 0.10). Used together with the ink crossfade
+  /// to compute the [TileKey] bucket so the tile cache stores one variant
+  /// per `(inkCrossfade, godViewProgress)` band — see [TileKey] doc for
+  /// the rationale. Default 0.0 = no god view active = legacy behaviour.
+  final double godViewProgress;
+
   /// 🚀 PERF: Per-page incremental annotation Picture cache.
   /// Key: pageIndex → cached (annotationCount, Picture).
   static final Map<int, _AnnotCacheEntry> _annotationPictureCache = {};
@@ -624,6 +666,9 @@ class DrawingPainter extends CustomPainter {
     this.paperType,
     this.backgroundColor,
     this.isActivelyDrawing = false, // 🚀 suppress repaint during live drawing
+    this.monumentBounds = const <Rect>[],
+    this.semanticMorphProgress = 0.0, // FX1: coordinated stroke↔semantic fade
+    this.godViewProgress = 0.0, // 🌍 2026-05-18: TileKey bucket axis 2
   }) : _sceneGraphVersion = sceneGraph.version,
        super(
          // 🚀 LAYER MERGE: cached repaint trigger — avoids allocating
@@ -1569,11 +1614,29 @@ class DrawingPainter extends CustomPainter {
     // from another tier (Google Maps-style parent fallback). The returned
     // list is the keys still missing AT [_cachedLodTier] — those are the
     // ones we'll rebuild this frame within the budget.
+    // 🔧 2026-05-18: compute the current TileKey buckets BEFORE the
+    // lookup. We mirror the same `effectiveMorphT` clamping the bake
+    // path uses below (gesture-aware floor) so during a pinch the
+    // lookup bucket matches the bake bucket — otherwise the lookup
+    // would miss every frame mid-gesture.
+    final bool _lookupIsGesturing = controller?.isPanning ?? false;
+    final double _lookupEffectiveMorphT = _lookupIsGesturing
+        ? math.min(semanticMorphProgress, 0.4)
+        : semanticMorphProgress;
+    final double _lookupInkCrossfade =
+        (1.0 - _lookupEffectiveMorphT).clamp(0.0, 1.0);
+    final int _lookupInkBucket =
+        (_lookupInkCrossfade * 3).round().clamp(0, 3);
+    final int _lookupGodBucket =
+        (godViewProgress * 3).round().clamp(0, 3);
+
     _traceBegin('LOD/drawPyramid');
     final missingTiles = _tileCache.drawWithParentFallback(
       canvas,
       renderViewport,
       _cachedLodTier,
+      inkBucket: _lookupInkBucket,
+      godBucket: _lookupGodBucket,
     );
     _traceEnd();
 
@@ -1604,9 +1667,11 @@ class DrawingPainter extends CustomPainter {
     //   • enlarge the layer tree (raster-thread encode jumps 20–30ms
     //     when multiple tier boundaries are crossed rapidly),
     //   • waste work the next tier transition would throw away anyway.
-    // When the gesture ends the next paint re-enters this path with
-    // isPanning=false and rebuilds cleanly at the settled tier.
-    final isCurrentGesture = controller?.isPanning ?? false;
+    // When the gesture+animation fully end the next paint re-enters this
+    // path with both flags false and rebuilds cleanly at the settled tier.
+    // X.2: include isAnimating so spring/momentum settling also defers.
+    final isCurrentGesture =
+        (controller?.isPanning ?? false) || (controller?.isAnimating ?? false);
     // 🎚️ R2: FAST-ZOOM GATE.
     // If the user is flicking through scale rapidly (>1.5/sec), skip
     // every rebuild path — even orphan recovery — and let the pyramid
@@ -1660,10 +1725,56 @@ class DrawingPainter extends CustomPainter {
     final effectiveScale = controller?.scale ?? canvasScale;
     _delegateRenderer.currentScale = effectiveScale;
     // 🚀 GESTURE-AWARE LOD: during active pan/zoom at LOW zoom, force cheapest
-    // rendering. At normal zoom (≥0.5) the user can see the degraded tiles,
-    // so render at full quality even during gestures.
+    // rendering. At normal-to-mid zoom (≥0.25) the user can see the degraded
+    // tiles, so render at the natural tier (Tier mid polyline batched, still
+    // cheap enough during gesture) instead of falling back to Tier 1
+    // thumbnails (alpha 0.15-0.30 = "stroke schiariti" visible during pinch).
+    //
+    // 2026-05-17 fix: threshold 0.5 → 0.25. The previous gate caused stroke
+    // to fade out during pinch 0.40→0.50 (forced Tier 1 raster) and pop back
+    // at 0.55 (renderScale = effectiveScale ≥ 0.5, Tier 0). Observed on
+    // device. Tier mid is the right tier for that zoom band even mid-gesture.
     final isGesturing = controller?.isPanning ?? false;
-    final renderScale = (isGesturing && effectiveScale < 0.5) ? 0.1 : effectiveScale;
+    final renderScale = (isGesturing && effectiveScale < 0.25) ? 0.1 : effectiveScale;
+
+    // FX1 + FX7 — coordinated stroke↔semantic crossfade.
+    //
+    // The semantic morph happens in scale band 0.30→0.18. Before this fix
+    // the stroke layer faded with its own private curve (Tier 2 internal
+    // `(s - 0.2) / 0.1`) and the semantic nodes faded with the morph curve
+    // independently, producing visible double-rendering in that band. We
+    // multiply the stroke alphas by `(1.0 - semanticMorphProgress)` so the
+    // ink fades exactly as the semantic nodes appear.
+    //
+    // FX7: during an active pan we clamp the morph factor so strokes never
+    // drop below ~60% opacity. Memory `feedback_strokes_must_not_disappear_
+    // during_gesture` — degrade ok, vanish not ok. Snap-to-target happens
+    // on the next paint after gesture end (forced by the wasGesturing
+    // detector in shouldRepaint).
+    final effectiveMorphT = isGesturing
+        ? math.min(semanticMorphProgress, 0.4)
+        : semanticMorphProgress;
+    final inkCrossfade = (1.0 - effectiveMorphT).clamp(0.0, 1.0);
+
+    // 🔧 2026-05-18: bucketize the morph state for the [TileKey].
+    // `round(value * 3)` produces 4 discrete buckets (0..3) per axis;
+    // see TileKey doc for the rationale. The clamps are defensive —
+    // inkCrossfade / godViewProgress are already in [0, 1] but the
+    // upstream callers occasionally return values slightly outside
+    // during spring animations.
+    final int inkBucket = (inkCrossfade * 3).round().clamp(0, 3);
+    final int godBucket = (godViewProgress * 3).round().clamp(0, 3);
+
+    // FX2 — monument bypass conditional on semantic mode.
+    //
+    // The bypass exists so monument strokes stay rendered full quality at
+    // Tier 1/2 (landmarks of the Palazzo, §22/§504). But once the semantic
+    // morph kicks in past the midpoint, the monument pill XXL (+ monBoost
+    // 1.20 + accent halo) already plays that role — keeping the ink up
+    // doubles the signal. We disable the bypass when morphProgress ≥ 0.5
+    // so monument strokes follow the regular Tier behaviour like everyone
+    // else, letting the pill be the sole anchor.
+    final monumentBypassActive = semanticMorphProgress < 0.5;
 
     _traceBegin('LOD/tileRebuild');
     int normalTilesRebuilt = 0;
@@ -1714,6 +1825,22 @@ class DrawingPainter extends CustomPainter {
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
 
+        // 🏛️ MONUMENT FAST-CHECK: a stroke is "monument" if its centroid
+        // falls inside any monumentBounds rect. Use centroid (cheap) rather
+        // than full overlap test; the list is short (~<20 monuments).
+        // FX2 — disabled past the morph midpoint so the monument pill XXL
+        // becomes the sole anchor (no ink + pill double-signal).
+        bool isMonumentStroke(Rect b) {
+          if (!monumentBypassActive) return false;
+          if (monumentBounds.isEmpty) return false;
+          final cx = b.left + b.width * 0.5;
+          final cy = b.top + b.height * 0.5;
+          for (final mb in monumentBounds) {
+            if (mb.contains(Offset(cx, cy))) return true;
+          }
+          return false;
+        }
+
         final thumbBatches = <int, ui.Path>{};
         for (final node in visibleNodes) {
           if (node is StrokeNode) {
@@ -1723,6 +1850,13 @@ class DrawingPainter extends CustomPainter {
             // At renderScale < 0.2 a 6px stroke is already a smudge —
             // emitting RRect for it is GPU fillrate burned for nothing.
             if (b.isEmpty || b.longestSide * renderScale < 6.0) continue;
+            // 🏛️ MONUMENT PRESERVATION: render full quality on top of the
+            // batched thumbnails. The monument cluster becomes the visible
+            // landmark of the Palazzo even at extreme dezoom.
+            if (isMonumentStroke(b)) {
+              _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+              continue;
+            }
             final r = (b.shortestSide * 0.08).clamp(2.0, 12.0);
             final colorKey = node.stroke.color.toARGB32();
             final path = thumbBatches.putIfAbsent(colorKey, () => ui.Path());
@@ -1734,12 +1868,16 @@ class DrawingPainter extends CustomPainter {
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
 
-        // Draw batched thumbnails: 2 draw calls per color (fill + border)
+        // Draw batched thumbnails: 2 draw calls per color (fill + border).
+        // FX1: alpha multiplied by inkCrossfade so thumbnails fade out as
+        // semantic nodes fade in (no double-rendering in 0.30→0.18 band).
         for (final entry in thumbBatches.entries) {
           final color = Color(entry.key);
-          _lodThumbFillPaint.color = color.withValues(alpha: 0.15);
+          _lodThumbFillPaint.color =
+              color.withValues(alpha: 0.15 * inkCrossfade);
           recCanvas.drawPath(entry.value, _lodThumbFillPaint);
-          _lodThumbStrokePaint.color = color.withValues(alpha: 0.30);
+          _lodThumbStrokePaint.color =
+              color.withValues(alpha: 0.30 * inkCrossfade);
           recCanvas.drawPath(entry.value, _lodThumbStrokePaint);
         }
       } else if (renderScale < 0.5) {
@@ -1753,10 +1891,16 @@ class DrawingPainter extends CustomPainter {
           _delegateRenderer.renderNode(recCanvas, node, tileBounds);
         }
 
+        // FX1: Tier-2 strokeOpacity now multiplied by inkCrossfade so the
+        // polyline batches fade in lock-step with the semantic crossfade.
+        // The internal `(s - 0.2)/0.1` curve remains as a safety for the
+        // (rare) case where a surface doesn't have a SemanticMorphController
+        // wired up (semanticMorphProgress stays 0 → inkCrossfade=1 → legacy).
         final strokeOpacity =
-            effectiveScale < 0.3
-                ? ((effectiveScale - 0.2) / 0.1).clamp(0.0, 1.0)
-                : 1.0;
+            (effectiveScale < 0.3
+                    ? ((effectiveScale - 0.2) / 0.1).clamp(0.0, 1.0)
+                    : 1.0) *
+                inkCrossfade;
 
         final batches = <int, _ColorBatch>{};
         // 🎚️ G2: more aggressive decimation at low zoom. Step grows from
@@ -1764,6 +1908,18 @@ class DrawingPainter extends CustomPainter {
         // points before path tessellation, which is the dominant cost
         // at this tier when the path covers the whole viewport.
         final step = (1.0 / effectiveScale).ceil().clamp(4, 16);
+
+        // 🏛️ MONUMENT FAST-CHECK (same as Tier 1, same FX2 gate).
+        bool isMonumentStrokeT2(Rect b) {
+          if (!monumentBypassActive) return false;
+          if (monumentBounds.isEmpty) return false;
+          final cx = b.left + b.width * 0.5;
+          final cy = b.top + b.height * 0.5;
+          for (final mb in monumentBounds) {
+            if (mb.contains(Offset(cx, cy))) return true;
+          }
+          return false;
+        }
 
         for (final node in visibleNodes) {
           if (node is! StrokeNode) continue;
@@ -1776,6 +1932,12 @@ class DrawingPainter extends CustomPainter {
           // Skip tiny strokes (< 6px on screen — sub-perceptual)
           final screenSize = stroke.bounds.longestSide * effectiveScale;
           if (screenSize < 6.0) continue;
+
+          // 🏛️ MONUMENT PRESERVATION: skip simplification, render full path.
+          if (isMonumentStrokeT2(stroke.bounds)) {
+            _delegateRenderer.renderNode(recCanvas, node, tileBounds);
+            continue;
+          }
 
           final colorKey = stroke.color.toARGB32();
           final batch = batches.putIfAbsent(
@@ -1863,7 +2025,9 @@ class DrawingPainter extends CustomPainter {
     // the on-frame budget. Stale entries (whose Picture was already
     // evicted) are dropped silently inside flushPendingBakes.
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      final more = _tileCache.flushPendingBakes(maxBakes: 2);
+      final budget = _bakeBudgetOverride ?? 2;
+      if (budget == 0) return;
+      final more = _tileCache.flushPendingBakes(maxBakes: budget);
       if (more) _lodRepaintNotifier.value++;
     });
 
@@ -1872,7 +2036,13 @@ class DrawingPainter extends CustomPainter {
     if (normalTilesRebuilt > 0 && allNormalTilesBuilt) {
       final globalRecorder = ui.PictureRecorder();
       final globalCanvas = Canvas(globalRecorder);
-      _tileCache.drawCachedOnlyForTier(_cachedLodTier, globalCanvas, viewport);
+      _tileCache.drawCachedOnlyForTier(
+        _cachedLodTier,
+        globalCanvas,
+        viewport,
+        inkBucket: inkBucket,
+        godBucket: godBucket,
+      );
       final globalPicture = globalRecorder.endRecording();
       _strokeCache.adoptPicture(globalPicture, totalStrokes);
       _strokeCacheLodTier = _cachedLodTier;
@@ -1893,7 +2063,12 @@ class DrawingPainter extends CustomPainter {
       // 🚀 PRE-WARM: all visible tiles built, use remaining budget for surrounding tiles.
       // Pre-renders 2-ring of tiles outside viewport so panning is instant.
       _traceBegin('LOD/preWarm');
-      final preWarmTiles = _tileCache.collectMissingPreWarm(_cachedLodTier, viewport);
+      final preWarmTiles = _tileCache.collectMissingPreWarm(
+        _cachedLodTier,
+        viewport,
+        inkBucket: inkBucket,
+        godBucket: godBucket,
+      );
       if (preWarmTiles.isNotEmpty) {
         TileCacheManager.sortByPanPrediction(
           preWarmTiles,
@@ -3110,12 +3285,18 @@ class DrawingPainter extends CustomPainter {
       return false;
     }
 
-    // 🚀 GESTURE SUPPRESSION: during active pan/zoom, the Transform widget
-    // handles visuals via GPU compositing (zero cost). Defer tile rebuilds
-    // and LOD transitions until the gesture settles. This prevents:
+    // 🚀 GESTURE SUPPRESSION: during active pan/zoom OR while spring/
+    // momentum is settling (Y), the Transform widget handles visuals via
+    // GPU compositing (zero cost). The RepaintBoundary above the
+    // CustomPaint caches the texture; the outer Transform applies the
+    // matrix on the raster thread — no Dart paint() invocation, no tile
+    // loop, no notifyListeners cascade. Defer tile rebuilds and LOD
+    // transitions until everything settles. This prevents:
     // - Tile cache thrashing during rapid zoom (300% → 10%)
     // - Viewport boundary repaints during fast dragging
-    final isGesturing = controller?.isPanning ?? false;
+    // - Universal: works on any GPU (Adreno / Metal / Vulkan / D3D11 / WebGPU)
+    final isGesturing =
+        (controller?.isPanning ?? false) || (controller?.isAnimating ?? false);
 
     // 🔑 GESTURE-END DETECTION: when the gesture ends (isPanning goes
     // true→false), force a repaint so content re-renders at the new LOD
@@ -3172,6 +3353,14 @@ class DrawingPainter extends CustomPainter {
         oldDelegate.scratchOutDissolveMap != scratchOutDissolveMap ||
         oldDelegate.recallHiddenIds != recallHiddenIds ||
         oldDelegate.pdfLayoutVersion != pdfLayoutVersion ||
+        // 🏛️ Monument set change → tile cache must invalidate so the
+        // preserved strokes pick up. Identity check is enough because
+        // _monumentsOrCompute returns a new list each pass.
+        !identical(oldDelegate.monumentBounds, monumentBounds) ||
+        // FX1: when the semantic crossfade moves by more than a few alpha
+        // ticks we must repaint so Tier 1/2 stroke opacities update.
+        (oldDelegate.semanticMorphProgress - semanticMorphProgress).abs() >
+            0.02 ||
         // 🚀 LAYER MERGE: background now drawn inside this painter
         oldDelegate.paperType != paperType ||
         oldDelegate.backgroundColor != backgroundColor) {
@@ -3255,6 +3444,45 @@ class DrawingPainter extends CustomPainter {
   /// Use when non-stroke nodes change (e.g., FunctionGraphNode drag/resize).
   static void triggerRepaint() {
     _lodRepaintNotifier.value++;
+  }
+
+  /// 🔮 LOD pre-warm hook (see plan: quando-si-muove-tra-structured-puzzle.md).
+  ///
+  /// Called when zoom enters the approach band of an adjacent tier. Drains
+  /// the tier-2 bake queue more aggressively (4 bakes/frame vs the normal
+  /// post-frame 2) so the per-tile thumbnail is hot at switch time, and
+  /// forces a repaint so the rebuild pipeline keeps caching new tiles
+  /// rather than coasting on the parent fallback.
+  ///
+  /// Returns the number of tile keys currently missing in the next tier's
+  /// 2-ring around `viewport` — useful as a telemetry signal of how cold
+  /// the cache is right before the switch.
+  static int preWarmNextTier(int nextTier, Rect viewport) {
+    final missing = _tileCache.collectMissingPreWarm(nextTier, viewport);
+    if (nextTier == 2) {
+      _tileCache.flushPendingBakes(maxBakes: 4);
+    }
+    if (missing.isNotEmpty) triggerRepaint();
+    return missing.length;
+  }
+
+  /// Drain N tier-2 thumbnail bakes; pass-through to TileCacheManager.
+  /// Call from a post-frame callback; `maxBakes` of 0 means skip (used
+  /// during active zoom animation to keep frame budget free).
+  static bool flushPendingTileBakes({int maxBakes = 2}) =>
+      _tileCache.flushPendingBakes(maxBakes: maxBakes);
+
+  /// 🩺 X.1: surgical replacement for [invalidateAllTiles] when we know
+  /// the user just moved from `oldTier` into a different tier. Drops the
+  /// pictures of `oldTier` (they won't be the active render target for a
+  /// while) but keeps everything else hot, including the layer caches
+  /// and the vectorial stroke cache. The new tier is preserved as-is so
+  /// the next paint hits its picture cache straight away.
+  ///
+  /// Cost: ~3ms vs ~12ms for [invalidateAllTiles] on a fully populated
+  /// 3-tier pyramid. See plan: quando-si-muove-tra-structured-puzzle.md.
+  static void evictTierFromCache(int tier) {
+    _tileCache.evictTier(tier);
   }
 
   /// 🗂️ Initialize stroke paging manager with shared SQLite database.
