@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import './infinite_canvas_controller.dart';
+import '../rendering/lod_config.dart';
 import '../drawing/input/stylus_detector.dart';
 import '../services/handedness_settings.dart';
 import './overlays/stylus_hover_overlay.dart';
@@ -375,10 +376,21 @@ class _InfiniteCanvasGestureDetectorState
           }
 
           // 🧠 KNOWLEDGE FLOW: Route long-press movement to draw update
-          // ONLY at LOD 1/2 (scale < 0.5) for connection drag.
-          if (_pointerCount == 1 &&
-              widget.controller.scale < 0.5 &&
-              widget.onDrawUpdate != null) {
+          // so the snap-target detector (in _drawing_update.dart) tracks
+          // the finger while the connection drag is active.
+          //
+          // ⚠️ Pre-2026-05-XX this was gated on `scale < 0.5` ("LOD 1/2
+          // only") but that's inconsistent with the long-press handler
+          // in _text_tools.dart, which accepts drag-to-connect at ANY
+          // zoom as long as pan-mode + cluster hit are satisfied. The
+          // gate was leaving `_isConnectionDragging=true` orphaned at
+          // zoom ≥ 0.5: no snap detection, no draw-end firing, state
+          // leak until a subsequent tap forced a partial finalization.
+          // Now: always route while a single pointer is down; the
+          // downstream handler is itself gated on `_isConnectionDragging`
+          // so no side-effects when the user is just doing radial menu /
+          // PDF preview / text edit (those flows don't set the flag).
+          if (_pointerCount == 1 && widget.onDrawUpdate != null) {
             final canvasPoint = widget.controller.screenToCanvas(
               details.localPosition,
             );
@@ -391,11 +403,11 @@ class _InfiniteCanvasGestureDetectorState
             widget.onLongPressEnd!(details.localPosition);
           }
 
-          // 🧠 KNOWLEDGE FLOW: Route long-press end to draw end
-          // ONLY at LOD 1/2 for connection drag finalization.
-          if (_pointerCount <= 1 &&
-              widget.controller.scale < 0.5 &&
-              widget.onDrawEnd != null) {
+          // 🧠 KNOWLEDGE FLOW: Route long-press end to draw end so the
+          // connection drag finalizes on release. Same de-gating logic
+          // as `onLongPressMoveUpdate` above — downstream handler is
+          // gated on `_isConnectionDragging`, no side-effects otherwise.
+          if (_pointerCount <= 1 && widget.onDrawEnd != null) {
             final canvasPoint = widget.controller.screenToCanvas(
               details.localPosition,
             );
@@ -429,6 +441,20 @@ class _InfiniteCanvasGestureDetectorState
     // 🛡️ SAFETY: If _pointerCount somehow went negative (e.g. PointerCancel
     // for a pointer we never saw the Down for), reset to 0 now.
     if (_pointerCount < 0) _pointerCount = 0;
+
+    // 🛡️ STALE-POINTER GUARD: some compositors (notably Hyprland on Wayland)
+    // can drop PointerUp/Cancel events when the window is unmapped — e.g.
+    // when the user moves it to another workspace. The counter stays stuck
+    // > 0, _shouldEnableDrawing = _pointerCount == 1 fails on the next
+    // stroke, and drawing becomes unusable until app restart. If we get a
+    // fresh PointerDown more than 2s after the last pointer change while
+    // the counter is still > 0, treat it as a stuck state and reset.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (_pointerCount > 0 && (nowMs - _lastPointerChangeTime) > 2000) {
+      _pointerCount = 0;
+      _wasMultiTouch = false;
+      _maxPointerCountInGesture = 0;
+    }
     final isStylus = StylusDetector.isStylus(event);
     // 🎚️ B: Reset gap stats at every stroke start.
     if (isStylus) {
@@ -1692,7 +1718,12 @@ class _InfiniteCanvasGestureDetectorState
     // Use getEffectiveScale (elastic) so offset and _scale stay consistent.
     // The elastic cap in _applyElasticClamp ensures the overshoot is tiny,
     // preventing noticeable viewport drift at large canvas positions.
-    final effectiveScale = widget.controller.getEffectiveScale(rawScale);
+    // Pass `_zoomVelocity` so the detent dampening can adapt: slow pinch
+    // → super sticky to tier, fast flick → light resistance.
+    final effectiveScale = widget.controller.getEffectiveScale(
+      rawScale,
+      gestureVelocity: _zoomVelocity,
+    );
     final cosR = math.cos(effectiveRotation);
     final sinR = math.sin(effectiveRotation);
     final scaledFocal = Offset(
@@ -1705,12 +1736,14 @@ class _InfiniteCanvasGestureDetectorState
     );
     final newOffset = _initialFocalPoint - rotatedFocal + panDelta;
 
-    // 🌊 LIQUID: Apply transform with elastic bounds + rotation
+    // 🌊 LIQUID: Apply transform with elastic bounds + rotation +
+    // velocity-aware tier detent.
     widget.controller.updateTransform(
       offset: newOffset,
       scale: rawScale,
       rotation: newRotation,
       elastic: true,
+      gestureVelocity: _zoomVelocity,
     );
 
     // 🌀 SNAP HAPTIC: Two-tier feedback system.
@@ -1785,6 +1818,29 @@ class _InfiniteCanvasGestureDetectorState
 
     // 🌊 LIQUID: Launch zoom spring-back if scale is beyond limits
     widget.controller.startZoomSpringBack(_lastScaleEndFocalPoint);
+
+    // 🎯 2026-05-18: SNAP-ON-RELEASE — if the user released INSIDE a
+    // detent zone with low-ish velocity, they wanted to LAND on that
+    // tier (not blow through it). Skip the momentum entirely and
+    // animate exact to the threshold + medium haptic. Apple Maps /
+    // Figma feel: "tap-zoom-release" parks cleanly on a tier boundary.
+    //
+    // Velocity threshold 1.5 scale/sec distinguishes "intent to land"
+    // (soft release) from "intent to flick through" (decisive release).
+    final controllerScale = widget.controller.scale;
+    final dropZone = lodDetentZoneAt(controllerScale);
+    if (_wasZooming && dropZone != null && _zoomVelocity.abs() < 1.5) {
+      final threshold = kLodDetentThresholds[dropZone];
+      widget.controller.animateZoomTo(threshold, _lastScaleEndFocalPoint);
+      HapticFeedback.mediumImpact();
+      _panVelocity = Offset.zero;
+      _rotationVelocity = 0.0;
+      _wasZooming = false;
+      _lastGestureScale = 1.0;
+      widget.controller.isPanning = false;
+      widget.controller.markNeedsPaint();
+      return;
+    }
 
     // 🌊 LIQUID: Launch zoom momentum if user was actively zooming (Gap 4)
     // 🎯 FIX: Raised velocity threshold and made mutually exclusive with

@@ -126,11 +126,35 @@ class InfiniteCanvasController extends ChangeNotifier {
   VoidCallback? onZoomLimitReached;
 
   /// 🚀 Callback fired when zoom crosses LOD tier boundaries (0.2x, 0.5x).
-  /// Used to invalidate tile cache and force repaint for LOD transitions.
-  VoidCallback? onLodTierChanged;
+  /// Receives `(oldTier, newTier)` so the caller can do surgical work
+  /// (evict only the tier being left behind) instead of nuking everything.
+  void Function(int oldTier, int newTier)? onLodTierChanged;
+
+  /// 🔮 Callback fired when the zoom enters the "approach band" of an
+  /// adjacent tier — i.e. before the actual tier switch. Argument is the
+  /// upcoming tier id. Used to pre-warm tile cache for the next tier so
+  /// the actual switch lands on hot cache.
+  ///
+  /// Approach bands (asymmetric vs hysteresis to avoid double fire):
+  ///   tier 0 → tier 1: scale ∈ [0.55, 0.60]
+  ///   tier 1 → tier 0: scale ∈ [0.45, 0.50]
+  ///   tier 1 → tier 2: scale ∈ [0.30, 0.35]
+  ///   tier 2 → tier 1: scale ∈ [0.25, 0.30]
+  /// Locked for ~150ms after firing to avoid storm during slow drift.
+  void Function(int nextTier)? onLodTierApproaching;
 
   /// Track the last LOD tier to detect boundary crossings.
   int _lastLodTier = 0;
+
+  /// 🎯 Track the last detent zone index the scale was inside so we fire
+  /// exactly one haptic click per zone ENTRY (not every frame). Null when
+  /// outside every zone. See `lod_config.dart` for the threshold list.
+  int? _lastDetentZone;
+
+  /// Timestamp (ms) of the last `onLodTierApproaching` fire, used to
+  /// throttle re-fires during slow zoom drift inside the approach band.
+  int _lastApproachFireMs = 0;
+  int _lastApproachTier = -1;
 
   /// 🚀 Callback fired when all physics animations settle.
   /// Used by the canvas to trigger LOD precomputation at the new zoom level.
@@ -389,12 +413,34 @@ class InfiniteCanvasController extends ChangeNotifier {
     required double scale,
     double? rotation,
     bool elastic = false,
+    double gestureVelocity = 0.0,
   }) {
     final oldScale = _scale;
     _offset = offset;
     if (rotation != null && !_rotationLocked) _rotation = rotation;
     if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
-      _scale = _applyElasticClamp(scale);
+      // 🎯 2026-05-18: tier detent resistance. See `lod_config.dart`.
+      // `gestureVelocity` modulates stickiness: slow pinch = base
+      // resistance, fast flick = relaxed.
+      //
+      // (Removed crossing-dwell snap-to-threshold for 1 frame — user
+      //  reported the abrupt pop felt like "too much resistance".
+      //  The integrated dampening + haptic together convey the tier
+      //  boundary well enough without the discrete snap.)
+      final dampened =
+          applyLodDetentToTarget(_scale, scale, velocity: gestureVelocity);
+      _scale = _applyElasticClamp(dampened);
+
+      // 🎯 Tactile feedback on detent ZONE entry. mediumImpact on the
+      // first frame inside a new zone — felt as a distinct "click" on
+      // Xiaomi 2107113SG. De-duped via `_lastDetentZone`.
+      final zone = lodDetentZoneAt(_scale);
+      if (zone != _lastDetentZone) {
+        if (zone != null) {
+          HapticFeedback.mediumImpact();
+        }
+        _lastDetentZone = zone;
+      }
       final isAtLimit = scale < _minScale || scale > _maxScale;
       if (isAtLimit && !_wasAtZoomLimit) {
         onZoomLimitReached?.call();
@@ -433,18 +479,93 @@ class InfiniteCanvasController extends ChangeNotifier {
         // Zooming IN (quality increasing): subtle click
         HapticFeedback.selectionClick();
       }
+      final oldTier = _lastLodTier;
       _lastLodTier = tier;
-      onLodTierChanged?.call();
+      onLodTierChanged?.call(oldTier, tier);
+      // Reset approach throttle so post-switch we can re-arm for the
+      // next adjacent tier without 150ms dead-zone.
+      _lastApproachTier = -1;
     }
+    _checkLodApproach(tier);
+  }
+
+  /// Detect approach into the band adjacent to a tier boundary and fire
+  /// `onLodTierApproaching` so the caller can pre-warm tile cache. Throttled
+  /// to once per 150ms per nextTier to avoid storms during slow drift.
+  void _checkLodApproach(int currentTier) {
+    if (onLodTierApproaching == null) return;
+    int? nextTier;
+    final s = _scale;
+    if (currentTier == 0 && s >= 0.55 && s <= 0.60) {
+      nextTier = 1;
+    } else if (currentTier == 1 && s >= 0.45 && s <= 0.50) {
+      nextTier = 0;
+    } else if (currentTier == 1 && s >= 0.30 && s <= 0.35) {
+      nextTier = 2;
+    } else if (currentTier == 2 && s >= 0.25 && s <= 0.30) {
+      nextTier = 1;
+    }
+    if (nextTier == null) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nextTier == _lastApproachTier && nowMs - _lastApproachFireMs < 150) {
+      return;
+    }
+    _lastApproachTier = nextTier;
+    _lastApproachFireMs = nowMs;
+    onLodTierApproaching!(nextTier);
+  }
+
+  /// Compute the world-space AABB visible inside `screenSize`. Accounts
+  /// for current offset/scale/rotation. Returns a generous rect when
+  /// rotation != 0 (covers the full screen-aligned bounding box).
+  Rect worldViewportAABB(Size screenSize) {
+    if (screenSize.isEmpty) return Rect.zero;
+    if (_rotation == 0.0) {
+      final tl = (Offset.zero - _offset) / _scale;
+      final br =
+          (Offset(screenSize.width, screenSize.height) - _offset) / _scale;
+      return Rect.fromPoints(tl, br);
+    }
+    // 4-corner inverse for rotation: collect AABB of transformed corners.
+    final corners = <Offset>[
+      Offset.zero,
+      Offset(screenSize.width, 0),
+      Offset(0, screenSize.height),
+      Offset(screenSize.width, screenSize.height),
+    ].map(screenToCanvas).toList();
+    var minX = corners.first.dx, maxX = minX;
+    var minY = corners.first.dy, maxY = minY;
+    for (final c in corners.skip(1)) {
+      if (c.dx < minX) minX = c.dx;
+      if (c.dx > maxX) maxX = c.dx;
+      if (c.dy < minY) minY = c.dy;
+      if (c.dy > maxY) maxY = c.dy;
+    }
+    return Rect.fromLTRB(minX, minY, maxX, maxY);
   }
 
   /// Preview what scale value [updateTransform] would actually apply.
   ///
-  /// When elastic zoom is enabled, returns the elastically-clamped value.
-  /// Otherwise returns the hard-clamped value. Does NOT mutate state.
-  double getEffectiveScale(double rawScale, {bool elastic = true}) {
+  /// When elastic zoom is enabled, returns the elastically-clamped value
+  /// AFTER the tier-detent dampening — same composition that
+  /// [updateTransform] performs internally, so the gesture detector that
+  /// computes pan offset from this preview stays in lock-step with the
+  /// scale the controller actually commits. Does NOT mutate state.
+  ///
+  /// 🔧 2026-05-18: previously skipped the detent step, so during a
+  /// detent zone the offset was computed against `rawScale` while
+  /// `_scale` settled at the dampened value → the focal point drifted
+  /// out from under the user's fingers and the resistance felt like a
+  /// "broken zoom" instead of a tactile speed bump.
+  double getEffectiveScale(
+    double rawScale, {
+    bool elastic = true,
+    double gestureVelocity = 0.0,
+  }) {
     if (elastic && _liquidConfig.enabled && _liquidConfig.enableElasticZoom) {
-      return _applyElasticClamp(rawScale);
+      final dampened =
+          applyLodDetentToTarget(_scale, rawScale, velocity: gestureVelocity);
+      return _applyElasticClamp(dampened);
     }
     return rawScale.clamp(_minScale, _maxScale);
   }
@@ -1192,8 +1313,17 @@ class InfiniteCanvasController extends ChangeNotifier {
 
       // Simulation runs in log-space; convert back to linear scale
       final logScale = _zoomMomentumSim!.x(_zoomMomentumStartTime);
-      final newScale = math.exp(logScale);
+      final rawNewScale = math.exp(logScale);
       final logVelocity = _zoomMomentumSim!.dx(_zoomMomentumStartTime).abs();
+
+      // 🎯 2026-05-18: apply the same detent dampening to the
+      // post-release inertia so the camera "sticks" at tier boundaries
+      // instead of gliding through them. Without this the user feels
+      // resistance during the pinch, releases, then sees the momentum
+      // sail past every tier they fought to reach — which reads as
+      // "the resistance doesn't actually do anything" on the device.
+      final fromScale = _scale;
+      final newScale = applyLodDetentToTarget(fromScale, rawNewScale);
 
       // Focal-point-preserving zoom (same math as spring-back)
       final translated = _zoomMomentumFocalPoint - _offset;
@@ -1218,15 +1348,40 @@ class InfiniteCanvasController extends ChangeNotifier {
 
       needsNotify = true;
 
-      // Stop conditions: very slow, or past limits (let spring-back handle)
+      // 🎯 MAGNETIC PARK: if the dampened per-tick delta drops to a
+      // crawl AND we're inside a detent zone, the inertia has been
+      // effectively eaten by the resistance — snap the scale exactly
+      // onto the threshold (visible "click into place" feel) instead
+      // of letting it drift through.
+      final perTickDelta = (newScale - fromScale).abs();
+      final detentZone = lodDetentZoneAt(newScale);
+      final isCrawling = perTickDelta < 0.0008;
+      final magneticPark = detentZone != null && isCrawling;
+
+      // Stop conditions: very slow, or past limits (let spring-back handle),
+      // or magnetic-parked at a tier boundary.
       // 🏎️ Raised threshold from 0.01 to 0.03 — stops cleaner, no "crawling"
-      if (logVelocity < 0.03 || newScale < _minScale || newScale > _maxScale) {
+      if (logVelocity < 0.03 ||
+          rawNewScale < _minScale ||
+          rawNewScale > _maxScale ||
+          magneticPark) {
         _isZoomMomentumActive = false;
         _zoomMomentumSim = null;
 
         // If past limits, trigger spring-back for seamless elastic bounce
-        if (newScale < _minScale || newScale > _maxScale) {
+        if (rawNewScale < _minScale || rawNewScale > _maxScale) {
           startZoomSpringBack(_zoomMomentumFocalPoint);
+        } else if (magneticPark) {
+          // Snap the scale exactly onto the nearest detent threshold,
+          // then animate the small remaining delta via the zoom spring
+          // so the visual "click into place" is smooth (no 1-frame pop).
+          final threshold = kLodDetentThresholds[detentZone];
+          if ((threshold - _scale).abs() > 0.0005) {
+            animateZoomTo(threshold, _zoomMomentumFocalPoint);
+          }
+          // heavyImpact = the "settle" click distinct from the in-pinch
+          // mediumImpact ticks. User reads: "ok, I landed on a tier".
+          HapticFeedback.heavyImpact();
         } else {
           // 📐 CLEAN SCALE SNAP: If settled near a round level, snap to it.
           // Gives a Figma-quality "landing on grid" feel.
