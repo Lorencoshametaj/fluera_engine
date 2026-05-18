@@ -1866,7 +1866,7 @@ extension on _FlueraCanvasScreenState {
                             horizontal: 12,
                             vertical: 10,
                           ),
-                          hintText: 'Chart title…',
+                          hintText: FlueraLocalizations.of(context)!.drawing_chartTitle,
                           hintStyle: const TextStyle(color: Color(0x50FFFFFF)),
                         ),
                       ),

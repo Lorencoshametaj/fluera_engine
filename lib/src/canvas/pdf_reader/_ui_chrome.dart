@@ -50,7 +50,10 @@ extension _PdfUIChromeMethods on _PdfReaderScreenState {
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(exitReady ? Icons.check_circle_outline_rounded : Icons.zoom_out_map_rounded, color: Colors.white.withValues(alpha: 0.95), size: exitReady ? 20 : 18),
             const SizedBox(width: 10),
-            Text(exitReady ? 'Release to go back' : 'Pinch to exit',
+            Text(
+              exitReady
+                  ? FlueraLocalizations.of(context)!.pdfReader_releaseToGoBack
+                  : FlueraLocalizations.of(context)!.pdfReader_pinchToExit,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.95), fontSize: exitReady ? 15 : 14, fontWeight: exitReady ? FontWeight.w600 : FontWeight.w500, letterSpacing: 0.3)),
           ])))),
     ])));

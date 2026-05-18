@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../rendering/canvas/ruler_painter.dart';
 import './ruler_guide_system.dart';
 import '../../canvas/infinite_canvas_controller.dart';

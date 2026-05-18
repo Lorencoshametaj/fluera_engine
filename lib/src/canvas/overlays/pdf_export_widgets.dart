@@ -170,7 +170,8 @@ class _PagePreviewCard extends StatelessWidget {
                 Icon(Icons.preview_rounded, size: 14, color: Colors.white70),
                 const SizedBox(width: 6),
                 Text(
-                  'Page 1 of $totalPages',
+                  FlueraLocalizations.of(context)!
+                      .pdfExport_pageOfPages(1, totalPages),
                   style: const TextStyle(
                     fontSize: 11,
                     color: Colors.white70,
@@ -338,7 +339,7 @@ class ExportSuccessOverlayState extends State<ExportSuccessOverlay>
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Export Complete',
+                      FlueraLocalizations.of(context)!.pdfExport_exportComplete,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -550,7 +551,7 @@ class _FormatSelector extends StatelessWidget {
                                 ),
                                 if (isLocked)
                                   Text(
-                                    'Pro',
+                                    FlueraLocalizations.of(context)!.pdfExport_proPlanBadge,
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w600,
@@ -584,7 +585,7 @@ class _FormatSelector extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               l10n?.tierGate_exportBlocked ??
-                  'The Free plan exports only to PNG. With Pro, export to PDF, SVG, and all formats.',
+                  FlueraLocalizations.of(context)!.pdfExport_freePlanLimit,
               style: TextStyle(
                 fontSize: 11,
                 color: cs.onSurfaceVariant.withValues(alpha: 0.5),
@@ -742,24 +743,31 @@ class _WatermarkPositionSelector extends StatelessWidget {
           color: colorScheme.onSurfaceVariant,
         ),
         const SizedBox(width: 8),
-        const Text('Position', style: TextStyle(fontSize: 12)),
+        Text(FlueraLocalizations.of(context)!.pdfExport_position,
+            style: const TextStyle(fontSize: 12)),
         const Spacer(),
         SegmentedButton<WatermarkPosition>(
-          segments: const [
+          segments: [
             ButtonSegment(
               value: WatermarkPosition.diagonal,
-              icon: Icon(Icons.rotate_left, size: 16),
-              label: Text('Diagonal', style: TextStyle(fontSize: 11)),
+              icon: const Icon(Icons.rotate_left, size: 16),
+              label: Text(
+                  FlueraLocalizations.of(context)!.pdfExport_positionDiagonal,
+                  style: const TextStyle(fontSize: 11)),
             ),
             ButtonSegment(
               value: WatermarkPosition.center,
-              icon: Icon(Icons.center_focus_strong, size: 16),
-              label: Text('Center', style: TextStyle(fontSize: 11)),
+              icon: const Icon(Icons.center_focus_strong, size: 16),
+              label: Text(
+                  FlueraLocalizations.of(context)!.pdfExport_positionCenter,
+                  style: const TextStyle(fontSize: 11)),
             ),
             ButtonSegment(
               value: WatermarkPosition.tiled,
-              icon: Icon(Icons.grid_view, size: 16),
-              label: Text('Tiled', style: TextStyle(fontSize: 11)),
+              icon: const Icon(Icons.grid_view, size: 16),
+              label: Text(
+                  FlueraLocalizations.of(context)!.pdfExport_positionTiled,
+                  style: const TextStyle(fontSize: 11)),
             ),
           ],
           selected: {value},
@@ -789,7 +797,8 @@ class _OpacitySlider extends StatelessWidget {
         Icon(Icons.opacity, size: 16, color: colorScheme.onSurfaceVariant),
         const SizedBox(width: 8),
         Text(
-          'Opacity ${(value * 100).round()}%',
+          FlueraLocalizations.of(context)!.pdfExport_opacity(
+              (value * 100).round()),
           style: const TextStyle(fontSize: 12),
         ),
         Expanded(

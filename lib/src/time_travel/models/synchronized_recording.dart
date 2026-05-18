@@ -125,6 +125,13 @@ class SynchronizedRecording {
   /// 📊 Time-stamped transcription segments (JSON-encoded list).
   final String? transcriptionSegmentsJson;
 
+  /// 🌿 Branch this recording belongs to (Audio↔Stroke Sync V1.5).
+  /// `null` = main branch / recording made before branch-aware support
+  /// (schema v18 and earlier). Used by [RecordingStorageService] to
+  /// filter the "Saved recordings" list per branch when the user is on
+  /// an alternative branch.
+  final String? branchId;
+
   const SynchronizedRecording({
     required this.id,
     required this.audioPath,
@@ -132,6 +139,7 @@ class SynchronizedRecording {
     required this.startTime,
     required this.syncedStrokes,
     this.canvasId,
+    this.branchId,
     this.noteTitle,
     this.recordingType,
     this.strokesPath,
@@ -148,6 +156,7 @@ class SynchronizedRecording {
     required String audioPath,
     required DateTime startTime,
     String? canvasId,
+    String? branchId,
     String? noteTitle,
     String? recordingType,
   }) {
@@ -158,6 +167,7 @@ class SynchronizedRecording {
       startTime: startTime,
       syncedStrokes: [],
       canvasId: canvasId,
+      branchId: branchId,
       noteTitle: noteTitle,
       recordingType: recordingType,
       strokesPath: null,
@@ -175,6 +185,7 @@ class SynchronizedRecording {
     DateTime? startTime,
     List<SyncedStroke>? syncedStrokes,
     String? canvasId,
+    String? branchId,
     String? noteTitle,
     String? recordingType,
     String? strokesPath,
@@ -191,6 +202,7 @@ class SynchronizedRecording {
       startTime: startTime ?? this.startTime,
       syncedStrokes: syncedStrokes ?? this.syncedStrokes,
       canvasId: canvasId ?? this.canvasId,
+      branchId: branchId ?? this.branchId,
       noteTitle: noteTitle ?? this.noteTitle,
       recordingType: recordingType ?? this.recordingType,
       strokesPath: strokesPath ?? this.strokesPath,
@@ -259,6 +271,7 @@ class SynchronizedRecording {
     'startTime': startTime.toIso8601String(),
     'syncedStrokes': syncedStrokes.map((s) => s.toJson()).toList(),
     if (canvasId != null) 'canvasId': canvasId,
+    if (branchId != null) 'branchId': branchId,
     if (noteTitle != null) 'noteTitle': noteTitle,
     if (recordingType != null) 'recordingType': recordingType,
     if (audioStorageUrl != null) 'audioStorageUrl': audioStorageUrl,
@@ -283,6 +296,7 @@ class SynchronizedRecording {
               .map((s) => SyncedStroke.fromJson(s as Map<String, dynamic>))
               .toList(),
       canvasId: json['canvasId'] as String?,
+      branchId: json['branchId'] as String?,
       noteTitle: json['noteTitle'] as String?,
       recordingType: json['recordingType'] as String?,
       audioStorageUrl: json['audioStorageUrl'] as String?,

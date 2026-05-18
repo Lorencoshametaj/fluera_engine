@@ -39,9 +39,9 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
 
     HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('LaTeX Table Generated'),
-        duration: Duration(seconds: 2),
+      SnackBar(
+        content: Text(FlueraLocalizations.of(context)!.tabularLatex_generated),
+        duration: const Duration(seconds: 2),
       ),
     );
 
@@ -187,17 +187,17 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              title: const Row(
+              title: Row(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.warning_amber_rounded,
                     color: Color(0xFFFFB74D),
                     size: 24,
                   ),
-                  SizedBox(width: 10),
+                  const SizedBox(width: 10),
                   Text(
-                    'Merged Cells Detected',
-                    style: TextStyle(
+                    FlueraLocalizations.of(ctx)!.tabularLatex_mergedCellsTitle,
+                    style: const TextStyle(
                       color: Color(0xFFF0F0FF),
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -205,18 +205,16 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
                   ),
                 ],
               ),
-              content: const Text(
-                'The selected range contains merged cells.\n\n'
-                'Merged cells will use the master cell value only — '
-                'slave cells will be skipped to avoid duplicate zeros.',
-                style: TextStyle(color: Color(0xAAFFFFFF), fontSize: 13),
+              content: Text(
+                FlueraLocalizations.of(ctx)!.tabularLatex_mergedCellsBody,
+                style: const TextStyle(color: Color(0xAAFFFFFF), fontSize: 13),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Color(0x80FFFFFF)),
+                  child: Text(
+                    FlueraLocalizations.of(ctx)!.tabularLatex_cancel,
+                    style: const TextStyle(color: Color(0x80FFFFFF)),
                   ),
                 ),
                 FilledButton(
@@ -224,7 +222,7 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
                     backgroundColor: const Color(0xFF7C4DFF),
                   ),
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Continue'),
+                  child: Text(FlueraLocalizations.of(ctx)!.tabularLatex_continue),
                 ),
               ],
             ),
@@ -396,9 +394,9 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
         final controller = TextEditingController();
         return AlertDialog(
           backgroundColor: const Color(0xFF1E1E1E),
-          title: const Text(
-            'Import LaTeX Table',
-            style: TextStyle(color: Colors.white),
+          title: Text(
+            FlueraLocalizations.of(ctx)!.tabularLatex_importTitle,
+            style: const TextStyle(color: Colors.white),
           ),
           content: SizedBox(
             width: 500,
@@ -411,7 +409,7 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
                 fontSize: 13,
               ),
               decoration: InputDecoration(
-                hintText: r'Paste \begin{tabular}...\end{tabular} here',
+                hintText: FlueraLocalizations.of(ctx)!.tabularLatex_importHint,
                 hintStyle: TextStyle(
                   color: Colors.white.withValues(alpha: 0.3),
                 ),
@@ -427,11 +425,11 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
+              child: Text(FlueraLocalizations.of(ctx)!.tabularLatex_cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(controller.text),
-              child: const Text('Import'),
+              child: Text(FlueraLocalizations.of(ctx)!.tabularLatex_import),
             ),
           ],
         );
@@ -443,9 +441,9 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
       final parsed = parser.parse(latexSource);
       if (parsed == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No valid LaTeX table found'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(FlueraLocalizations.of(context)!.tabularLatex_noValidTable),
+            duration: const Duration(seconds: 2),
           ),
         );
         return;
@@ -488,7 +486,7 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
       HapticFeedback.mediumImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Imported ${parsed.environment} → $cols×$rows table'),
+          content: Text(FlueraLocalizations.of(context)!.tabularLatex_imported(parsed.environment, cols, rows)),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -511,9 +509,9 @@ extension FlueraCanvasTabularLatexExport on _FlueraCanvasScreenState {
     Clipboard.setData(ClipboardData(text: texContent));
     HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('.tex document copied to clipboard'),
-        duration: Duration(seconds: 3),
+      SnackBar(
+        content: Text(FlueraLocalizations.of(context)!.tabularLatex_documentCopied),
+        duration: const Duration(seconds: 3),
       ),
     );
   }

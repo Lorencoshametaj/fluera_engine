@@ -434,16 +434,16 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
       barrierDismissible: false,
       builder: (ctx) {
         dialogCtx = ctx;
-        return const Center(
+        return Center(
           child: Card(
             child: Padding(
-              padding: EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Riconoscimento testo...'),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(FlueraLocalizations.of(ctx)!.imageEditor_ocrInProgress),
                 ],
               ),
             ),
@@ -465,11 +465,11 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
     if (result == null || result.blocks.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Row(
+          content: Row(
             children: [
-              Icon(Icons.info_outline, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Text('Nessun testo trovato nell\'immagine'),
+              const Icon(Icons.info_outline, color: Colors.white, size: 18),
+              const SizedBox(width: 8),
+              Text(FlueraLocalizations.of(context)!.imageEditor_ocrNoText),
             ],
           ),
           backgroundColor: Colors.orange.shade800,
@@ -545,12 +545,13 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                           HapticFeedback.lightImpact();
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: const Row(
+                              content: Row(
                                 children: [
-                                  Icon(Icons.check_circle_rounded,
+                                  const Icon(Icons.check_circle_rounded,
                                       color: Colors.white, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Testo copiato negli appunti'),
+                                  const SizedBox(width: 8),
+                                  Text(FlueraLocalizations.of(context)!
+                                      .imageEditor_textCopiedToClipboard),
                                 ],
                               ),
                               backgroundColor: Colors.green.shade700,
@@ -562,7 +563,8 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                           );
                         },
                         icon: const Icon(Icons.copy_rounded, size: 20),
-                        tooltip: 'Copia tutto',
+                        tooltip: FlueraLocalizations.of(context)!
+                            .imageEditor_copyAll,
                       ),
                       IconButton(
                         icon: const Icon(Icons.close_rounded, size: 20),
@@ -688,13 +690,14 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                                 HapticFeedback.lightImpact();
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: const Row(
+                                    content: Row(
                                       children: [
-                                        Icon(Icons.check_circle_rounded,
+                                        const Icon(Icons.check_circle_rounded,
                                             color: Colors.white,
                                             size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Testo copiato'),
+                                        const SizedBox(width: 8),
+                                        Text(FlueraLocalizations.of(context)!
+                                            .imageEditor_textCopied),
                                       ],
                                     ),
                                     backgroundColor:
@@ -709,7 +712,8 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                             : null,
                         icon:
                             const Icon(Icons.copy_rounded, size: 16),
-                        label: const Text('Copia'),
+                        label: Text(
+                            FlueraLocalizations.of(context)!.imageEditor_copy),
                       ),
                       const SizedBox(width: 10),
                       FilledButton.icon(
@@ -758,7 +762,8 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                             : null,
                         icon: const Icon(Icons.text_fields_rounded,
                             size: 16),
-                        label: const Text('Aggiungi overlay'),
+                        label: Text(FlueraLocalizations.of(context)!
+                            .imageEditor_addOverlay),
                       ),
                     ],
                   ),
@@ -1215,7 +1220,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
           child: FilledButton.tonalIcon(
             onPressed: _autoEnhance,
             icon: const Icon(Icons.auto_fix_high_rounded, size: 20),
-            label: const Text('Auto-Enhance'),
+            label: Text(FlueraLocalizations.of(context)!.imageEditor_autoEnhance),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(44),
               shape: RoundedRectangleBorder(
@@ -1803,7 +1808,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                   setState(() => _toneCurve = const ToneCurve());
                 },
                 icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                label: const Text('Reset Curve'),
+                label: Text(FlueraLocalizations.of(context)!.imageEditor_resetCurve),
                 style: TextButton.styleFrom(foregroundColor: cs.error),
               ),
             ),
@@ -2038,7 +2043,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
           child: FilledButton.tonalIcon(
             onPressed: _autoEnhance,
             icon: const Icon(Icons.auto_fix_high_rounded, size: 20),
-            label: const Text('Auto-Enhance'),
+            label: Text(FlueraLocalizations.of(context)!.imageEditor_autoEnhance),
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(44),
               shape: RoundedRectangleBorder(
@@ -2413,7 +2418,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                     setState(() => _toneCurve = const ToneCurve());
                   },
                   icon: const Icon(Icons.refresh_rounded, size: 16),
-                  label: const Text('Reset'),
+                  label: Text(FlueraLocalizations.of(context)!.imageEditor_reset),
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     minimumSize: const Size(0, 28),
@@ -2965,7 +2970,8 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
         FilledButton.tonalIcon(
           onPressed: _addTextOverlay,
           icon: const Icon(Icons.text_fields_rounded, size: 20),
-          label: const Text('Add Text'),
+
+          label: Text(FlueraLocalizations.of(context)!.imageEditor_addText),
           style: FilledButton.styleFrom(
             minimumSize: const Size.fromHeight(44),
             shape: RoundedRectangleBorder(
@@ -3364,7 +3370,8 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                             _doSave();
                           },
                           icon: const Icon(Icons.save_rounded),
-                          label: Text('Export ${fmt.toUpperCase()}'),
+                          label: Text(FlueraLocalizations.of(context)!
+                              .imageEditor_export(fmt.toUpperCase())),
                         ),
                       ),
                     ],
@@ -3458,17 +3465,18 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             final cs = Theme.of(ctx).colorScheme;
+            final l10n = FlueraLocalizations.of(ctx)!;
             return AlertDialog(
-              title: const Text('Add Text'),
+              title: Text(l10n.imageEditor_addText),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   TextField(
                     controller: controller,
                     autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Enter text...',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      hintText: l10n.imageEditor_textInputHint,
+                      border: const OutlineInputBorder(),
                     ),
                     maxLines: 2,
                   ),
@@ -3477,7 +3485,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                   Row(
                     children: [
                       Text(
-                        'Color',
+                        l10n.imageEditor_color,
                         style: TextStyle(color: cs.onSurfaceVariant),
                       ),
                       const Spacer(),
@@ -3519,7 +3527,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                   Row(
                     children: [
                       Text(
-                        'Size',
+                        l10n.imageEditor_size,
                         style: TextStyle(color: cs.onSurfaceVariant),
                       ),
                       Expanded(
@@ -3538,7 +3546,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                   Row(
                     children: [
                       ChoiceChip(
-                        label: const Text('Sans'),
+                        label: Text(l10n.imageEditor_fontSans),
                         selected: fontFamily == 'sans-serif',
                         onSelected:
                             (_) =>
@@ -3547,7 +3555,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                       ),
                       const SizedBox(width: 6),
                       ChoiceChip(
-                        label: const Text('Serif'),
+                        label: Text(l10n.imageEditor_fontSerif),
                         selected: fontFamily == 'serif',
                         onSelected:
                             (_) => setDialogState(() => fontFamily = 'serif'),
@@ -3555,7 +3563,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                       ),
                       const SizedBox(width: 6),
                       ChoiceChip(
-                        label: const Text('Mono'),
+                        label: Text(l10n.imageEditor_fontMono),
                         selected: fontFamily == 'monospace',
                         onSelected:
                             (_) =>
@@ -3579,7 +3587,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
+                  child: Text(l10n.imageEditor_cancel),
                 ),
                 FilledButton(
                   onPressed: () {
@@ -3596,7 +3604,7 @@ class _ImageEditorDialogState extends State<ImageEditorDialog>
                       ),
                     );
                   },
-                  child: const Text('Add'),
+                  child: Text(l10n.imageEditor_add),
                 ),
               ],
             );

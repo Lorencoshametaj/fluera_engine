@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import '../l10n/fluera_localizations.dart';
 import '../services/text_recognition_service.dart';
 
 // ============================================================================
@@ -105,7 +106,8 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
       _isScanning = false;
       _ocrResult = result;
       if (result == null) {
-        _errorMessage = 'Nessun testo trovato nell\'immagine';
+        _errorMessage =
+            FlueraLocalizations.of(context)!.ocrScan_noTextFound;
       } else {
         // Select all blocks by default
         _selectedBlocks.addAll(List.generate(result.blocks.length, (i) => i));
@@ -264,7 +266,8 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
             const SizedBox(height: 24),
             FilledButton.tonal(
               onPressed: _pickImage,
-              child: const Text('Prova un\'altra immagine'),
+              child: Text(
+                  FlueraLocalizations.of(context)!.ocrScan_tryAnotherImage),
             ),
           ],
         ),
@@ -315,7 +318,7 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
               Icon(Icons.layers_rounded, size: 18, color: cs.primary),
               const SizedBox(width: 8),
               Text(
-                'Mostra blocchi rilevati',
+                FlueraLocalizations.of(context)!.ocrScan_showBlocks,
                 style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
               ),
               const Spacer(),
@@ -397,7 +400,8 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
             child: TextButton.icon(
               onPressed: _pickImage,
               icon: const Icon(Icons.photo_library_rounded),
-              label: const Text('Altra immagine'),
+              label: Text(
+                  FlueraLocalizations.of(context)!.ocrScan_anotherImage),
             ),
           ),
         ],
@@ -435,8 +439,8 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
                 },
                 child: Text(
                   _selectedBlocks.length == totalCount
-                      ? 'Deseleziona tutto'
-                      : 'Seleziona tutto',
+                      ? FlueraLocalizations.of(context)!.ocrScan_deselectAll
+                      : FlueraLocalizations.of(context)!.ocrScan_selectAll,
                 ),
               ),
             ],
@@ -451,7 +455,8 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
                 child: OutlinedButton.icon(
                   onPressed: selectedCount > 0 ? _importBlocks : null,
                   icon: const Icon(Icons.view_module_rounded, size: 18),
-                  label: const Text('Blocchi separati'),
+                  label: Text(FlueraLocalizations.of(context)!
+                      .ocrScan_separatedBlocks),
                 ),
               ),
               const SizedBox(width: 12),
@@ -459,7 +464,8 @@ class _OcrScanDialogState extends State<OcrScanDialog> {
                 child: FilledButton.icon(
                   onPressed: selectedCount > 0 ? _importMerged : null,
                   icon: const Icon(Icons.text_snippet_rounded, size: 18),
-                  label: const Text('Testo unito'),
+                  label: Text(
+                      FlueraLocalizations.of(context)!.ocrScan_mergedText),
                 ),
               ),
             ],

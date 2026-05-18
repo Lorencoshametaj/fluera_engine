@@ -311,8 +311,9 @@ extension ExportExtension on _FlueraCanvasScreenState {
   void _removeMultiPagePage() {
     if (!_multiPageConfig.canRemovePage) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Must keep at least one page'),
+        SnackBar(
+          content: Text(
+              FlueraLocalizations.of(context)!.canvasParts_mustKeepOnePage),
           backgroundColor: Colors.orange,
         ),
       );
@@ -460,8 +461,9 @@ extension ExportExtension on _FlueraCanvasScreenState {
 
     if (contentBounds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Nessun contenuto da inquadrare'),
+        SnackBar(
+          content: Text(
+              FlueraLocalizations.of(context)!.canvasParts_noContentToFrame),
           backgroundColor: Colors.orange,
         ),
       );
@@ -559,8 +561,9 @@ extension ExportExtension on _FlueraCanvasScreenState {
       });
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Export not configured in this app'),
+        SnackBar(
+          content: Text(FlueraLocalizations.of(context)!
+              .canvasParts_exportNotConfigured),
           backgroundColor: Colors.orange,
         ),
       );

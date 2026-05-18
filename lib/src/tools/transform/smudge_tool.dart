@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import '../../l10n/fluera_localizations.dart';
 import '../base/base_tool.dart';
 import '../base/tool_interface.dart';
 import '../base/tool_context.dart';
@@ -351,8 +352,8 @@ class _SmudgeActionBar extends StatelessWidget {
                 tool._currentStroke.clear();
                 this.context.adapter.notifyOperationComplete();
               },
-              child: const Text('Cancel',
-                  style: TextStyle(color: Colors.white70)),
+              child: Text(FlueraLocalizations.of(context)!.warp_cancel,
+                  style: const TextStyle(color: Colors.white70)),
             ),
             const SizedBox(width: 8),
             ElevatedButton(
@@ -368,7 +369,7 @@ class _SmudgeActionBar extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text('Apply'),
+              child: Text(FlueraLocalizations.of(context)!.warp_apply),
             ),
           ],
         ),
@@ -394,8 +395,8 @@ class _SmudgeToolOptionsState extends State<_SmudgeToolOptions> {
       children: [
         // Finger painting toggle
         SwitchListTile(
-          title: const Text('Finger Painting',
-              style: TextStyle(color: Colors.white, fontSize: 13)),
+          title: Text(FlueraLocalizations.of(context)!.smudge_fingerPainting,
+              style: const TextStyle(color: Colors.white, fontSize: 13)),
           value: widget.tool.fingerPaintingMode,
           onChanged: (v) =>
               setState(() => widget.tool.fingerPaintingMode = v),

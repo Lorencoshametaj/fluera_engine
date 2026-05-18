@@ -91,7 +91,8 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                                 : const Color(0xFF1A1A1A),
                       ),
                       decoration: InputDecoration(
-                        labelText: 'Annotation',
+                        labelText: FlueraLocalizations.of(context)!
+                            .ruler_annotationLabel,
                         labelStyle: TextStyle(
                           color:
                               widget.isDark
@@ -139,7 +140,8 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                   Clipboard.setData(ClipboardData(text: coord));
                   ScaffoldMessenger.of(ctx).showSnackBar(
                     SnackBar(
-                      content: Text('Copied: $coord'),
+                      content: Text(FlueraLocalizations.of(context)!
+                          .ruler_copied(coord)),
                       duration: const Duration(seconds: 1),
                     ),
                   );
@@ -150,13 +152,14 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                   color:
                       widget.isDark ? Colors.white54 : const Color(0xFF888888),
                 ),
-                tooltip: 'Copy coordinate',
+                tooltip:
+                    FlueraLocalizations.of(context)!.ruler_copyCoordinate,
               ),
               const Spacer(),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
                 child: Text(
-                  'Cancel',
+                  FlueraLocalizations.of(context)!.ruler_cancel,
                   style: TextStyle(
                     color:
                         widget.isDark
@@ -176,7 +179,7 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text('OK'),
+                child: Text(FlueraLocalizations.of(context)!.ruler_ok),
               ),
             ],
           ),
@@ -283,12 +286,13 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Custom Grid'),
+            title:
+                Text(FlueraLocalizations.of(context)!.ruler_customGridTitle),
             content: TextField(
               controller: controller,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Spacing (px)',
+              decoration: InputDecoration(
+                labelText: FlueraLocalizations.of(context)!.ruler_spacing,
                 hintText: 'e.g. 25, 50, 100',
               ),
               autofocus: true,
@@ -296,7 +300,7 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child: Text(FlueraLocalizations.of(context)!.ruler_cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -308,7 +312,7 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                   }
                   Navigator.pop(ctx);
                 },
-                child: const Text('Apply'),
+                child: Text(FlueraLocalizations.of(context)!.ruler_apply),
               ),
             ],
           ),
@@ -329,7 +333,8 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
           (ctx) => StatefulBuilder(
             builder:
                 (ctx, setDialogState) => AlertDialog(
-                  title: const Text('Distribute Guides'),
+                  title: Text(
+                      FlueraLocalizations.of(context)!.ruler_distribute),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -357,22 +362,23 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                       TextField(
                         controller: countCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Number of guides',
+                        decoration: InputDecoration(
+                          labelText: FlueraLocalizations.of(context)!
+                              .ruler_numberOfGuides,
                         ),
                       ),
                       TextField(
                         controller: startCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Start (px)',
+                        decoration: InputDecoration(
+                          labelText: FlueraLocalizations.of(context)!.ruler_start,
                         ),
                       ),
                       TextField(
                         controller: endCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'End (px)',
+                        decoration: InputDecoration(
+                          labelText: FlueraLocalizations.of(context)!.ruler_end,
                         ),
                       ),
                     ],
@@ -380,7 +386,8 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel'),
+                      child:
+                          Text(FlueraLocalizations.of(context)!.ruler_cancel),
                     ),
                     FilledButton(
                       onPressed: () {
@@ -399,7 +406,8 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                         }
                         Navigator.pop(ctx);
                       },
-                      child: const Text('Distribute'),
+                      child: Text(
+                          FlueraLocalizations.of(context)!.ruler_distribute),
                     ),
                   ],
                 ),
@@ -415,11 +423,13 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Save Preset'),
+            title: Text(
+                FlueraLocalizations.of(context)!.brushEditor_savePresetTitle),
             content: TextField(
               controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Preset name',
+              decoration: InputDecoration(
+                labelText:
+                    FlueraLocalizations.of(context)!.ruler_presetNameLabel,
                 hintText: 'e.g. Main layout',
               ),
               autofocus: true,
@@ -427,7 +437,7 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child: Text(FlueraLocalizations.of(context)!.ruler_cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -439,7 +449,7 @@ extension _RulerOverlayDialogs on _RulerInteractiveOverlayState {
                   }
                   Navigator.pop(ctx);
                 },
-                child: const Text('Save'),
+                child: Text(FlueraLocalizations.of(context)!.ruler_save),
               ),
             ],
           ),

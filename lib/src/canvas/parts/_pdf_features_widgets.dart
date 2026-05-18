@@ -91,7 +91,7 @@ class _PdfCreateSheetState extends State<_PdfCreateSheet> {
                     fontWeight: FontWeight.w500,
                   ),
                   decoration: InputDecoration(
-                    labelText: 'Document title',
+                    labelText: FlueraLocalizations.of(context)!.pdfFeatures_documentTitle,
                     labelStyle: TextStyle(color: cs.onSurfaceVariant),
                     prefixIcon: Icon(
                       Icons.edit_document,

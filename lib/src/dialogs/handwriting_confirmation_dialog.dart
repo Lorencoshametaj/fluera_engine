@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/fluera_localizations.dart';
 import '../services/digital_ink_service.dart';
 
 /// ✍️ Handwriting Recognition Confirmation Dialog
@@ -93,7 +94,8 @@ class _HandwritingConfirmationDialogState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Handwriting Recognized',
+                        FlueraLocalizations.of(context)!
+                            .handwritingConfirm_title,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -102,7 +104,8 @@ class _HandwritingConfirmationDialogState
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Edit the text if needed',
+                        FlueraLocalizations.of(context)!
+                            .handwritingConfirm_subtitle,
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark ? Colors.white38 : Colors.black38,
@@ -178,7 +181,8 @@ class _HandwritingConfirmationDialogState
                 decoration: InputDecoration(
                   contentPadding: const EdgeInsets.all(14),
                   border: InputBorder.none,
-                  hintText: 'Recognized text...',
+                  hintText:
+                      FlueraLocalizations.of(context)!.handwritingConfirm_hint,
                   hintStyle: TextStyle(
                     color: isDark ? Colors.white24 : Colors.black26,
                   ),
@@ -228,8 +232,10 @@ class _HandwritingConfirmationDialogState
                     Expanded(
                       child: Text(
                         _deleteStrokes
-                            ? 'Replace strokes with text'
-                            : 'Keep strokes, add text',
+                            ? FlueraLocalizations.of(context)!
+                                .handwritingConfirm_replaceStrokes
+                            : FlueraLocalizations.of(context)!
+                                .handwritingConfirm_keepStrokes,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -259,7 +265,7 @@ class _HandwritingConfirmationDialogState
                 TextButton(
                   onPressed: () => Navigator.pop(context, null),
                   child: Text(
-                    'Cancel',
+                    FlueraLocalizations.of(context)!.handwritingConfirm_cancel,
                     style: TextStyle(
                       color: isDark ? Colors.white54 : Colors.black45,
                     ),
@@ -277,7 +283,8 @@ class _HandwritingConfirmationDialogState
                     }
                   },
                   icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('Convert'),
+                  label: Text(FlueraLocalizations.of(context)!
+                      .handwritingConfirm_convert),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.deepPurple,
                     foregroundColor: Colors.white,
@@ -332,7 +339,8 @@ class _HandwritingConfirmationDialogState
                       vertical: 8,
                     ),
                     child: Text(
-                      'Select Language',
+                      FlueraLocalizations.of(context)!
+                          .handwritingConfirm_selectLanguage,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,

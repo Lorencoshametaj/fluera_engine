@@ -179,10 +179,19 @@ extension _LifecycleHelpers on _FlueraCanvasScreenState {
         _scheduleSemanticOcr();
       }
 
-      // 🌍 GOD VIEW: Compute super-nodes when approaching extreme zoom-out
-      if (scale <= SemanticMorphController.godViewStartScale &&
+      // 🌍 SUPER-NODES: Compute as soon as morph starts (scale ≤ 0.30) so
+      // both god view AND zone-tint painter have data ready before god
+      // view kicks in. Cheap when cluster hash unchanged (early-return).
+      if (scale <= SemanticMorphController.morphStartScale &&
           _semanticMorphController != null) {
         _semanticMorphController!.computeSuperNodes(_clusterCache);
+      }
+
+      // 🎯 COACHMARK SIGNAL: first dezoom into mappamondo range — fires
+      // at most once per process; host wires the callback to surface a
+      // one-time tip explaining the satellite view (§22, §1098).
+      if (scale < SemanticMorphController.morphStartScale) {
+        CanvasCoachmarkSignals.notifyMappamondoDezoom();
       }
     }
 

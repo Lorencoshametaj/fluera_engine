@@ -33,8 +33,8 @@ extension _PdfBookmarksPanelMethods on _PdfReaderScreenState {
                       ].join(' | '), style: const TextStyle(color: Colors.white30, fontSize: 10)),
                     ])),
                     if (sorted.length > 1) ...[
-                      IconButton(icon: const Icon(Icons.chevron_left_rounded, color: Colors.white54, size: 24), onPressed: () { Navigator.pop(ctx); _jumpToPrevBookmark(); }, tooltip: 'Previous bookmark'),
-                      IconButton(icon: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 24), onPressed: () { Navigator.pop(ctx); _jumpToNextBookmark(); }, tooltip: 'Next bookmark'),
+                      IconButton(icon: const Icon(Icons.chevron_left_rounded, color: Colors.white54, size: 24), onPressed: () { Navigator.pop(ctx); _jumpToPrevBookmark(); }, tooltip: FlueraLocalizations.of(context)!.pdfBookmark_tooltipPrev),
+                      IconButton(icon: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 24), onPressed: () { Navigator.pop(ctx); _jumpToNextBookmark(); }, tooltip: FlueraLocalizations.of(context)!.pdfBookmark_tooltipNext),
                     ],
                   ]),
                   const SizedBox(height: 8),
@@ -100,7 +100,7 @@ extension _PdfBookmarksPanelMethods on _PdfReaderScreenState {
                 backgroundColor: const Color(0xFF1A1A36),
                 title: Text('Note — Page ${pageIdx + 1}', style: const TextStyle(color: Colors.white, fontSize: 16)),
                 content: TextField(controller: ctrl, autofocus: true, maxLines: 3, style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: InputDecoration(hintText: 'Add a note...', hintStyle: const TextStyle(color: Colors.white24),
+                  decoration: InputDecoration(hintText: FlueraLocalizations.of(context)!.bookmarks_addNote, hintStyle: const TextStyle(color: Colors.white24),
                     enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0x33FFFFFF))),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF6C63FF))))),
                 actions: [

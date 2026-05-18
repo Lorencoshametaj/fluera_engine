@@ -9,6 +9,7 @@ import '../../core/nodes/shape_node.dart';
 import '../../core/nodes/text_node.dart';
 import '../../core/nodes/image_node.dart';
 import '../../core/models/canvas_layer.dart';
+import '../../history/undo_redo_manager.dart';
 import '../../layers/fluera_layer_controller.dart';
 import '../../reflow/reflow_controller.dart';
 import '../../reflow/content_cluster.dart';
@@ -278,10 +279,70 @@ class LassoTool {
     // and hit-testing find strokes at their new position.
     // Skip when fling is starting — bake happens at fling end instead.
     if (!skipReflow) {
-      selectionManager.bakeStrokeTransforms();
+      _bakeStrokeTransformsAsComposite();
       _getActiveLayerNode().invalidateStrokeCache();
       // 🚀 FIX: Force R-tree rebuild with new bounds (doesn't invalidate tiles)
       DrawingPainter.invalidateRenderIndex();
+    }
+  }
+
+  /// 🧩 F12: Bake stroke transforms into a single composite undo entry.
+  ///
+  /// The legacy [SelectionManager.bakeStrokeTransforms] mutates
+  /// `node.stroke.points` directly without going through the
+  /// [LayerController] API — so the delta tracker never saw the move
+  /// and Ctrl+Z couldn't revert a drag. This routes the bake through
+  /// `removeStroke + addStroke` so every moved stroke produces tracked
+  /// deltas (auto-pushed onto the active batch), then closes the batch
+  /// as a single composite undo entry labelled "Sposta selezione".
+  void _bakeStrokeTransformsAsComposite() {
+    final movable = <StrokeNode>[];
+    for (final node in selectionManager.selectedNodes) {
+      if (node.isLocked) continue;
+      if (node is! StrokeNode) continue;
+      if (node.isIdentityTransform) continue;
+      final tx = node.localTransform[12];
+      final ty = node.localTransform[13];
+      if (tx == 0.0 && ty == 0.0) continue;
+      movable.add(node);
+    }
+    if (movable.isEmpty) {
+      // Still call the legacy bake for non-stroke nodes (text/image/shape)
+      // and any edge case our filter missed — translates of those types
+      // happen in-place via the scene graph; the delta system will pick
+      // them up on autosave via the legacy path.
+      selectionManager.bakeStrokeTransforms();
+      return;
+    }
+
+    UndoRedoManager.instance.beginBatch();
+    try {
+      // 1) Strokes: rewrite via LayerController so deltas are tracked.
+      for (final node in movable) {
+        final oldStroke = node.stroke;
+        final tx = node.localTransform[12];
+        final ty = node.localTransform[13];
+        final movedPoints = oldStroke.points
+            .map((p) => p.copyWith(
+                  position: Offset(p.position.dx + tx, p.position.dy + ty),
+                ))
+            .toList();
+        final newStroke = oldStroke.copyWith(points: movedPoints);
+
+        // Reset scene-graph transform BEFORE remove/add so the new
+        // StrokeNode lands at identity (matches legacy bake invariant).
+        node.localTransform = Matrix4.identity();
+        node.invalidateTransformCache();
+
+        layerController.removeStroke(oldStroke.id);
+        layerController.addStroke(newStroke);
+      }
+      // 2) Legacy bake for non-stroke node types (text/shape/image) that
+      // we did not migrate. Their transforms are still applied in-place;
+      // delta capture for those types is out of scope for F12.
+      selectionManager.bakeStrokeTransforms();
+    } finally {
+      UndoRedoManager.instance.endBatchAsComposite('Sposta selezione');
     }
   }
 

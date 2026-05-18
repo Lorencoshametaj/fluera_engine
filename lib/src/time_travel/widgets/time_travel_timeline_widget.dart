@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../l10n/fluera_localizations.dart';
 import '../services/time_travel_playback_engine.dart';
 
 /// ⏱️ Time Travel Timeline Widget — Material Design 3
@@ -20,6 +21,8 @@ class TimeTravelTimelineWidget extends StatefulWidget {
   final VoidCallback? onRecoverRequested;
   final VoidCallback? onNewBranch;
   final VoidCallback? onBranchExplorer;
+  final VoidCallback? onSaveCheckpoint;
+  final VoidCallback? onViewCheckpoints;
   final String? activeBranchName;
 
   const TimeTravelTimelineWidget({
@@ -30,6 +33,8 @@ class TimeTravelTimelineWidget extends StatefulWidget {
     this.onRecoverRequested,
     this.onNewBranch,
     this.onBranchExplorer,
+    this.onSaveCheckpoint,
+    this.onViewCheckpoints,
     this.activeBranchName,
   });
 
@@ -71,6 +76,12 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
     _fadeController.dispose();
     super.dispose();
   }
+
+  bool _hasAnyHistoryAction() =>
+      widget.onSaveCheckpoint != null ||
+      widget.onViewCheckpoints != null ||
+      widget.onNewBranch != null ||
+      widget.onBranchExplorer != null;
 
   @override
   Widget build(BuildContext context) {
@@ -189,17 +200,90 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
 
         const Spacer(),
 
-        // 🌿 Branch Explorer
-        if (widget.onBranchExplorer != null)
-          IconButton(
-            onPressed: widget.onBranchExplorer,
-            icon: const Icon(Icons.account_tree_rounded),
-            iconSize: 18,
-            tooltip: 'Branch Explorer',
-            color: cs.onSurfaceVariant,
-            visualDensity: VisualDensity.compact,
+        // 📚 Unified "Storia" menu — Checkpoint + Alternative
+        // Repositioned 2026-05-15: replaces two separate buttons with a
+        // single entry that surfaces tier-appropriate options.
+        if (_hasAnyHistoryAction())
+          PopupMenuButton<_HistoryMenuAction>(
+            tooltip: FlueraLocalizations.of(context)!.timeTravelMenu_title,
+            icon: const Icon(Icons.history_rounded, size: 18),
+            iconColor: cs.onSurfaceVariant,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onSelected: (action) {
+              switch (action) {
+                case _HistoryMenuAction.saveCheckpoint:
+                  widget.onSaveCheckpoint?.call();
+                case _HistoryMenuAction.viewCheckpoints:
+                  widget.onViewCheckpoints?.call();
+                case _HistoryMenuAction.exploreAlternative:
+                  widget.onNewBranch?.call();
+                case _HistoryMenuAction.viewAlternatives:
+                  widget.onBranchExplorer?.call();
+              }
+            },
+            itemBuilder: (context) {
+              final l10n = FlueraLocalizations.of(context)!;
+              return [
+                if (widget.onSaveCheckpoint != null)
+                  PopupMenuItem(
+                    value: _HistoryMenuAction.saveCheckpoint,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.bookmark_add_outlined, size: 18),
+                        const SizedBox(width: 10),
+                        Text(l10n.timeTravelMenu_saveCheckpoint),
+                      ],
+                    ),
+                  ),
+                if (widget.onViewCheckpoints != null)
+                  PopupMenuItem(
+                    value: _HistoryMenuAction.viewCheckpoints,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.bookmarks_outlined, size: 18),
+                        const SizedBox(width: 10),
+                        Text(l10n.timeTravelMenu_viewCheckpoints),
+                      ],
+                    ),
+                  ),
+                if ((widget.onSaveCheckpoint != null ||
+                        widget.onViewCheckpoints != null) &&
+                    (widget.onNewBranch != null ||
+                        widget.onBranchExplorer != null))
+                  const PopupMenuDivider(),
+                if (widget.onNewBranch != null)
+                  PopupMenuItem(
+                    value: _HistoryMenuAction.exploreAlternative,
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.alt_route_rounded,
+                          size: 18,
+                          color: Color(0xFF7C4DFF),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(l10n.timeTravelMenu_exploreAlternative),
+                      ],
+                    ),
+                  ),
+                if (widget.onBranchExplorer != null)
+                  PopupMenuItem(
+                    value: _HistoryMenuAction.viewAlternatives,
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.account_tree_outlined,
+                          size: 18,
+                          color: Color(0xFF7C4DFF),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(l10n.timeTravelMenu_viewAlternatives),
+                      ],
+                    ),
+                  ),
+              ];
+            },
           ),
 
         // ✕ Exit — M3 IconButton
@@ -370,7 +454,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
               onPressed: widget.engine.skipToPreviousSession,
               icon: const Icon(Icons.skip_previous_rounded),
               color: cs.onSurfaceVariant,
-              tooltip: 'Previous session',
+              tooltip: FlueraLocalizations.of(context)!.timeTravel_previousSession,
               iconSize: 20,
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
@@ -401,7 +485,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
               onPressed: widget.engine.skipToNextSession,
               icon: const Icon(Icons.skip_next_rounded),
               color: cs.onSurfaceVariant,
-              tooltip: 'Next session',
+              tooltip: FlueraLocalizations.of(context)!.timeTravel_nextSession,
               iconSize: 20,
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
@@ -410,38 +494,20 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
 
             const Spacer(),
 
-            // ─── Right: branch + recover + export ────────────────────
+            // ─── Right: recover + export ────────────────────
+            // 🌿 2026-05-15: "New Branch" button moved to unified "Storia"
+            // menu in the top bar (along with Checkpoint actions).
             Flexible(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // 🌿 New Branch from current position
-                  if (widget.onNewBranch != null)
-                    IconButton(
-                      onPressed: widget.onNewBranch,
-                      icon: const Icon(
-                        Icons.alt_route_rounded,
-                        size: 18,
-                        color: Color(0xFF7C4DFF),
-                      ),
-                      iconSize: 18,
-                      tooltip: 'New Branch from here',
-                      color: const Color(0xFF7C4DFF),
-                      visualDensity: VisualDensity.compact,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                    ),
-
                   // 🔮 Recover in the present
                   if (widget.onRecoverRequested != null)
                     IconButton(
                       onPressed: widget.onRecoverRequested,
                       icon: const Icon(Icons.auto_fix_high_rounded),
                       iconSize: 18,
-                      tooltip: 'Recover in the present',
+                      tooltip: FlueraLocalizations.of(context)!.timeTravel_recoverInPresent,
                       color: cs.tertiary,
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
@@ -456,7 +522,7 @@ class _TimeTravelTimelineWidgetState extends State<TimeTravelTimelineWidget>
                       onPressed: widget.onExportRequested,
                       icon: const Icon(Icons.movie_creation_outlined),
                       iconSize: 18,
-                      tooltip: 'Export timelapse',
+                      tooltip: FlueraLocalizations.of(context)!.timeTravel_exportTimelapse,
                       color: cs.onSurfaceVariant,
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
@@ -913,4 +979,12 @@ class _TimelineHeatmapPainter extends CustomPainter {
         oldDelegate.density != density ||
         oldDelegate.dateMarkers != dateMarkers;
   }
+}
+
+/// 📚 Actions exposed by the unified "Storia" menu in Time Travel.
+enum _HistoryMenuAction {
+  saveCheckpoint,
+  viewCheckpoints,
+  exploreAlternative,
+  viewAlternatives,
 }

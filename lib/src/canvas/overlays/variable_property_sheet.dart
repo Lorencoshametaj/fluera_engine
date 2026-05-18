@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../systems/design_variables.dart';
 import '../../systems/variable_binding.dart';
 
@@ -198,7 +199,7 @@ class _VariablePropertySheetState extends State<VariablePropertySheet> {
               onChanged: (v) => setState(() => _searchQuery = v),
               style: TextStyle(fontSize: 12, color: cs.onSurface),
               decoration: InputDecoration(
-                hintText: 'Search ${widget.propertyType.name} variables…',
+                hintText: FlueraLocalizations.of(context)!.varProp_searchVariables(widget.propertyType.name),
                 hintStyle: TextStyle(
                   fontSize: 12,
                   color: cs.onSurface.withValues(alpha: 0.4),

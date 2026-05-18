@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/fluera_localizations.dart';
 import '../../tools/tabular/tabular_tool.dart';
 import '../../core/nodes/tabular_node.dart';
 import '../../core/tabular/cell_address.dart';
@@ -331,18 +332,18 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Style', [
         _Btn(
           icon: Icons.format_bold,
-          tooltip: 'Bold',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_bold,
           onPressed: sel ? widget.onToggleBold : null,
           isActive: _isBold,
         ),
         _Btn(
           icon: Icons.format_italic,
-          tooltip: 'Italic',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_italic,
           onPressed: sel ? widget.onToggleItalic : null,
           isActive: _isItalic,
         ),
         PopupMenuButton<String>(
-          tooltip: 'Borders',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_borders,
           enabled: sel,
           onSelected: (v) => widget.onBorderPreset?.call(v),
           child: Padding(
@@ -353,66 +354,68 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
               color: sel ? null : Colors.grey,
             ),
           ),
-          itemBuilder:
-              (_) => const [
-                PopupMenuItem(
-                  value: 'all',
-                  child: Row(
-                    children: [
-                      Icon(Icons.border_all, size: 18),
-                      SizedBox(width: 8),
-                      Text('All'),
-                    ],
-                  ),
+          itemBuilder: (_) {
+            final l10n = FlueraLocalizations.of(context)!;
+            return [
+              PopupMenuItem(
+                value: 'all',
+                child: Row(
+                  children: [
+                    const Icon(Icons.border_all, size: 18),
+                    const SizedBox(width: 8),
+                    Text(l10n.tabular_borderAll),
+                  ],
                 ),
-                PopupMenuItem(
-                  value: 'outline',
-                  child: Row(
-                    children: [
-                      Icon(Icons.border_outer, size: 18),
-                      SizedBox(width: 8),
-                      Text('Outside'),
-                    ],
-                  ),
+              ),
+              PopupMenuItem(
+                value: 'outline',
+                child: Row(
+                  children: [
+                    const Icon(Icons.border_outer, size: 18),
+                    const SizedBox(width: 8),
+                    Text(l10n.tabular_borderOutside),
+                  ],
                 ),
-                PopupMenuItem(
-                  value: 'inside',
-                  child: Row(
-                    children: [
-                      Icon(Icons.border_inner, size: 18),
-                      SizedBox(width: 8),
-                      Text('Inside'),
-                    ],
-                  ),
+              ),
+              PopupMenuItem(
+                value: 'inside',
+                child: Row(
+                  children: [
+                    const Icon(Icons.border_inner, size: 18),
+                    const SizedBox(width: 8),
+                    Text(l10n.tabular_borderInside),
+                  ],
                 ),
-                PopupMenuItem(
-                  value: 'bottom',
-                  child: Row(
-                    children: [
-                      Icon(Icons.border_bottom, size: 18),
-                      SizedBox(width: 8),
-                      Text('Bottom'),
-                    ],
-                  ),
+              ),
+              PopupMenuItem(
+                value: 'bottom',
+                child: Row(
+                  children: [
+                    const Icon(Icons.border_bottom, size: 18),
+                    const SizedBox(width: 8),
+                    Text(l10n.tabular_borderBottom),
+                  ],
                 ),
-                PopupMenuItem(
-                  value: 'none',
-                  child: Row(
-                    children: [
-                      Icon(Icons.border_clear, size: 18),
-                      SizedBox(width: 8),
-                      Text('None'),
-                    ],
-                  ),
+              ),
+              PopupMenuItem(
+                value: 'none',
+                child: Row(
+                  children: [
+                    const Icon(Icons.border_clear, size: 18),
+                    const SizedBox(width: 8),
+                    Text(l10n.tabular_borderNone),
+                  ],
                 ),
-              ],
+              ),
+            ];
+          },
         ),
       ]),
 
       _group('Align', [
         _Btn(
           icon: Icons.format_align_left,
-          tooltip: 'Left',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_alignLeft,
           onPressed:
               sel
                   ? () => widget.onAlignmentChanged?.call(CellAlignment.left)
@@ -421,7 +424,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
         ),
         _Btn(
           icon: Icons.format_align_center,
-          tooltip: 'Center',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_alignCenter,
           onPressed:
               sel
                   ? () => widget.onAlignmentChanged?.call(CellAlignment.center)
@@ -430,7 +433,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
         ),
         _Btn(
           icon: Icons.format_align_right,
-          tooltip: 'Right',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_alignRight,
           onPressed:
               sel
                   ? () => widget.onAlignmentChanged?.call(CellAlignment.right)
@@ -442,7 +445,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Color', [
         _ColorBtn(
           icon: Icons.format_color_text,
-          tooltip: 'Text color',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_textColor,
           color: _textColor,
           onPressed:
               sel
@@ -455,7 +458,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
         ),
         _ColorBtn(
           icon: Icons.format_color_fill,
-          tooltip: 'Fill color',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_fillColor,
           color: _bgColor,
           onPressed:
               sel
@@ -488,12 +491,12 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Rows', [
         _Btn(
           icon: Icons.add_rounded,
-          tooltip: 'Insert row',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_insertRow,
           onPressed: widget.onInsertRow,
         ),
         _Btn(
           icon: Icons.remove_rounded,
-          tooltip: 'Delete row',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_deleteRow,
           onPressed: sel ? widget.onDeleteRow : null,
         ),
       ]),
@@ -501,12 +504,12 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Columns', [
         _Btn(
           icon: Icons.add_rounded,
-          tooltip: 'Insert column',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_insertCol,
           onPressed: widget.onInsertColumn,
         ),
         _Btn(
           icon: Icons.remove_rounded,
-          tooltip: 'Delete column',
+          tooltip: FlueraLocalizations.of(context)!.toolsArea_deleteCol,
           onPressed: sel ? widget.onDeleteColumn : null,
         ),
       ]),
@@ -514,12 +517,12 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Merge', [
         _Btn(
           icon: Icons.call_merge_rounded,
-          tooltip: 'Merge cells',
+          tooltip: FlueraLocalizations.of(context)!.tabular_mergeCells,
           onPressed: sel ? widget.onMergeCells : null,
         ),
         _Btn(
           icon: Icons.call_split_rounded,
-          tooltip: 'Unmerge cells',
+          tooltip: FlueraLocalizations.of(context)!.tabular_unmergeCells,
           onPressed: sel ? widget.onUnmergeCells : null,
         ),
       ]),
@@ -536,7 +539,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Number Format', [
         _Btn(
           icon: Icons.numbers_rounded,
-          tooltip: 'Number format',
+          tooltip: FlueraLocalizations.of(context)!.tabular_numberFormat,
           onPressed: sel ? () => _showNumberFormatPicker(context) : null,
         ),
       ]),
@@ -544,7 +547,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Validation', [
         _Btn(
           icon: Icons.rule_rounded,
-          tooltip: 'Validation rule',
+          tooltip: FlueraLocalizations.of(context)!.tabular_validationRule,
           onPressed: sel ? widget.onSetValidation : null,
         ),
       ]),
@@ -552,7 +555,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Conditional', [
         _Btn(
           icon: Icons.format_paint_rounded,
-          tooltip: 'Conditional format',
+          tooltip: FlueraLocalizations.of(context)!.tabular_conditionalFormat,
           onPressed: sel ? widget.onSetConditionalFormat : null,
         ),
       ]),
@@ -560,27 +563,27 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Export Data', [
         _Btn(
           icon: Icons.functions_rounded,
-          tooltip: 'Generate LaTeX Table from Selection',
+          tooltip: FlueraLocalizations.of(context)!.tabular_generateLatex,
           onPressed: sel ? widget.onGenerateLatex : null,
         ),
         _Btn(
           icon: Icons.content_copy_rounded,
-          tooltip: 'Copy Selection as LaTeX',
+          tooltip: FlueraLocalizations.of(context)!.tabular_copyAsLatex,
           onPressed: sel ? widget.onCopySelectionAsLatex : null,
         ),
         _Btn(
           icon: Icons.bar_chart_rounded,
-          tooltip: 'Generate TikZ Chart from Selection',
+          tooltip: FlueraLocalizations.of(context)!.tabular_generateTikz,
           onPressed: sel ? widget.onGenerateChart : null,
         ),
         _Btn(
           icon: Icons.input_rounded,
-          tooltip: 'Import LaTeX → Spreadsheet',
+          tooltip: FlueraLocalizations.of(context)!.tabular_importLatex,
           onPressed: widget.onImportLatex,
         ),
         _Btn(
           icon: Icons.description_outlined,
-          tooltip: 'Export .tex File',
+          tooltip: FlueraLocalizations.of(context)!.tabular_exportTex,
           onPressed: widget.onExportTex,
         ),
       ]),
@@ -596,7 +599,7 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('Freeze', [
         _Btn(
           icon: Icons.view_compact_rounded,
-          tooltip: 'Freeze panes',
+          tooltip: FlueraLocalizations.of(context)!.tabular_freezePanes,
           onPressed: widget.onToggleFreeze,
           isActive: widget.isFrozen,
         ),
@@ -605,12 +608,12 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('CSV', [
         _Btn(
           icon: Icons.file_upload_outlined,
-          tooltip: 'Import CSV',
+          tooltip: FlueraLocalizations.of(context)!.tabular_importCsv,
           onPressed: widget.onImportCsv,
         ),
         _Btn(
           icon: Icons.file_download_outlined,
-          tooltip: 'Export CSV',
+          tooltip: FlueraLocalizations.of(context)!.tabular_exportCsv,
           onPressed: widget.onExportCsv,
         ),
       ]),
@@ -618,12 +621,12 @@ class _TabularContextualToolbarState extends State<TabularContextualToolbar> {
       _group('XLSX', [
         _Btn(
           icon: Icons.grid_on_rounded,
-          tooltip: 'Import XLSX',
+          tooltip: FlueraLocalizations.of(context)!.tabular_importXlsx,
           onPressed: widget.onImportXlsx,
         ),
         _Btn(
           icon: Icons.grid_view_rounded,
-          tooltip: 'Export XLSX',
+          tooltip: FlueraLocalizations.of(context)!.tabular_exportXlsx,
           onPressed: widget.onExportXlsx,
         ),
       ]),

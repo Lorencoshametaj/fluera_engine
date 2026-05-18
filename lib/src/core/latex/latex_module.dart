@@ -5,7 +5,6 @@ import '../nodes/latex_node.dart';
 import '../../platform/latex_recognition_bridge.dart';
 import '../../platform/onnx_latex_recognizer.dart';
 import '../../platform/hme_latex_recognizer.dart';
-import '../../platform/pix2tex_recognizer.dart';
 import '../../tools/base/tool_interface.dart';
 
 // =============================================================================
@@ -20,7 +19,6 @@ import '../../tools/base/tool_interface.dart';
 /// - Unified recognition via [LatexRecognitionBridge] with automatic fallback:
 ///   1. ONNX (on-device, fastest)
 ///   2. HME Attention (on-device, attention-based decoder)
-///   3. Pix2Tex (HTTP fallback if device inference fails)
 ///
 /// ## Usage
 ///
@@ -60,7 +58,7 @@ class LaTeXModule extends CanvasModule {
   /// Returns `null` if no recognizer could be initialized.
   LatexRecognitionBridge? get recognizer => _activeRecognizer;
 
-  /// Name of the active recognition backend ('onnx', 'hme', 'pix2tex', 'none').
+  /// Name of the active recognition backend ('onnx', 'hme', 'none').
   String get activeBackendName => _activeBackendName;
 
   // ---------------------------------------------------------------------------
@@ -87,7 +85,7 @@ class LaTeXModule extends CanvasModule {
   Future<void> initialize(ModuleContext context) async {
     if (_initialized) return;
 
-    // Try recognizers in priority order: ONNX → HME → Pix2Tex
+    // Try recognizers in priority order: ONNX → HME
     await _initializeRecognizers();
 
     _initialized = true;
@@ -124,20 +122,6 @@ class LaTeXModule extends CanvasModule {
       }
     } catch (e) {
     }
-
-    // 3. Pix2Tex — HTTP fallback
-    try {
-      final pix2tex = Pix2TexRecognizer();
-      _recognizers.add(pix2tex);
-      await pix2tex.initialize();
-      if (await pix2tex.isAvailable()) {
-        _activeRecognizer = pix2tex;
-        _activeBackendName = 'pix2tex';
-        return;
-      }
-    } catch (e) {
-    }
-
   }
 
   @override

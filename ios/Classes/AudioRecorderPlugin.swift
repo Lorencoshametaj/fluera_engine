@@ -36,24 +36,67 @@ class AudioRecorderPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             name: "flueraengine.audio/recorder",
             binaryMessenger: registrar.messenger()
         )
-        
+
         let eventChannel = FlutterEventChannel(
             name: "flueraengine.audio/recorder_events",
             binaryMessenger: registrar.messenger()
         )
-        
+
         let pcmEventChannel = FlutterEventChannel(
             name: "flueraengine.audio/recorder_pcm",
             binaryMessenger: registrar.messenger()
         )
-        
+
         let instance = AudioRecorderPlugin()
+        instance.registerInterruptionObserver()
         registrar.addMethodCallDelegate(instance, channel: methodChannel)
         eventChannel.setStreamHandler(instance)
         pcmEventChannel.setStreamHandler(PcmStreamHandler(plugin: instance))
     }
-    
+
+    /// 🎤 Phase 3 — observe AVAudioSession interruptions (incoming call,
+    /// alarm, Siri activation). When fired we pause the recorder so the
+    /// partial recording is preserved instead of being silently truncated.
+    /// On interruption end the recorder STAYS paused — the user resumes
+    /// manually via the toolbar so the seek-stroke timeline stays
+    /// deterministic (no surprise re-arming after a call).
+    private func registerInterruptionObserver() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+    }
+
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard
+            let info = notification.userInfo,
+            let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+            let type = AVAudioSession.InterruptionType(rawValue: rawType)
+        else { return }
+
+        switch type {
+        case .began:
+            // Pause if we're actively recording. AVAudioRecorder is
+            // already suspended by the system here; calling pause()
+            // updates our internal bookkeeping (pauseStartTime) so
+            // duration math stays correct.
+            if let recorder = audioRecorder, recorder.isRecording {
+                recorder.pause()
+                pauseStartTime = Date()
+                sendState("paused")
+            }
+        case .ended:
+            // Intentionally do NOT auto-resume. See comment above.
+            break
+        @unknown default:
+            break
+        }
+    }
+
     deinit {
+        NotificationCenter.default.removeObserver(self)
         stopUpdateTimer()
         audioRecorder?.stop()
         audioRecorder = nil

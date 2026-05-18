@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../l10n/fluera_localizations.dart';
 import '../../../services/dictionary_lookup_service.dart';
 import '../../../services/lookup_attempt_store.dart';
 
@@ -284,7 +285,7 @@ class _DictionaryLookupSheetState extends State<DictionaryLookupSheet>
             height: 1.4,
           ),
           decoration: InputDecoration(
-            hintText: 'Explain it in one line…',
+            hintText: FlueraLocalizations.of(context)!.dictionary_explainOneLine,
             hintStyle: TextStyle(
               fontSize: 14,
               color: isDark ? Colors.grey[600] : Colors.grey[400],
@@ -656,7 +657,7 @@ class _DictionaryLookupSheetState extends State<DictionaryLookupSheet>
             height: 1.4,
           ),
           decoration: InputDecoration(
-            hintText: 'Rewrite without copying from the definition…',
+            hintText: FlueraLocalizations.of(context)!.dictionary_rewriteWithoutCopying,
             hintStyle: TextStyle(
               fontSize: 13,
               color: isDark ? Colors.grey[600] : Colors.grey[400],

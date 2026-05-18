@@ -42,6 +42,10 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
         return RepaintBoundary(
           child: ProfessionalCanvasToolbar(
             cloudSyncState: _syncEngine?.state,
+            // 💎 Forward the host-provided credit badge into the toolbar's
+            // right zone. Hidden behind a nullable to keep back-compat with
+            // hosts that haven't wired the AI credits controller yet.
+            trailingBadge: widget.toolbarTrailingBadge,
             state: ToolbarState(
               // ── Drawing ──────────────────────────────────────────────────────
               selectedPenType: _effectivePenType,
@@ -69,6 +73,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               isDigitalTextActive: _effectiveIsDigitalText,
               isImagePickerActive: false,
               isRecordingActive: _isRecordingAudio,
+              isWheelModeActive: _useRadialWheel,
               isPanModeActive: _effectiveIsPanMode,
               isStylusModeActive: _effectiveIsStylusMode,
               isRulerActive: _showRulers,
@@ -146,6 +151,12 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               bookmarkCount: _bookmarkController.bookmarks.length,
               // ── Tier (drives paywall gates inside the toolbar) ─────────
               subscriptionTier: _subscriptionTier,
+              // ── Dev mode (unlocks Brush Testing Lab in settings dropdown)
+              devModeEnabled: _devModeEnabled,
+              // ── Toolbar settings dropdown trailing badges ────────────
+              currentPaperLabel: _paperTypeDisplayLabel(_paperType),
+              // activeFiltersCount: wire when filter persistence lands.
+              readingLevelSeen: _readingLevelSeen,
             ),
             callbacks: ToolbarCallbacks(
               // ── Drawing — required ───────────────────────────────────────────
@@ -438,16 +449,73 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               onAdvancedSplitPressed: V1FeatureGate.multiview ? () {
                 _launchAdvancedSplitView();
               } : null,
-              // 🚀 v1 DEFER: Time Travel gated
-              onTimeTravelPressed:
-                  (V1FeatureGate.timeTravel && _subscriptionTier == FlueraSubscriptionTier.pro)
-                      ? _enterTimeTravelMode
-                      : null,
+              // ⏱️ Time Travel Pro pillar #1 (V1 split 2026-05-14).
+              // Pro tier → live chip → enters playback mode.
+              // Free / Plus → null here, but [onTimeTravelUpgrade] fires the
+              // paywall affordance so the locked chip surfaces curiosity.
+              onTimeTravelPressed: (V1FeatureGate.timeTravel &&
+                      _subscriptionTier == FlueraSubscriptionTier.pro)
+                  ? _enterTimeTravelMode
+                  : null,
+              onTimeTravelUpgrade: (V1FeatureGate.timeTravel &&
+                      _subscriptionTier != FlueraSubscriptionTier.pro)
+                  ? () {
+                      final hosted = widget.config.onUpgradePrompt;
+                      const message =
+                          'Time Travel — riguardi il tuo studio in playback '
+                          '— è nel piano Pro. €11,99/mese.';
+                      if (hosted != null) {
+                        hosted(context, message);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(message),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  : null,
               // 🚀 v1 DEFER: Branch Explorer (part of Time Travel)
               onBranchExplorerPressed:
                   (V1FeatureGate.timeTravel && _subscriptionTier == FlueraSubscriptionTier.pro)
                       ? _openBranchExplorer
                       : null,
+              // 📍 Checkpoint — visible to ALL tiers (Free 3/canvas counter
+              // enforced inside VersionHistoryPanel; Plus/Pro unlimited).
+              // Standalone from Time Travel so Free users can reach it.
+              onCheckpointsPressed: _openCheckpointPanel,
+              // ✨ Cognitive features discovery sheet — Round 4 (2026-05-15).
+              // On-demand modal listing the 6 cognitive features so users
+              // bypass-resistant to session-paced coachmark engine still
+              // find them. Round 4.1: tap actually triggers the feature
+              // via the inline actions map (controllers wired from canvas
+              // state). Pro-gated cards route to paywall via onProGated.
+              onFeaturesDiscoveryPressed: () {
+                widget.config.onShowCognitiveFeaturesSheet?.call(
+                  context,
+                  _subscriptionTier,
+                  <String, VoidCallback>{
+                    'ghost_map': _ghostMapController.isActive
+                        ? dismissGhostMap
+                        : triggerGhostMap,
+                    'socratic': !_socraticController.isActive
+                        ? showSocraticSetup
+                        : dismissSocraticMode,
+                    if (V1FeatureGate.examSession)
+                      'exam_session': () => _startExamSession(),
+                    'fog_of_war': !_fogOfWarController.isActive
+                        ? showFogOfWarSetup
+                        : dismissFogOfWar,
+                    if (V1FeatureGate.crossZoneBridges &&
+                        canActivateCrossZoneBridges)
+                      'cross_zone_bridges': requestCrossZoneBridgeSuggestions,
+                    if (V1FeatureGate.timeTravel &&
+                        _subscriptionTier == FlueraSubscriptionTier.pro)
+                      'time_travel': _enterTimeTravelMode,
+                  },
+                );
+              },
               onRecallModePressed:
                   !_recallModeController.isActive
                       ? showRecallZoneSelector
@@ -471,6 +539,11 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
                   !_socraticController.isActive
                       ? showSocraticSetup
                       : dismissSocraticMode,
+              // 🎓 Exam Session toolbar entry — gated by V1FeatureGate.
+              // Tier-gate (Free: 1/week) + AI-budget pre-flight are enforced
+              // inside _startExamSession before any AI call fires.
+              onExamSessionPressed:
+                  V1FeatureGate.examSession ? () => _startExamSession() : null,
               // 🚀 v1 DEFER: Cross-Zone Bridges gated
               onCrossZoneBridgesPressed: (V1FeatureGate.crossZoneBridges && canActivateCrossZoneBridges)
                   ? requestCrossZoneBridgeSuggestions
@@ -487,6 +560,7 @@ extension FlueraCanvasToolbarUI on _FlueraCanvasScreenState {
               onWheelModeToggle: _toggleWheelMode,
               onBookmarksPressed: _openBookmarkSheet,
               onPaperTypePressed: _showPaperTypePicker,
+              onReadingLevelMarkSeen: _markReadingLevelSeen,
               onReadingLevelPressed: () {
                 final allText = _digitalTextElements
                     .map((e) => e.plainText)

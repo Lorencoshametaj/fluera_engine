@@ -792,7 +792,9 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                   actions: [
                                     TextButton(
                                       onPressed: () => Navigator.pop(ctx),
-                                      child: const Text('Annulla'),
+                                      child: Text(
+                                          FlueraLocalizations.of(context)!
+                                              .uiOverlays_cancel),
                                     ),
                                     FilledButton(
                                       onPressed: () {
@@ -820,7 +822,9 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                         }
                                         Navigator.pop(ctx);
                                       },
-                                      child: const Text('OK'),
+                                      child: Text(
+                                          FlueraLocalizations.of(context)!
+                                              .uiOverlays_ok),
                                     ),
                                   ],
                                 ),
@@ -2601,8 +2605,16 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                           if (V1FeatureGate.examSession)
                             ListTile(
                               leading: const Text('🎓', style: TextStyle(fontSize: 22)),
-                              title: const Text('Interrogami', style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.w600)),
-                              subtitle: Text('Esame interattivo sui tuoi appunti', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12)),
+                              title: Text(
+                                  FlueraLocalizations.of(context)!.uiOverlays_quizMe,
+                                  style: const TextStyle(
+                                      color: Color(0xFF00E5FF),
+                                      fontWeight: FontWeight.w600)),
+                              subtitle: Text(
+                                  FlueraLocalizations.of(context)!.uiOverlays_quizMeSubtitle,
+                                  style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.45),
+                                      fontSize: 12)),
                               onTap: () {
                                 Navigator.pop(context);
                                 _startExamSession();
@@ -2616,7 +2628,8 @@ extension FlueraCanvasOverlaysUI on _FlueraCanvasScreenState {
                                   FlueraLocalizations.of(context)!.exam_dashboardMenu,
                                   style: const TextStyle(
                                       color: Color(0xFF69F0AE), fontWeight: FontWeight.w600)),
-                              subtitle: Text('Andamento + argomenti da rinforzare',
+                              subtitle: Text(
+                                  FlueraLocalizations.of(context)!.uiOverlays_trendsSubtitle,
                                   style: TextStyle(
                                       color: Colors.white.withValues(alpha: 0.45),
                                       fontSize: 12)),
@@ -3639,19 +3652,19 @@ class _LassoModeToolbarState extends State<_LassoModeToolbar> {
                 children: [
                   _buildModeButton(
                     icon: Icons.gesture_rounded,
-                    label: 'Lasso',
+                    label: FlueraLocalizations.of(context)!.uiOverlays_lasso,
                     mode: SelectionMode.lasso,
                     accent: accent,
                   ),
                   _buildModeButton(
                     icon: Icons.crop_square_rounded,
-                    label: 'Rect',
+                    label: FlueraLocalizations.of(context)!.uiOverlays_rect,
                     mode: SelectionMode.marquee,
                     accent: accent,
                   ),
                   _buildModeButton(
                     icon: Icons.circle_outlined,
-                    label: 'Ellipse',
+                    label: FlueraLocalizations.of(context)!.uiOverlays_ellipse,
                     mode: SelectionMode.ellipse,
                     accent: accent,
                   ),

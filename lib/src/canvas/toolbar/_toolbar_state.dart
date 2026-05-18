@@ -37,6 +37,10 @@ class ToolbarState {
   final bool isDigitalTextActive;
   final bool isImagePickerActive;
   final bool isRecordingActive;
+  /// True when the host has the radial brush wheel mode enabled
+  /// (instead of the flat tools area strip). Drives the "ON" badge
+  /// on the Wheel mode entry in ToolbarSettingsDropdown.
+  final bool isWheelModeActive;
   final bool isPanModeActive;
   final bool isStylusModeActive;
   final bool isRulerActive;
@@ -129,6 +133,26 @@ class ToolbarState {
   /// callers that don't pass it get the safest behaviour.
   final FlueraSubscriptionTier subscriptionTier;
 
+  /// 🛠️ Dev mode flag — unlocks debug-only entries in the settings dropdown
+  /// (e.g. Brush Testing Lab). Toggled by the 7-tap easter egg on the Fluera
+  /// tile in About settings. Defaults to false so production builds never
+  /// show debug items.
+  final bool devModeEnabled;
+
+  /// 📄 Current paper label rendered as trailing on the Paper Mode entry
+  /// in the toolbar settings dropdown (e.g. "Quadretti 5mm", "Blank").
+  /// Null = no trailing shown — back-compat.
+  final String? currentPaperLabel;
+
+  /// ✨ Number of currently active filters, rendered as trailing on the
+  /// Filters entry (e.g. "2 attivi"). Null or 0 = no trailing shown.
+  final int? activeFiltersCount;
+
+  /// 📊 Whether the user has already seen/tapped Reading Level — when false,
+  /// the dropdown shows a green "NEW" badge. Host persists state in
+  /// SharedPreferences and re-passes it on rebuild.
+  final bool readingLevelSeen;
+
   ToolbarState({
     // Drawing
     required this.selectedPenType,
@@ -150,6 +174,7 @@ class ToolbarState {
     required this.isDigitalTextActive,
     this.isImagePickerActive = false,
     required this.isRecordingActive,
+    this.isWheelModeActive = false,
     required this.isPanModeActive,
     required this.isStylusModeActive,
     this.isRulerActive = false,
@@ -216,6 +241,12 @@ class ToolbarState {
     this.suggestedStepIndex,
     // Tier
     this.subscriptionTier = FlueraSubscriptionTier.free,
+    // Dev mode
+    this.devModeEnabled = false,
+    // Toolbar settings dropdown — trailing badges
+    this.currentPaperLabel,
+    this.activeFiltersCount,
+    this.readingLevelSeen = false,
   });
 
   /// Creates a copy with selected fields overridden.
@@ -256,6 +287,7 @@ class ToolbarState {
       isLassoActive: isLassoActive ?? this.isLassoActive,
       isDigitalTextActive: isDigitalTextActive ?? this.isDigitalTextActive,
       isRecordingActive: isRecordingActive ?? this.isRecordingActive,
+      isWheelModeActive: this.isWheelModeActive,
       isPanModeActive: isPanModeActive ?? this.isPanModeActive,
       isStylusModeActive: isStylusModeActive ?? this.isStylusModeActive,
       isRulerActive: isRulerActive ?? this.isRulerActive,
@@ -313,6 +345,16 @@ class ToolbarState {
       crossZoneBridgeCount: crossZoneBridgeCount,
       isCrossZoneBridgeLoading: isCrossZoneBridgeLoading,
       suggestedStepIndex: suggestedStepIndex,
+      subscriptionTier: subscriptionTier,
+      devModeEnabled: devModeEnabled,
+      currentPaperLabel: currentPaperLabel,
+      activeFiltersCount: activeFiltersCount,
+      readingLevelSeen: readingLevelSeen,
+      // Scoped undo/redo listenables — carry over so external copyWith()
+      // calls don't accidentally tear down the scoped-rebuild subscription.
+      undoRedoListenable: undoRedoListenable,
+      computeCanUndo: computeCanUndo,
+      computeCanRedo: computeCanRedo,
     );
   }
 }

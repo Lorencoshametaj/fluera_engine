@@ -14,7 +14,7 @@ import '../core/latex/ink_stroke_data.dart';
 ///
 /// Example:
 /// ```dart
-/// final bridge = Pix2TexRecognizer();
+/// final bridge = OnnxLatexRecognizer();
 /// await bridge.initialize();
 ///
 /// // From handwriting

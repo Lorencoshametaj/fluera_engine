@@ -50,8 +50,12 @@ import 'enterprise/enterprise_module.dart';
 import '../ai/ai_provider.dart';
 import '../ai/ai_usage_tracker.dart';
 import '../ai/atlas_ai_service.dart';
+import '../ai/credits/ai_credits_controller.dart';
+import '../ai/credits/noop_ai_credits_controller.dart';
 import '../ai/telemetry_recorder.dart';
 import '../ai/gemini_client.dart';
+import '../audio/quota/noop_voice_quota_tracker.dart';
+import '../audio/quota/voice_quota_tracker.dart';
 
 // ---------------------------------------------------------------------------
 // Scope Token
@@ -133,6 +137,27 @@ class EngineScope {
   /// balance check and post-call token reconciliation. Defaults to no-op.
   final AiUsageTracker? aiUsageTracker;
 
+  /// Optional AI credits controller (Fluera AI Credits V2, 2026-05-14).
+  ///
+  /// Replaces per-feature token caps with a unified credits currency:
+  /// Free 100, Plus 500, Pro 2000 credits/month + Spark Pack top-up.
+  /// Call sites invoke [AiCreditsController.consume] before issuing an AI
+  /// request and [AiCreditsController.refund] on failure within 30 s.
+  ///
+  /// Defaults to [NoopAiCreditsController] so the engine ships usable
+  /// without a backing implementation (tests, demos, OSS adopters).
+  final AiCreditsController? aiCreditsController;
+
+  /// 🎙️ Optional voice quota tracker (V1 split 2026-05-14).
+  ///
+  /// Tracks the monthly voice-recording minute cap (Plus 60, Pro ∞).
+  /// The voice record button calls [VoiceQuotaTracker.reserve] before
+  /// starting the recorder and [VoiceQuotaTracker.commit] when the user
+  /// stops, passing the actual duration rounded up to whole minutes.
+  ///
+  /// Defaults to [NoopVoiceQuotaTracker] (always allows).
+  final VoiceQuotaTracker? voiceQuotaTracker;
+
   /// Optional Gemini proxy configuration. When provided, all Gemini API
   /// calls are routed through a Supabase Edge Function that holds the key
   /// server-side — preferred for production. Takes priority over
@@ -159,9 +184,23 @@ class EngineScope {
     this.journalPath,
     this.geminiApiKey,
     this.aiUsageTracker,
+    this.aiCreditsController,
+    this.voiceQuotaTracker,
     this.geminiProxy,
     this.productTelemetry,
   });
+
+  /// Resolved AI credits controller: the injected one or a no-op fallback.
+  /// Always non-null so call sites can invoke `.consume()` without
+  /// null-checks. The no-op fallback accepts every consume() request.
+  late final AiCreditsController credits =
+      aiCreditsController ?? NoopAiCreditsController();
+
+  /// 🎙️ Resolved voice quota tracker: injected or no-op fallback.
+  /// Always non-null so the voice record button can call `.reserve()`
+  /// without null-checks.
+  late final VoiceQuotaTracker voiceQuota =
+      voiceQuotaTracker ?? NoopVoiceQuotaTracker();
   // ---------------------------------------------------------------------------
   // Scope Stack Management
   // ---------------------------------------------------------------------------
@@ -590,6 +629,8 @@ class EngineScope {
     // ── 3. Infrastructure (depended upon by everything above) ──
     errorRecovery.dispose();
     telemetry.reset();
+    credits.dispose();
+    voiceQuota.dispose();
     // Event bus MUST be last — other dispose() calls may emit final events.
     eventBus.dispose();
   }

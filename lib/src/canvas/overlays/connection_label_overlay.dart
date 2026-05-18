@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../reflow/knowledge_connection.dart';
 
 /// 🏷️ CONNECTION LABEL OVERLAY — Premium floating text input for Knowledge Flow.
@@ -261,7 +262,7 @@ class _ConnectionLabelOverlayState extends State<ConnectionLabelOverlay>
                               isDense: true,
                               isCollapsed: true,
                               counterText: '',
-                              hintText: 'Aggiungi label...',
+                              hintText: FlueraLocalizations.of(context)!.connLabel_addLabelHint,
                               hintStyle: TextStyle(
                                 fontSize: 13.5,
                                 color: Colors.white.withValues(alpha: 0.25),

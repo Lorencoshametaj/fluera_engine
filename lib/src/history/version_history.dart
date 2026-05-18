@@ -17,6 +17,44 @@
 /// ```
 library;
 
+import '../canvas/fluera_canvas_config.dart' show FlueraSubscriptionTier;
+
+// =============================================================================
+// CHECKPOINT TIER LIMITS
+// =============================================================================
+
+/// Tier-aware limit policy for Checkpoint creation.
+///
+/// Free: 3 per canvas. Plus/Pro/Essential: unlimited.
+class CheckpointLimits {
+  static const int freePerCanvasLimit = 3;
+
+  /// Returns the maximum number of checkpoints allowed per canvas for [tier],
+  /// or `null` when unlimited.
+  static int? limitFor(FlueraSubscriptionTier tier) {
+    return tier == FlueraSubscriptionTier.free ? freePerCanvasLimit : null;
+  }
+}
+
+/// Thrown by [VersionHistory.createEntryGated] when [tier] has reached its
+/// per-canvas Checkpoint limit. UI layer should catch this and surface the
+/// upsell modal instead of saving.
+class CheckpointLimitError implements Exception {
+  final FlueraSubscriptionTier tier;
+  final int currentCount;
+  final int limit;
+
+  const CheckpointLimitError({
+    required this.tier,
+    required this.currentCount,
+    required this.limit,
+  });
+
+  @override
+  String toString() =>
+      'CheckpointLimitError(tier=$tier, used=$currentCount/$limit)';
+}
+
 // =============================================================================
 // VERSION ENTRY
 // =============================================================================
@@ -92,6 +130,38 @@ class VersionHistory {
 
   /// Number of stored versions.
   int get length => _entries.length;
+
+  /// Tier-aware checkpoint creation. Throws [CheckpointLimitError] when the
+  /// current entry count is at or above the per-canvas limit for [tier].
+  ///
+  /// UI layer should catch the error and present the upsell modal — never
+  /// hard-block (the user can archive an existing checkpoint to free a slot).
+  String createEntryGated({
+    required FlueraSubscriptionTier tier,
+    String? id,
+    required String title,
+    String description = '',
+    required String authorId,
+    required Map<String, dynamic> data,
+    List<String> tags = const [],
+  }) {
+    final limit = CheckpointLimits.limitFor(tier);
+    if (limit != null && _entries.length >= limit) {
+      throw CheckpointLimitError(
+        tier: tier,
+        currentCount: _entries.length,
+        limit: limit,
+      );
+    }
+    return createEntry(
+      id: id,
+      title: title,
+      description: description,
+      authorId: authorId,
+      data: data,
+      tags: tags,
+    );
+  }
 
   /// Create a new version entry.
   ///

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../l10n/fluera_localizations.dart';
 import '../core/models/shape_type.dart';
 
 /// ⬡ Shape Recognition Confirmation Dialog
@@ -143,7 +144,7 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${_shapeLabel(widget.detectedType)} · $confPercent% confidence',
+                        '${_shapeLabel(context, widget.detectedType)} · $confPercent% confidence',
                         style: TextStyle(
                           fontSize: 12,
                           color: isDark ? Colors.white38 : Colors.black38,
@@ -243,7 +244,7 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _shapeLabel(type),
+                            _shapeLabel(context, type),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight:
@@ -305,7 +306,11 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        _filled ? 'Filled' : 'Outline only',
+                        _filled
+                            ? FlueraLocalizations.of(context)!
+                                .shapeConfirm_filled
+                            : FlueraLocalizations.of(context)!
+                                .shapeConfirm_outlineOnly,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -368,8 +373,10 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
                     Expanded(
                       child: Text(
                         _deleteStrokes
-                            ? 'Replace strokes with shape'
-                            : 'Keep strokes, add shape',
+                            ? FlueraLocalizations.of(context)!
+                                .shapeConfirm_replaceStrokes
+                            : FlueraLocalizations.of(context)!
+                                .shapeConfirm_keepStrokes,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -399,7 +406,7 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
                 TextButton(
                   onPressed: () => Navigator.pop(context, null),
                   child: Text(
-                    'Cancel',
+                    FlueraLocalizations.of(context)!.shapeConfirm_cancel,
                     style: TextStyle(
                       color: isDark ? Colors.white54 : Colors.black45,
                     ),
@@ -418,7 +425,8 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
                     );
                   },
                   icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('Convert'),
+                  label: Text(
+                      FlueraLocalizations.of(context)!.shapeConfirm_convert),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.indigo,
                     foregroundColor: Colors.white,
@@ -439,19 +447,20 @@ class _ShapeConfirmationDialogState extends State<ShapeConfirmationDialog> {
   // Shape metadata helpers
   // ═══════════════════════════════════════════════════════════════════
 
-  static String _shapeLabel(ShapeType type) {
+  static String _shapeLabel(BuildContext context, ShapeType type) {
+    final l10n = FlueraLocalizations.of(context)!;
     return switch (type) {
-      ShapeType.freehand => 'Freehand',
-      ShapeType.line => 'Line',
-      ShapeType.arrow => 'Arrow',
-      ShapeType.circle => 'Circle',
-      ShapeType.rectangle => 'Rectangle',
-      ShapeType.triangle => 'Triangle',
-      ShapeType.diamond => 'Diamond',
-      ShapeType.pentagon => 'Pentagon',
-      ShapeType.hexagon => 'Hexagon',
-      ShapeType.star => 'Star',
-      ShapeType.heart => 'Heart',
+      ShapeType.freehand => l10n.shape_freehand,
+      ShapeType.line => l10n.shape_line,
+      ShapeType.arrow => l10n.shape_arrow,
+      ShapeType.circle => l10n.shape_circle,
+      ShapeType.rectangle => l10n.shape_rectangle,
+      ShapeType.triangle => l10n.shape_triangle,
+      ShapeType.diamond => l10n.shape_diamond,
+      ShapeType.pentagon => l10n.shape_pentagon,
+      ShapeType.hexagon => l10n.shape_hexagon,
+      ShapeType.star => l10n.shape_star,
+      ShapeType.heart => l10n.shape_heart,
     };
   }
 

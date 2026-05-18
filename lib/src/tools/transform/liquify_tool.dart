@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
+import '../../l10n/fluera_localizations.dart';
 import '../base/base_tool.dart';
 import '../base/tool_interface.dart';
 import '../base/tool_context.dart';
@@ -381,7 +382,7 @@ class _LiquifyActionBar extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.undo, color: Colors.white, size: 20),
               onPressed: tool.undoLastBrush,
-              tooltip: 'Undo last brush',
+              tooltip: FlueraLocalizations.of(context)!.liquify_undoLastBrush,
             ),
             const SizedBox(width: 8),
             // Cancel

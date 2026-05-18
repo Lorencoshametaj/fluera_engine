@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/fluera_localizations.dart';
+
 /// Paper type definition with metadata for the picker.
 class PaperTypeOption {
   final String id;
@@ -212,7 +214,7 @@ class PaperTypePickerSheet extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'Paper Type',
+                        FlueraLocalizations.of(context)!.paperPicker_title,
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,

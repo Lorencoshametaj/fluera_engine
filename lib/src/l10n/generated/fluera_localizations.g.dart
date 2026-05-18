@@ -5,8 +5,22 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
+import 'fluera_localizations_ar.g.dart';
+import 'fluera_localizations_da.g.dart';
+import 'fluera_localizations_de.g.dart';
 import 'fluera_localizations_en.g.dart';
+import 'fluera_localizations_es.g.dart';
+import 'fluera_localizations_fi.g.dart';
+import 'fluera_localizations_fr.g.dart';
+import 'fluera_localizations_hi.g.dart';
 import 'fluera_localizations_it.g.dart';
+import 'fluera_localizations_ja.g.dart';
+import 'fluera_localizations_ko.g.dart';
+import 'fluera_localizations_nl.g.dart';
+import 'fluera_localizations_no.g.dart';
+import 'fluera_localizations_pl.g.dart';
+import 'fluera_localizations_pt.g.dart';
+import 'fluera_localizations_sv.g.dart';
 
 // ignore_for_file: type=lint
 
@@ -94,8 +108,22 @@ abstract class FlueraLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
+    Locale('da'),
+    Locale('de'),
     Locale('en'),
+    Locale('es'),
+    Locale('fi'),
+    Locale('fr'),
+    Locale('hi'),
     Locale('it'),
+    Locale('ja'),
+    Locale('ko'),
+    Locale('nl'),
+    Locale('no'),
+    Locale('pl'),
+    Locale('pt'),
+    Locale('sv'),
   ];
 
   /// Generic cancel action
@@ -337,6 +365,90 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Show'**
   String get proCanvas_show;
+
+  /// No description provided for @proCanvas_unlockBrushes.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock more brushes'**
+  String get proCanvas_unlockBrushes;
+
+  /// No description provided for @proCanvas_hideLockedBrushes.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide locked brushes'**
+  String get proCanvas_hideLockedBrushes;
+
+  /// No description provided for @proCanvas_brushPreviewTagline.
+  ///
+  /// In en, this message translates to:
+  /// **'Premium brush · preview'**
+  String get proCanvas_brushPreviewTagline;
+
+  /// No description provided for @proCanvas_brushPreviewUnlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock with Plus'**
+  String get proCanvas_brushPreviewUnlock;
+
+  /// No description provided for @proCanvas_brushPreviewMaybeLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Maybe later'**
+  String get proCanvas_brushPreviewMaybeLater;
+
+  /// No description provided for @proCanvas_brushPreviewYourCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'Your current brush'**
+  String get proCanvas_brushPreviewYourCurrent;
+
+  /// No description provided for @proCanvas_brushPreviewThisOne.
+  ///
+  /// In en, this message translates to:
+  /// **'This one'**
+  String get proCanvas_brushPreviewThisOne;
+
+  /// No description provided for @canvasSettings_wheelModeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Radial brush wheel instead of the flat strip'**
+  String get canvasSettings_wheelModeSubtitle;
+
+  /// No description provided for @wheelModeIntro_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Wheel mode'**
+  String get wheelModeIntro_title;
+
+  /// No description provided for @wheelModeIntro_lead.
+  ///
+  /// In en, this message translates to:
+  /// **'The toolbar disappears and your brushes live on a radial wheel that opens under your finger.'**
+  String get wheelModeIntro_lead;
+
+  /// No description provided for @wheelModeIntro_step1.
+  ///
+  /// In en, this message translates to:
+  /// **'Long-press anywhere on the canvas to summon the wheel.'**
+  String get wheelModeIntro_step1;
+
+  /// No description provided for @wheelModeIntro_step2.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag toward a brush to select it, release to commit.'**
+  String get wheelModeIntro_step2;
+
+  /// No description provided for @wheelModeIntro_step3.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap the wheel icon in the toolbar again to switch back.'**
+  String get wheelModeIntro_step3;
+
+  /// No description provided for @wheelModeIntro_cta.
+  ///
+  /// In en, this message translates to:
+  /// **'Got it'**
+  String get wheelModeIntro_cta;
 
   /// No description provided for @proCanvas_advancedEditor.
   ///
@@ -1893,237 +2005,471 @@ abstract class FlueraLocalizations {
   String get ghostMap_yourAttempt;
 
   /// No description provided for @flueraMethodInfo_title.
+  ///
+  /// In en, this message translates to:
+  /// **'The Fluera Method'**
   String get flueraMethodInfo_title;
 
   /// No description provided for @flueraMethodInfo_heroTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cognitive Loop'**
   String get flueraMethodInfo_heroTitle;
 
   /// No description provided for @flueraMethodInfo_heroBody.
+  ///
+  /// In en, this message translates to:
+  /// **'4 phases, 12 steps, one science: turning notes into learning that lasts.'**
   String get flueraMethodInfo_heroBody;
 
   /// No description provided for @flueraMethodInfo_whyItWorks.
+  ///
+  /// In en, this message translates to:
+  /// **'Every step is a cognitive mechanism proven in the lab.'**
   String get flueraMethodInfo_whyItWorks;
 
   /// No description provided for @flueraMethodInfo_phasesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The 4 phases of the Loop'**
   String get flueraMethodInfo_phasesTitle;
 
   /// No description provided for @flueraMethodInfo_scienceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The science behind Fluera'**
   String get flueraMethodInfo_scienceTitle;
 
   /// No description provided for @flueraMethodInfo_phase1Title.
+  ///
+  /// In en, this message translates to:
+  /// **'CAPTURE'**
   String get flueraMethodInfo_phase1Title;
 
   /// No description provided for @flueraMethodInfo_phase1Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn lectures into active traces'**
   String get flueraMethodInfo_phase1Subtitle;
 
   /// No description provided for @flueraMethodInfo_phase2Title.
+  ///
+  /// In en, this message translates to:
+  /// **'GENERATE'**
   String get flueraMethodInfo_phase2Title;
 
   /// No description provided for @flueraMethodInfo_phase2Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Force your mind to reconstruct'**
   String get flueraMethodInfo_phase2Subtitle;
 
   /// No description provided for @flueraMethodInfo_phase3Title.
+  ///
+  /// In en, this message translates to:
+  /// **'CONSOLIDATE'**
   String get flueraMethodInfo_phase3Title;
 
   /// No description provided for @flueraMethodInfo_phase3Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Let time cement memory'**
   String get flueraMethodInfo_phase3Subtitle;
 
   /// No description provided for @flueraMethodInfo_phase4Title.
+  ///
+  /// In en, this message translates to:
+  /// **'TRANSFER'**
   String get flueraMethodInfo_phase4Title;
 
   /// No description provided for @flueraMethodInfo_phase4Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect and apply beyond context'**
   String get flueraMethodInfo_phase4Subtitle;
 
   /// No description provided for @flueraMethodInfo_tapToExpand.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap for steps'**
   String get flueraMethodInfo_tapToExpand;
 
   /// No description provided for @flueraMethodInfo_step1Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Handwritten capture'**
   String get flueraMethodInfo_step1Title;
 
   /// No description provided for @flueraMethodInfo_step1Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Write on the canvas during the lecture. The pen activates motor and spatial channels the keyboard cannot reach.'**
   String get flueraMethodInfo_step1Body;
 
   /// No description provided for @flueraMethodInfo_step1Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Mueller & Oppenheimer, 2014'**
   String get flueraMethodInfo_step1Citation;
 
   /// No description provided for @flueraMethodInfo_step2Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Blind reconstruction'**
   String get flueraMethodInfo_step2Title;
 
   /// No description provided for @flueraMethodInfo_step2Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Within 2 hours reopen the canvas in an empty zone. Rewrite without looking at your notes. Gaps are valuable information.'**
   String get flueraMethodInfo_step2Body;
 
   /// No description provided for @flueraMethodInfo_step2Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Slamecka & Graf, 1978 — Generation Effect'**
   String get flueraMethodInfo_step2Citation;
 
   /// No description provided for @flueraMethodInfo_step3Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Socratic interrogation'**
   String get flueraMethodInfo_step3Title;
 
   /// No description provided for @flueraMethodInfo_step3Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Set your confidence before answering. The AI asks questions, never gives answers. The most powerful metacognitive exercise.'**
   String get flueraMethodInfo_step3Body;
 
   /// No description provided for @flueraMethodInfo_step3Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Roediger & Karpicke, 2006 — Test Effect'**
   String get flueraMethodInfo_step3Citation;
 
   /// No description provided for @flueraMethodInfo_step4Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Centaur Comparison'**
   String get flueraMethodInfo_step4Title;
 
   /// No description provided for @flueraMethodInfo_step4Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover which fragments to integrate. Errors made with high confidence imprint 3 times more deeply.'**
   String get flueraMethodInfo_step4Body;
 
   /// No description provided for @flueraMethodInfo_step4Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Butterfield & Metcalfe, 2001 — Hypercorrection'**
   String get flueraMethodInfo_step4Citation;
 
   /// No description provided for @flueraMethodInfo_step5Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep (7-8 hours)'**
   String get flueraMethodInfo_step5Title;
 
   /// No description provided for @flueraMethodInfo_step5Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Consolidation happens while you sleep. Without deep sleep, Steps 1-4 vanish in a few days.'**
   String get flueraMethodInfo_step5Body;
 
   /// No description provided for @flueraMethodInfo_step5Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Walker, 2017 — Sleep & Memory Consolidation'**
   String get flueraMethodInfo_step5Citation;
 
   /// No description provided for @flueraMethodInfo_step6Title.
+  ///
+  /// In en, this message translates to:
+  /// **'First return at 24h'**
   String get flueraMethodInfo_step6Title;
 
   /// No description provided for @flueraMethodInfo_step6Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Fluera blurs nodes proportionally to your confidence. An audio cue from the professor appears as a hint.'**
   String get flueraMethodInfo_step6Body;
 
   /// No description provided for @flueraMethodInfo_step6Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Ebbinghaus, 1885 — Forgetting Curve'**
   String get flueraMethodInfo_step6Citation;
 
   /// No description provided for @flueraMethodInfo_step7Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Solidale Learning'**
   String get flueraMethodInfo_step7Title;
 
   /// No description provided for @flueraMethodInfo_step7Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Teaching a peer is the fastest way to discover what you don\'t really know. Canvas visits, recall duels.'**
   String get flueraMethodInfo_step7Body;
 
   /// No description provided for @flueraMethodInfo_step7Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Chase et al., 2009 — Protégé Effect'**
   String get flueraMethodInfo_step7Citation;
 
   /// No description provided for @flueraMethodInfo_step8Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Adaptive review (3, 7, 14, 30+ days)'**
   String get flueraMethodInfo_step8Title;
 
   /// No description provided for @flueraMethodInfo_step8Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Increasing intervals calibrated by FSRS-5. Subjects interleaved, not blocked: interleaving trains pattern recognition.'**
   String get flueraMethodInfo_step8Body;
 
   /// No description provided for @flueraMethodInfo_step8Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Rohrer & Taylor, 2007 — Interleaving'**
   String get flueraMethodInfo_step8Citation;
 
   /// No description provided for @flueraMethodInfo_step9Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Bridges across subjects'**
   String get flueraMethodInfo_step9Title;
 
   /// No description provided for @flueraMethodInfo_step9Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximum zoom out. You draw the connections between different canvas zones. This is where knowledge applies to new contexts.'**
   String get flueraMethodInfo_step9Body;
 
   /// No description provided for @flueraMethodInfo_step9Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Perkins & Salomon, 1992 — Far Transfer'**
   String get flueraMethodInfo_step9Citation;
 
   /// No description provided for @flueraMethodInfo_step10Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam simulation'**
   String get flueraMethodInfo_step10Title;
 
   /// No description provided for @flueraMethodInfo_step10Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Fog of War mode: rebuild an entire zone blind. The test that truly predicts how you\'ll perform.'**
   String get flueraMethodInfo_step10Body;
 
   /// No description provided for @flueraMethodInfo_step10Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Bjork, 1994 — Desirable Difficulties'**
   String get flueraMethodInfo_step10Citation;
 
   /// No description provided for @flueraMethodInfo_step11Title.
+  ///
+  /// In en, this message translates to:
+  /// **'The exam'**
   String get flueraMethodInfo_step11Title;
 
   /// No description provided for @flueraMethodInfo_step11Body.
+  ///
+  /// In en, this message translates to:
+  /// **'The canvas is already in your head.'**
   String get flueraMethodInfo_step11Body;
 
   /// No description provided for @flueraMethodInfo_step11Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'(external validation)'**
   String get flueraMethodInfo_step11Citation;
 
   /// No description provided for @flueraMethodInfo_step12Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Stays forever'**
   String get flueraMethodInfo_step12Title;
 
   /// No description provided for @flueraMethodInfo_step12Body.
+  ///
+  /// In en, this message translates to:
+  /// **'The canvas doesn\'t close at the end of the course. It grows with you, lecture after lecture, year after year. Temporal replay to relive how it grew.'**
   String get flueraMethodInfo_step12Body;
 
   /// No description provided for @flueraMethodInfo_step12Citation.
+  ///
+  /// In en, this message translates to:
+  /// **'Clark & Chalmers, 1998 — Extended Cognition'**
   String get flueraMethodInfo_step12Citation;
 
   /// No description provided for @flueraMethodInfo_proBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Pro'**
   String get flueraMethodInfo_proBadge;
 
   /// No description provided for @flueraMethodInfo_v15Badge.
+  ///
+  /// In en, this message translates to:
+  /// **'Soon'**
   String get flueraMethodInfo_v15Badge;
 
   /// No description provided for @flueraMethodInfo_scienceFooter.
+  ///
+  /// In en, this message translates to:
+  /// **'Based on 50+ years of research in cognitive psychology and learning neuroscience.'**
   String get flueraMethodInfo_scienceFooter;
 
   /// No description provided for @flueraMethodInfo_learnMoreCta.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover Fluera'**
   String get flueraMethodInfo_learnMoreCta;
 
   /// No description provided for @flueraMethodInfo_offlineError.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t open browser. Visit fluera.dev'**
   String get flueraMethodInfo_offlineError;
 
   /// No description provided for @flueraMethodInfo_settingsTile.
+  ///
+  /// In en, this message translates to:
+  /// **'The Fluera Method'**
   String get flueraMethodInfo_settingsTile;
 
   /// No description provided for @flueraMethodInfo_settingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How it works: 4 phases, 12 steps, the science'**
   String get flueraMethodInfo_settingsSubtitle;
 
   /// No description provided for @flueraMethodInfo_demoTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Try it: the Centaur Comparison'**
   String get flueraMethodInfo_demoTitle;
 
   /// No description provided for @flueraMethodInfo_demoIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Set your confidence, then reveal the answer. Feel the Hypercorrection Effect in 10 seconds.'**
   String get flueraMethodInfo_demoIntro;
 
   /// No description provided for @flueraMethodInfo_demoQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'What happens in the brain during REM sleep vs NREM sleep?'**
   String get flueraMethodInfo_demoQuestion;
 
   /// No description provided for @flueraMethodInfo_demoAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'During REM sleep, neural activity is wake-like: vivid dreams and emotional consolidation. During NREM (especially SWS), the hippocampus \"replays\" episodic memories to the cortex for declarative consolidation. Both types are essential.'**
   String get flueraMethodInfo_demoAnswer;
 
   /// No description provided for @flueraMethodInfo_demoCitation.
+  ///
+  /// In en, this message translates to:
+  /// **'Walker, 2017 — Why We Sleep'**
   String get flueraMethodInfo_demoCitation;
 
   /// No description provided for @flueraMethodInfo_demoConfidence1.
+  ///
+  /// In en, this message translates to:
+  /// **'No idea'**
   String get flueraMethodInfo_demoConfidence1;
 
   /// No description provided for @flueraMethodInfo_demoConfidence2.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsure'**
   String get flueraMethodInfo_demoConfidence2;
 
   /// No description provided for @flueraMethodInfo_demoConfidence3.
+  ///
+  /// In en, this message translates to:
+  /// **'I think I know'**
   String get flueraMethodInfo_demoConfidence3;
 
   /// No description provided for @flueraMethodInfo_demoConfidence4.
+  ///
+  /// In en, this message translates to:
+  /// **'I\'m certain'**
   String get flueraMethodInfo_demoConfidence4;
 
   /// No description provided for @flueraMethodInfo_demoFeedbackLow.
+  ///
+  /// In en, this message translates to:
+  /// **'👍 Honest. The Centaur will compare your guess against fragments to integrate.'**
   String get flueraMethodInfo_demoFeedbackLow;
 
   /// No description provided for @flueraMethodInfo_demoFeedbackMid.
+  ///
+  /// In en, this message translates to:
+  /// **'⚡ Hypercorrection zone active. If you were wrong, you\'ll remember this 3× better.'**
   String get flueraMethodInfo_demoFeedbackMid;
 
   /// No description provided for @flueraMethodInfo_demoFeedbackHigh.
+  ///
+  /// In en, this message translates to:
+  /// **'🎯 High confidence. If you were wrong, you just triggered maximum Hypercorrection Effect.'**
   String get flueraMethodInfo_demoFeedbackHigh;
 
   /// No description provided for @flueraMethodInfo_demoCtaReveal.
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal answer'**
   String get flueraMethodInfo_demoCtaReveal;
 
   /// No description provided for @flueraMethodInfo_demoCtaTryAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Try again'**
   String get flueraMethodInfo_demoCtaTryAgain;
 
   /// No description provided for @flueraMethodInfo_teaseStepTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How it works'**
   String get flueraMethodInfo_teaseStepTitle;
 
   /// No description provided for @flueraMethodInfo_teaseStepBody.
+  ///
+  /// In en, this message translates to:
+  /// **'4 phases, 12 steps, backed by proven science. Turn notes into learning that sticks.\nExample: write a chapter → Fluera asks you to explain it in your own words → your rephrasing stays.'**
   String get flueraMethodInfo_teaseStepBody;
 
   /// No description provided for @flueraMethodInfo_teaseStepCta.
+  ///
+  /// In en, this message translates to:
+  /// **'Go to canvas'**
   String get flueraMethodInfo_teaseStepCta;
 
   /// No description provided for @flueraMethodInfo_teaseStepSecondary.
+  ///
+  /// In en, this message translates to:
+  /// **'Discover the method'**
   String get flueraMethodInfo_teaseStepSecondary;
 
   /// No description provided for @flueraMethodInfo_coachmark.
+  ///
+  /// In en, this message translates to:
+  /// **'Here\'s your method. Tap to explore the 12 steps.'**
   String get flueraMethodInfo_coachmark;
 
   /// No description provided for @flueraMethodInfo_proBadgeTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Solidale Learning is Pro. Go to Settings → Account to upgrade.'**
   String get flueraMethodInfo_proBadgeTooltip;
 
   /// No description provided for @recall_modeFree.
@@ -4489,6 +4835,90 @@ abstract class FlueraLocalizations {
   /// **'Continue with Apple'**
   String get auth_socialApple;
 
+  /// No description provided for @auth_taglineCreativeCanvasEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'Creative Canvas Engine'**
+  String get auth_taglineCreativeCanvasEngine;
+
+  /// No description provided for @auth_dividerOr.
+  ///
+  /// In en, this message translates to:
+  /// **'or'**
+  String get auth_dividerOr;
+
+  /// No description provided for @auth_errorPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords don\'t match'**
+  String get auth_errorPasswordMismatch;
+
+  /// No description provided for @auth_errorConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection error. Try again.'**
+  String get auth_errorConnection;
+
+  /// No description provided for @auth_errorGoogleSignIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Google Sign-In error'**
+  String get auth_errorGoogleSignIn;
+
+  /// No description provided for @auth_errorAppleSignIn.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Sign-In error'**
+  String get auth_errorAppleSignIn;
+
+  /// No description provided for @auth_errorInvalidEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid email first'**
+  String get auth_errorInvalidEmail;
+
+  /// No description provided for @auth_errorResetLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Error sending link'**
+  String get auth_errorResetLink;
+
+  /// No description provided for @auth_errorEmailSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Error sending email'**
+  String get auth_errorEmailSend;
+
+  /// No description provided for @auth_errorGenericSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Error sending'**
+  String get auth_errorGenericSend;
+
+  /// No description provided for @auth_termsPrefix.
+  ///
+  /// In en, this message translates to:
+  /// **'By continuing, you accept the '**
+  String get auth_termsPrefix;
+
+  /// No description provided for @auth_termsLinkTos.
+  ///
+  /// In en, this message translates to:
+  /// **'Terms of Service'**
+  String get auth_termsLinkTos;
+
+  /// No description provided for @auth_termsConjunction.
+  ///
+  /// In en, this message translates to:
+  /// **' and the '**
+  String get auth_termsConjunction;
+
+  /// No description provided for @auth_termsLinkPrivacy.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy Policy'**
+  String get auth_termsLinkPrivacy;
+
   /// No description provided for @auth_forgotPasswordHeader.
   ///
   /// In en, this message translates to:
@@ -4705,6 +5135,5334 @@ abstract class FlueraLocalizations {
   /// **'Restore'**
   String get auth_restoreAction;
 
+  /// No description provided for @onboarding_heroHeadline.
+  ///
+  /// In en, this message translates to:
+  /// **'The first canvas that learns how you think'**
+  String get onboarding_heroHeadline;
+
+  /// No description provided for @onboarding_heroSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Write, draw, and remember — together.\nWrite before you read · Fail to remember better · Repeat at the right moment.'**
+  String get onboarding_heroSubtitle;
+
+  /// No description provided for @onboarding_heroCtaPrimary.
+  ///
+  /// In en, this message translates to:
+  /// **'Get started'**
+  String get onboarding_heroCtaPrimary;
+
+  /// No description provided for @onboarding_heroSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip tour'**
+  String get onboarding_heroSkip;
+
+  /// No description provided for @onboarding_audienceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How will you use Fluera?'**
+  String get onboarding_audienceTitle;
+
+  /// No description provided for @onboarding_audienceSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'We tailor Fluera around what you do.'**
+  String get onboarding_audienceSubtitle;
+
+  /// No description provided for @onboarding_audienceStudyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'For studying'**
+  String get onboarding_audienceStudyTitle;
+
+  /// No description provided for @onboarding_audienceStudyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Med, STEM, law, humanities — anything you need to remember.'**
+  String get onboarding_audienceStudyBody;
+
+  /// No description provided for @onboarding_audienceWorkTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'For work'**
+  String get onboarding_audienceWorkTitle;
+
+  /// No description provided for @onboarding_audienceWorkBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Research, consulting, writing, design — your second brain.'**
+  String get onboarding_audienceWorkBody;
+
+  /// No description provided for @onboarding_audienceTeamTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'With my team'**
+  String get onboarding_audienceTeamTitle;
+
+  /// No description provided for @onboarding_audienceTeamBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Studio, agency, lab — think and build together.'**
+  String get onboarding_audienceTeamBody;
+
+  /// No description provided for @onboarding_ghostMapHeadline.
+  ///
+  /// In en, this message translates to:
+  /// **'A guess before reading = stronger memory'**
+  String get onboarding_ghostMapHeadline;
+
+  /// No description provided for @onboarding_ghostMapHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Watch as the map reveals fragments to integrate in your notes…'**
+  String get onboarding_ghostMapHint;
+
+  /// No description provided for @onboarding_ghostMapTryIt.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a missing node — try answering before Fluera reveals it (hypercorrection effect)'**
+  String get onboarding_ghostMapTryIt;
+
+  /// No description provided for @onboarding_ghostMapTapToast.
+  ///
+  /// In en, this message translates to:
+  /// **'💡 You just used the testing effect'**
+  String get onboarding_ghostMapTapToast;
+
+  /// No description provided for @onboarding_replayHeadline.
+  ///
+  /// In en, this message translates to:
+  /// **'Never lose a thought'**
+  String get onboarding_replayHeadline;
+
+  /// No description provided for @onboarding_replaySubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Every stroke is preserved. Time travel through your past notes.'**
+  String get onboarding_replaySubtitle;
+
+  /// No description provided for @onboarding_replayDemoPhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'Remember every idea'**
+  String get onboarding_replayDemoPhrase;
+
+  /// No description provided for @onboarding_setupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A few quick details'**
+  String get onboarding_setupTitle;
+
+  /// No description provided for @onboarding_setupNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'What should we call you?'**
+  String get onboarding_setupNameLabel;
+
+  /// No description provided for @onboarding_setupNamePlaceholder.
+  ///
+  /// In en, this message translates to:
+  /// **'Your first name (optional)'**
+  String get onboarding_setupNamePlaceholder;
+
+  /// No description provided for @onboarding_setupSubjectLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s your main subject?'**
+  String get onboarding_setupSubjectLabel;
+
+  /// No description provided for @onboarding_setupWorkRoleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'What do you do?'**
+  String get onboarding_setupWorkRoleLabel;
+
+  /// No description provided for @onboarding_setupTeamSizeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'How big is your team?'**
+  String get onboarding_setupTeamSizeLabel;
+
+  /// No description provided for @onboarding_setupSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip — set this up later'**
+  String get onboarding_setupSkip;
+
+  /// No description provided for @onboarding_planHeadline.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick what fits you today'**
+  String get onboarding_planHeadline;
+
+  /// No description provided for @onboarding_planFreeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Free'**
+  String get onboarding_planFreeTitle;
+
+  /// No description provided for @onboarding_planFreeBullets.
+  ///
+  /// In en, this message translates to:
+  /// **'Core canvas · 3 brushes · 3 layers · 1 device · Local-only'**
+  String get onboarding_planFreeBullets;
+
+  /// No description provided for @onboarding_planProTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pro — €11.99/mo'**
+  String get onboarding_planProTitle;
+
+  /// No description provided for @onboarding_planProBulletsStudy.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlimited Ghost Map · Socratic AI on YOUR notes · Time travel · All brushes'**
+  String get onboarding_planProBulletsStudy;
+
+  /// No description provided for @onboarding_planProBulletsWork.
+  ///
+  /// In en, this message translates to:
+  /// **'Multiview · Socratic AI on YOUR notes · Cross-device sync · Time travel'**
+  String get onboarding_planProBulletsWork;
+
+  /// No description provided for @onboarding_planProBulletsTeam.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything in Pro · Early access to Team workspaces'**
+  String get onboarding_planProBulletsTeam;
+
+  /// No description provided for @onboarding_planTrialCta.
+  ///
+  /// In en, this message translates to:
+  /// **'Try Pro free for 7 days'**
+  String get onboarding_planTrialCta;
+
+  /// No description provided for @onboarding_planTrialCtaA.
+  ///
+  /// In en, this message translates to:
+  /// **'Try Pro free for 7 days'**
+  String get onboarding_planTrialCtaA;
+
+  /// No description provided for @onboarding_planTrialCtaB.
+  ///
+  /// In en, this message translates to:
+  /// **'Start 7-day free trial · then €11.99/mo'**
+  String get onboarding_planTrialCtaB;
+
+  /// No description provided for @onboarding_planTrialCtaC.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock everything · 7 days free'**
+  String get onboarding_planTrialCtaC;
+
+  /// No description provided for @onboarding_planTrialBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Try Pro 7 days free'**
+  String get onboarding_planTrialBadge;
+
+  /// No description provided for @onboarding_planTrialContextMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Try Pro 7 days free — keep Fluera if you love it.'**
+  String get onboarding_planTrialContextMessage;
+
+  /// No description provided for @onboarding_planContinueFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue with Free'**
+  String get onboarding_planContinueFree;
+
+  /// No description provided for @onboarding_planGreeting.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready, {name}?'**
+  String onboarding_planGreeting(String name);
+
+  /// No description provided for @onboarding_planPriceFootnote.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel anytime in Settings · No charge during the trial'**
+  String get onboarding_planPriceFootnote;
+
+  /// No description provided for @onboarding_skipConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip the tour?'**
+  String get onboarding_skipConfirmTitle;
+
+  /// No description provided for @onboarding_skipConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You can always replay the tour from Settings → About.'**
+  String get onboarding_skipConfirmBody;
+
+  /// No description provided for @onboarding_skipConfirmStay.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep going'**
+  String get onboarding_skipConfirmStay;
+
+  /// No description provided for @onboarding_skipConfirmLeave.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get onboarding_skipConfirmLeave;
+
+  /// No description provided for @onboarding_commonContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get onboarding_commonContinue;
+
+  /// No description provided for @onboarding_commonNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get onboarding_commonNext;
+
+  /// No description provided for @onboarding_commonSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Skip'**
+  String get onboarding_commonSkip;
+
+  /// No description provided for @onboarding_commonBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get onboarding_commonBack;
+
+  /// No description provided for @gallery_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get gallery_cancel;
+
+  /// No description provided for @gallery_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get gallery_save;
+
+  /// No description provided for @gallery_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get gallery_delete;
+
+  /// No description provided for @gallery_deleteAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete all'**
+  String get gallery_deleteAll;
+
+  /// No description provided for @gallery_rename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get gallery_rename;
+
+  /// No description provided for @gallery_renameFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename folder'**
+  String get gallery_renameFolder;
+
+  /// No description provided for @gallery_duplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get gallery_duplicate;
+
+  /// No description provided for @gallery_multiSelect.
+  ///
+  /// In en, this message translates to:
+  /// **'Multiple selection'**
+  String get gallery_multiSelect;
+
+  /// No description provided for @gallery_moveToFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to folder'**
+  String get gallery_moveToFolder;
+
+  /// No description provided for @gallery_titleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get gallery_titleLabel;
+
+  /// No description provided for @gallery_folderNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder name'**
+  String get gallery_folderNameLabel;
+
+  /// No description provided for @gallery_newFolderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New folder'**
+  String get gallery_newFolderTitle;
+
+  /// No description provided for @gallery_newFolderTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'New Folder'**
+  String get gallery_newFolderTooltip;
+
+  /// No description provided for @gallery_newCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'New Canvas'**
+  String get gallery_newCanvas;
+
+  /// No description provided for @gallery_untitled.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled'**
+  String get gallery_untitled;
+
+  /// No description provided for @gallery_titleMyCanvases.
+  ///
+  /// In en, this message translates to:
+  /// **'My Canvases'**
+  String get gallery_titleMyCanvases;
+
+  /// No description provided for @gallery_tooltipSelectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get gallery_tooltipSelectAll;
+
+  /// No description provided for @gallery_tooltipDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get gallery_tooltipDelete;
+
+  /// No description provided for @gallery_tooltipListView.
+  ///
+  /// In en, this message translates to:
+  /// **'List view'**
+  String get gallery_tooltipListView;
+
+  /// No description provided for @gallery_tooltipGridView.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid view'**
+  String get gallery_tooltipGridView;
+
+  /// No description provided for @gallery_tooltipCloseSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Close search'**
+  String get gallery_tooltipCloseSearch;
+
+  /// No description provided for @gallery_tooltipSearch.
+  ///
+  /// In en, this message translates to:
+  /// **'Search'**
+  String get gallery_tooltipSearch;
+
+  /// No description provided for @gallery_sortModifiedNewest.
+  ///
+  /// In en, this message translates to:
+  /// **'Modified — newest first'**
+  String get gallery_sortModifiedNewest;
+
+  /// No description provided for @gallery_sortModifiedOldest.
+  ///
+  /// In en, this message translates to:
+  /// **'Modified — oldest first'**
+  String get gallery_sortModifiedOldest;
+
+  /// No description provided for @gallery_deleteConfirmSingle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete 1 canvas?'**
+  String get gallery_deleteConfirmSingle;
+
+  /// No description provided for @gallery_deleteConfirmMulti.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete {count} canvases?'**
+  String gallery_deleteConfirmMulti(int count);
+
+  /// No description provided for @gallery_deleteConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This action cannot be undone.'**
+  String get gallery_deleteConfirmBody;
+
+  /// No description provided for @gallery_deleteConfirmCanvasTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete canvas?'**
+  String get gallery_deleteConfirmCanvasTitle;
+
+  /// No description provided for @gallery_deleteConfirmCanvasBody.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{title}\" will be permanently deleted.\nThis action cannot be undone.'**
+  String gallery_deleteConfirmCanvasBody(String title);
+
+  /// No description provided for @gallery_deletedCanvasToast.
+  ///
+  /// In en, this message translates to:
+  /// **'\"{title}\" deleted'**
+  String gallery_deletedCanvasToast(String title);
+
+  /// No description provided for @gallery_deletedSingle.
+  ///
+  /// In en, this message translates to:
+  /// **'1 canvas deleted'**
+  String get gallery_deletedSingle;
+
+  /// No description provided for @gallery_deletedMulti.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} canvases deleted'**
+  String gallery_deletedMulti(int count);
+
+  /// No description provided for @gallery_folderEmptyMoveNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Contents are moved to the parent folder'**
+  String get gallery_folderEmptyMoveNote;
+
+  /// No description provided for @gallery_moveDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Move \"{title}\"'**
+  String gallery_moveDialogTitle(String title);
+
+  /// No description provided for @gallery_emptyFolderTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This Folder is Empty'**
+  String get gallery_emptyFolderTitle;
+
+  /// No description provided for @gallery_emptyGalleryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No Canvases Yet'**
+  String get gallery_emptyGalleryTitle;
+
+  /// No description provided for @gallery_emptyAddCanvasHere.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Canvas Here'**
+  String get gallery_emptyAddCanvasHere;
+
+  /// No description provided for @gallery_emptyCreateFirstCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Create Your First Canvas'**
+  String get gallery_emptyCreateFirstCanvas;
+
+  /// No description provided for @gallery_create.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get gallery_create;
+
+  /// No description provided for @gallery_folderNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Math Notes'**
+  String get gallery_folderNameHint;
+
+  /// No description provided for @gallery_duplicateSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'(copy)'**
+  String get gallery_duplicateSuffix;
+
+  /// No description provided for @gallery_selectedCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String gallery_selectedCount(int count);
+
+  /// No description provided for @gallery_canvasCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 canvas} other{{count} canvases}}'**
+  String gallery_canvasCount(int count);
+
+  /// No description provided for @gallery_tooltipBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get gallery_tooltipBack;
+
+  /// No description provided for @gallery_tooltipSort.
+  ///
+  /// In en, this message translates to:
+  /// **'Sort'**
+  String get gallery_tooltipSort;
+
+  /// No description provided for @gallery_tooltipMoveToFolderShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Move to folder'**
+  String get gallery_tooltipMoveToFolderShort;
+
+  /// No description provided for @gallery_homeBreadcrumb.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get gallery_homeBreadcrumb;
+
+  /// No description provided for @gallery_sortNameAsc.
+  ///
+  /// In en, this message translates to:
+  /// **'Name A–Z'**
+  String get gallery_sortNameAsc;
+
+  /// No description provided for @gallery_sortNameDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Name Z–A'**
+  String get gallery_sortNameDesc;
+
+  /// No description provided for @gallery_searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search canvases…'**
+  String get gallery_searchHint;
+
+  /// No description provided for @gallery_searchNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No canvases match \"{query}\"'**
+  String gallery_searchNoResults(String query);
+
+  /// No description provided for @gallery_rootFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Root (no folder)'**
+  String get gallery_rootFolder;
+
+  /// No description provided for @gallery_moveDialogTitleMulti.
+  ///
+  /// In en, this message translates to:
+  /// **'Move {count, plural, =1{1 canvas} other{{count} canvases}}'**
+  String gallery_moveDialogTitleMulti(int count);
+
+  /// No description provided for @gallery_emptyFolderBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a canvas or move one here.'**
+  String get gallery_emptyFolderBody;
+
+  /// No description provided for @gallery_emptyGalleryBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Create your first canvas to start drawing.\nYour creations will appear here.'**
+  String get gallery_emptyGalleryBody;
+
+  /// No description provided for @gallery_paperGrid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid'**
+  String get gallery_paperGrid;
+
+  /// No description provided for @gallery_paperDots.
+  ///
+  /// In en, this message translates to:
+  /// **'Dots'**
+  String get gallery_paperDots;
+
+  /// No description provided for @gallery_share.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get gallery_share;
+
+  /// No description provided for @createSheet_title.
+  ///
+  /// In en, this message translates to:
+  /// **'New canvas'**
+  String get createSheet_title;
+
+  /// No description provided for @createSheet_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a template to get started'**
+  String get createSheet_subtitle;
+
+  /// No description provided for @createSheet_titleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas title'**
+  String get createSheet_titleLabel;
+
+  /// No description provided for @createSheet_titleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Physics — Waves and Oscillations'**
+  String get createSheet_titleHint;
+
+  /// No description provided for @createSheet_preview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get createSheet_preview;
+
+  /// No description provided for @createSheet_background.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get createSheet_background;
+
+  /// No description provided for @createSheet_paperType.
+  ///
+  /// In en, this message translates to:
+  /// **'Paper type'**
+  String get createSheet_paperType;
+
+  /// No description provided for @createSheet_create.
+  ///
+  /// In en, this message translates to:
+  /// **'Create canvas'**
+  String get createSheet_create;
+
+  /// No description provided for @createSheet_templateLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Template'**
+  String get createSheet_templateLabel;
+
+  /// No description provided for @createSheet_untitledCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled canvas'**
+  String get createSheet_untitledCanvas;
+
+  /// No description provided for @createSheet_customColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom color'**
+  String get createSheet_customColor;
+
+  /// No description provided for @createSheet_courseStructure.
+  ///
+  /// In en, this message translates to:
+  /// **'Course structure'**
+  String get createSheet_courseStructure;
+
+  /// No description provided for @createSheet_addSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Add section'**
+  String get createSheet_addSection;
+
+  /// No description provided for @createSheet_maxSections.
+  ///
+  /// In en, this message translates to:
+  /// **'Max 12'**
+  String get createSheet_maxSections;
+
+  /// No description provided for @createSheet_infiniteCanvasOption.
+  ///
+  /// In en, this message translates to:
+  /// **'Infinite canvas · no structure'**
+  String get createSheet_infiniteCanvasOption;
+
+  /// No description provided for @createSheet_courseStructureHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Use only if you already know the course syllabus'**
+  String get createSheet_courseStructureHint;
+
+  /// No description provided for @createSheet_memoryPalaceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'These are empty containers only. The Memory Palace is built by what you write inside — not by the labels.'**
+  String get createSheet_memoryPalaceHint;
+
+  /// No description provided for @createSheet_a4Description.
+  ///
+  /// In en, this message translates to:
+  /// **'A4 Portrait · 595 × 842px · blank · generate content yourself'**
+  String get createSheet_a4Description;
+
+  /// No description provided for @createSheet_chapterHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Chapter {index}'**
+  String createSheet_chapterHint(int index);
+
+  /// No description provided for @createSheet_defaultTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes — {day} {month}'**
+  String createSheet_defaultTitle(int day, String month);
+
+  /// No description provided for @imageEditor_ocrInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognizing text...'**
+  String get imageEditor_ocrInProgress;
+
+  /// No description provided for @imageEditor_ocrNoText.
+  ///
+  /// In en, this message translates to:
+  /// **'No text found in image'**
+  String get imageEditor_ocrNoText;
+
+  /// No description provided for @imageEditor_textCopiedToClipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Text copied to clipboard'**
+  String get imageEditor_textCopiedToClipboard;
+
+  /// No description provided for @imageEditor_textCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Text copied'**
+  String get imageEditor_textCopied;
+
+  /// No description provided for @imageEditor_copyAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy all'**
+  String get imageEditor_copyAll;
+
+  /// No description provided for @imageEditor_copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get imageEditor_copy;
+
+  /// No description provided for @imageEditor_addOverlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Add overlay'**
+  String get imageEditor_addOverlay;
+
+  /// No description provided for @imageEditor_autoEnhance.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-Enhance'**
+  String get imageEditor_autoEnhance;
+
+  /// No description provided for @imageEditor_resetCurve.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset Curve'**
+  String get imageEditor_resetCurve;
+
+  /// No description provided for @imageEditor_reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get imageEditor_reset;
+
+  /// No description provided for @imageEditor_addText.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Text'**
+  String get imageEditor_addText;
+
+  /// No description provided for @imageEditor_export.
+  ///
+  /// In en, this message translates to:
+  /// **'Export {format}'**
+  String imageEditor_export(String format);
+
+  /// No description provided for @imageEditor_textInputHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter text...'**
+  String get imageEditor_textInputHint;
+
+  /// No description provided for @imageEditor_fontSans.
+  ///
+  /// In en, this message translates to:
+  /// **'Sans'**
+  String get imageEditor_fontSans;
+
+  /// No description provided for @imageEditor_fontSerif.
+  ///
+  /// In en, this message translates to:
+  /// **'Serif'**
+  String get imageEditor_fontSerif;
+
+  /// No description provided for @imageEditor_fontMono.
+  ///
+  /// In en, this message translates to:
+  /// **'Mono'**
+  String get imageEditor_fontMono;
+
+  /// No description provided for @imageEditor_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get imageEditor_cancel;
+
+  /// No description provided for @imageEditor_add.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get imageEditor_add;
+
+  /// No description provided for @imageEditor_color.
+  ///
+  /// In en, this message translates to:
+  /// **'Color'**
+  String get imageEditor_color;
+
+  /// No description provided for @imageEditor_size.
+  ///
+  /// In en, this message translates to:
+  /// **'Size'**
+  String get imageEditor_size;
+
+  /// No description provided for @examOverlay_setupHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'What do you want to be tested on?'**
+  String get examOverlay_setupHeader;
+
+  /// No description provided for @examOverlay_chipAllTopics.
+  ///
+  /// In en, this message translates to:
+  /// **'🗂 All'**
+  String get examOverlay_chipAllTopics;
+
+  /// No description provided for @examOverlay_languageLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get examOverlay_languageLabel;
+
+  /// No description provided for @examOverlay_questionsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Questions'**
+  String get examOverlay_questionsLabel;
+
+  /// No description provided for @examOverlay_timerPerQuestion.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer per question ({seconds}s)'**
+  String examOverlay_timerPerQuestion(int seconds);
+
+  /// No description provided for @examOverlay_closeExam.
+  ///
+  /// In en, this message translates to:
+  /// **'Close exam'**
+  String get examOverlay_closeExam;
+
+  /// No description provided for @examOverlay_back.
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get examOverlay_back;
+
+  /// No description provided for @examOverlay_next.
+  ///
+  /// In en, this message translates to:
+  /// **'Next →'**
+  String get examOverlay_next;
+
+  /// No description provided for @examOverlay_seeResults.
+  ///
+  /// In en, this message translates to:
+  /// **'See results 🎓'**
+  String get examOverlay_seeResults;
+
+  /// No description provided for @examOverlay_submit.
+  ///
+  /// In en, this message translates to:
+  /// **'Submit'**
+  String get examOverlay_submit;
+
+  /// No description provided for @examOverlay_reveal.
+  ///
+  /// In en, this message translates to:
+  /// **'Reveal'**
+  String get examOverlay_reveal;
+
+  /// No description provided for @examOverlay_understood.
+  ///
+  /// In en, this message translates to:
+  /// **'Got it'**
+  String get examOverlay_understood;
+
+  /// No description provided for @examOverlay_resumeNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume now'**
+  String get examOverlay_resumeNow;
+
+  /// No description provided for @examOverlay_correctAnswerLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct answer:'**
+  String get examOverlay_correctAnswerLabel;
+
+  /// No description provided for @examOverlay_chunkCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Block {chunk}/{total} completed'**
+  String examOverlay_chunkCompleted(int chunk, int total);
+
+  /// No description provided for @examOverlay_sessionHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Session history'**
+  String get examOverlay_sessionHistory;
+
+  /// No description provided for @examOverlay_confidenceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How confident are you?'**
+  String get examOverlay_confidenceTitle;
+
+  /// No description provided for @examOverlay_confidenceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Be honest: mistakes made at high confidence are remembered 3× more'**
+  String get examOverlay_confidenceHint;
+
+  /// No description provided for @examOverlay_confidence1.
+  ///
+  /// In en, this message translates to:
+  /// **'Guessing'**
+  String get examOverlay_confidence1;
+
+  /// No description provided for @examOverlay_confidence2.
+  ///
+  /// In en, this message translates to:
+  /// **'Not sure'**
+  String get examOverlay_confidence2;
+
+  /// No description provided for @examOverlay_confidence3.
+  ///
+  /// In en, this message translates to:
+  /// **'More or less'**
+  String get examOverlay_confidence3;
+
+  /// No description provided for @examOverlay_confidence4.
+  ///
+  /// In en, this message translates to:
+  /// **'Quite certain'**
+  String get examOverlay_confidence4;
+
+  /// No description provided for @examOverlay_confidence5.
+  ///
+  /// In en, this message translates to:
+  /// **'Absolutely sure'**
+  String get examOverlay_confidence5;
+
+  /// No description provided for @examOverlay_confidenceA11y.
+  ///
+  /// In en, this message translates to:
+  /// **'Confidence {level} of 5: {label}'**
+  String examOverlay_confidenceA11y(int level, String label);
+
+  /// No description provided for @examOverlay_whyConfidenceMatters.
+  ///
+  /// In en, this message translates to:
+  /// **'Why your confidence matters'**
+  String get examOverlay_whyConfidenceMatters;
+
+  /// No description provided for @examOverlay_whyConfidenceBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Before answering we ask how confident you are on a 1-5 scale.'**
+  String get examOverlay_whyConfidenceBody;
+
+  /// No description provided for @examOverlay_whyConfidenceWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t cheat. Faking low confidence to \"save face\" cancels the benefit.'**
+  String get examOverlay_whyConfidenceWarning;
+
+  /// No description provided for @examOverlay_bookmarkRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from bookmarks'**
+  String get examOverlay_bookmarkRemove;
+
+  /// No description provided for @examOverlay_bookmarkAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmark for later review'**
+  String get examOverlay_bookmarkAdd;
+
+  /// No description provided for @examOverlay_typeOpenEnded.
+  ///
+  /// In en, this message translates to:
+  /// **'OPEN ANSWER'**
+  String get examOverlay_typeOpenEnded;
+
+  /// No description provided for @examOverlay_typeMultipleChoice.
+  ///
+  /// In en, this message translates to:
+  /// **'MULTIPLE CHOICE'**
+  String get examOverlay_typeMultipleChoice;
+
+  /// No description provided for @examOverlay_typeTrueFalse.
+  ///
+  /// In en, this message translates to:
+  /// **'TRUE / FALSE'**
+  String get examOverlay_typeTrueFalse;
+
+  /// No description provided for @examOverlay_typeFormulaRecall.
+  ///
+  /// In en, this message translates to:
+  /// **'FORMULA'**
+  String get examOverlay_typeFormulaRecall;
+
+  /// No description provided for @examOverlay_true.
+  ///
+  /// In en, this message translates to:
+  /// **'True'**
+  String get examOverlay_true;
+
+  /// No description provided for @examOverlay_false.
+  ///
+  /// In en, this message translates to:
+  /// **'False'**
+  String get examOverlay_false;
+
+  /// No description provided for @examOverlay_writeToRememberHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Write here to memorize better...'**
+  String get examOverlay_writeToRememberHint;
+
+  /// No description provided for @examOverlay_outcomeCorrectMsg.
+  ///
+  /// In en, this message translates to:
+  /// **'Your effort worked!'**
+  String get examOverlay_outcomeCorrectMsg;
+
+  /// No description provided for @examOverlay_outcomePartialMsg.
+  ///
+  /// In en, this message translates to:
+  /// **'Almost there — keep going'**
+  String get examOverlay_outcomePartialMsg;
+
+  /// No description provided for @examOverlay_outcomeIncorrectMsg.
+  ///
+  /// In en, this message translates to:
+  /// **'Every mistake makes a stronger connection'**
+  String get examOverlay_outcomeIncorrectMsg;
+
+  /// No description provided for @examOverlay_outcomeSkippedMsg.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ll come back to it better prepared'**
+  String get examOverlay_outcomeSkippedMsg;
+
+  /// No description provided for @examOverlay_outcomeEvaluating.
+  ///
+  /// In en, this message translates to:
+  /// **'Evaluating...'**
+  String get examOverlay_outcomeEvaluating;
+
+  /// No description provided for @chatOverlay_header.
+  ///
+  /// In en, this message translates to:
+  /// **'Chat'**
+  String get chatOverlay_header;
+
+  /// No description provided for @chatOverlay_tooltipBackToChat.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to chat'**
+  String get chatOverlay_tooltipBackToChat;
+
+  /// No description provided for @chatOverlay_tooltipHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get chatOverlay_tooltipHistory;
+
+  /// No description provided for @chatOverlay_tooltipNewChat.
+  ///
+  /// In en, this message translates to:
+  /// **'New chat'**
+  String get chatOverlay_tooltipNewChat;
+
+  /// No description provided for @chatOverlay_unavailableAction.
+  ///
+  /// In en, this message translates to:
+  /// **'This action is not available in this context.'**
+  String get chatOverlay_unavailableAction;
+
+  /// No description provided for @chatOverlay_retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get chatOverlay_retry;
+
+  /// No description provided for @chatOverlay_historyLoadError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load history'**
+  String get chatOverlay_historyLoadError;
+
+  /// No description provided for @chatOverlay_historyEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No saved conversations'**
+  String get chatOverlay_historyEmpty;
+
+  /// No description provided for @chatOverlay_timeNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Just now'**
+  String get chatOverlay_timeNow;
+
+  /// No description provided for @branchExplorer_emptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No alternatives yet'**
+  String get branchExplorer_emptyTitle;
+
+  /// No description provided for @branchExplorer_emptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'During Time Travel, pick a past moment and tap \"Explore an alternative\" to try a different approach without losing your work.'**
+  String get branchExplorer_emptyBody;
+
+  /// No description provided for @branchExplorer_primaryBranch.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get branchExplorer_primaryBranch;
+
+  /// No description provided for @branchExplorer_main.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get branchExplorer_main;
+
+  /// No description provided for @branchExplorer_parent.
+  ///
+  /// In en, this message translates to:
+  /// **'Born from'**
+  String get branchExplorer_parent;
+
+  /// No description provided for @branchExplorer_active.
+  ///
+  /// In en, this message translates to:
+  /// **'You are here'**
+  String get branchExplorer_active;
+
+  /// No description provided for @branchExplorer_new.
+  ///
+  /// In en, this message translates to:
+  /// **'New alternative'**
+  String get branchExplorer_new;
+
+  /// No description provided for @branchExplorer_rename.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename'**
+  String get branchExplorer_rename;
+
+  /// No description provided for @branchExplorer_renameBranch.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename alternative'**
+  String get branchExplorer_renameBranch;
+
+  /// No description provided for @branchExplorer_editDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit description'**
+  String get branchExplorer_editDescription;
+
+  /// No description provided for @branchExplorer_branchDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Alternative description'**
+  String get branchExplorer_branchDescription;
+
+  /// No description provided for @branchExplorer_duplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy to new alternative'**
+  String get branchExplorer_duplicate;
+
+  /// No description provided for @branchExplorer_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get branchExplorer_delete;
+
+  /// No description provided for @branchExplorer_deleteForever.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive permanently'**
+  String get branchExplorer_deleteForever;
+
+  /// No description provided for @branchExplorer_merge.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace Original'**
+  String get branchExplorer_merge;
+
+  /// No description provided for @branchExplorer_deleteAfterMerge.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive this alternative after replacing'**
+  String get branchExplorer_deleteAfterMerge;
+
+  /// No description provided for @branchExplorer_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get branchExplorer_cancel;
+
+  /// No description provided for @branchExplorer_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get branchExplorer_save;
+
+  /// No description provided for @branchExplorer_branchNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Alternative name'**
+  String get branchExplorer_branchNameHint;
+
+  /// No description provided for @branchExplorer_warningStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'All drawings and strokes'**
+  String get branchExplorer_warningStrokes;
+
+  /// No description provided for @branchExplorer_warningSnapshots.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas snapshots'**
+  String get branchExplorer_warningSnapshots;
+
+  /// No description provided for @branchExplorer_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Explored alternatives'**
+  String get branchExplorer_title;
+
+  /// No description provided for @branchExplorer_mainCanvasLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Original'**
+  String get branchExplorer_mainCanvasLabel;
+
+  /// No description provided for @branchExplorer_replaceConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace Original with this alternative?'**
+  String get branchExplorer_replaceConfirmTitle;
+
+  /// No description provided for @branchExplorer_replaceConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The Original will be replaced with the contents of \"{name}\". This action cannot be undone.'**
+  String branchExplorer_replaceConfirmBody(String name);
+
+  /// No description provided for @branchExplorer_archiveConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive \"{name}\"?'**
+  String branchExplorer_archiveConfirmTitle(String name);
+
+  /// No description provided for @branchExplorer_archiveConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This alternative will be removed from the list. Your Original is not affected.'**
+  String get branchExplorer_archiveConfirmBody;
+
+  /// No description provided for @branchExplorer_archiveWithChildren.
+  ///
+  /// In en, this message translates to:
+  /// **'Sub-alternatives will be archived too.'**
+  String get branchExplorer_archiveWithChildren;
+
+  /// No description provided for @branchExplorer_descriptionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Why are you exploring this alternative?'**
+  String get branchExplorer_descriptionHint;
+
+  /// No description provided for @branchExplorer_youAreOnActiveWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'You are currently on this alternative. You will be switched back to the Original.'**
+  String get branchExplorer_youAreOnActiveWarning;
+
+  /// No description provided for @branchExplorer_timeTravelHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Travel history'**
+  String get branchExplorer_timeTravelHistory;
+
+  /// No description provided for @branchExplorer_subBranchesCascade.
+  ///
+  /// In en, this message translates to:
+  /// **'Sub-alternatives (cascade)'**
+  String get branchExplorer_subBranchesCascade;
+
+  /// No description provided for @checkpoint_title.
+  ///
+  /// In en, this message translates to:
+  /// **'My checkpoints'**
+  String get checkpoint_title;
+
+  /// No description provided for @checkpoint_emptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'No checkpoints yet'**
+  String get checkpoint_emptyTitle;
+
+  /// No description provided for @checkpoint_emptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Save a checkpoint to bookmark this moment. You can come back to it anytime.'**
+  String get checkpoint_emptyBody;
+
+  /// No description provided for @checkpoint_saveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save checkpoint'**
+  String get checkpoint_saveTitle;
+
+  /// No description provided for @checkpoint_savedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved {date}'**
+  String checkpoint_savedAt(String date);
+
+  /// No description provided for @checkpoint_restore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get checkpoint_restore;
+
+  /// No description provided for @checkpoint_archive.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get checkpoint_archive;
+
+  /// No description provided for @checkpoint_nameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Checkpoint name…'**
+  String get checkpoint_nameHint;
+
+  /// No description provided for @checkpoint_counterFree.
+  ///
+  /// In en, this message translates to:
+  /// **'Checkpoints used: {used}/{max} on this canvas'**
+  String checkpoint_counterFree(int used, int max);
+
+  /// No description provided for @checkpoint_limitReachedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'ve reached the Free limit'**
+  String get checkpoint_limitReachedTitle;
+
+  /// No description provided for @checkpoint_limitReachedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Free includes 3 checkpoints per canvas. Plus unlocks them all for €5.99/month — or archive an existing checkpoint to free a slot.'**
+  String get checkpoint_limitReachedBody;
+
+  /// No description provided for @checkpoint_upgradeToPlus.
+  ///
+  /// In en, this message translates to:
+  /// **'Go Plus'**
+  String get checkpoint_upgradeToPlus;
+
+  /// No description provided for @checkpoint_archiveExisting.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive an existing checkpoint'**
+  String get checkpoint_archiveExisting;
+
+  /// No description provided for @timeTravelMenu_title.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get timeTravelMenu_title;
+
+  /// No description provided for @timeTravelMenu_saveCheckpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'Save checkpoint here'**
+  String get timeTravelMenu_saveCheckpoint;
+
+  /// No description provided for @timeTravelMenu_viewCheckpoints.
+  ///
+  /// In en, this message translates to:
+  /// **'View my checkpoints'**
+  String get timeTravelMenu_viewCheckpoints;
+
+  /// No description provided for @timeTravelMenu_exploreAlternative.
+  ///
+  /// In en, this message translates to:
+  /// **'Explore an alternative from here'**
+  String get timeTravelMenu_exploreAlternative;
+
+  /// No description provided for @timeTravelMenu_viewAlternatives.
+  ///
+  /// In en, this message translates to:
+  /// **'View explored alternatives'**
+  String get timeTravelMenu_viewAlternatives;
+
+  /// No description provided for @advancedMode_mergeToggleTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Show advanced merge options'**
+  String get advancedMode_mergeToggleTitle;
+
+  /// No description provided for @advancedMode_mergeToggleSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Adds the classic merge UI to alternatives. For power users familiar with git-style branching.'**
+  String get advancedMode_mergeToggleSubtitle;
+
+  /// No description provided for @featuresSheet_chipLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Features'**
+  String get featuresSheet_chipLabel;
+
+  /// No description provided for @featuresSheet_title.
+  ///
+  /// In en, this message translates to:
+  /// **'What Fluera can do'**
+  String get featuresSheet_title;
+
+  /// No description provided for @featuresSheet_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'The cognitive features available on the canvas. Tap a card to try it.'**
+  String get featuresSheet_subtitle;
+
+  /// No description provided for @featuresSheet_proBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Pro'**
+  String get featuresSheet_proBadge;
+
+  /// No description provided for @featuresSheet_ghostMapName.
+  ///
+  /// In en, this message translates to:
+  /// **'Ghost Map'**
+  String get featuresSheet_ghostMapName;
+
+  /// No description provided for @featuresSheet_ghostMapDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'See the gaps in your knowledge before reading.'**
+  String get featuresSheet_ghostMapDesc;
+
+  /// No description provided for @featuresSheet_socraticName.
+  ///
+  /// In en, this message translates to:
+  /// **'Socratic Mode'**
+  String get featuresSheet_socraticName;
+
+  /// No description provided for @featuresSheet_socraticDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Fluera quizzes you on your notes — no scoring.'**
+  String get featuresSheet_socraticDesc;
+
+  /// No description provided for @featuresSheet_examName.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam Session'**
+  String get featuresSheet_examName;
+
+  /// No description provided for @featuresSheet_examDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Simulate a closed-book oral exam on your canvas.'**
+  String get featuresSheet_examDesc;
+
+  /// No description provided for @featuresSheet_fogName.
+  ///
+  /// In en, this message translates to:
+  /// **'Fog of War'**
+  String get featuresSheet_fogName;
+
+  /// No description provided for @featuresSheet_fogDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Covers the doc during exam to force active recall.'**
+  String get featuresSheet_fogDesc;
+
+  /// No description provided for @featuresSheet_bridgesName.
+  ///
+  /// In en, this message translates to:
+  /// **'Cross-Zone Bridges'**
+  String get featuresSheet_bridgesName;
+
+  /// No description provided for @featuresSheet_bridgesDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect concepts across different clusters of the canvas.'**
+  String get featuresSheet_bridgesDesc;
+
+  /// No description provided for @featuresSheet_timeTravelName.
+  ///
+  /// In en, this message translates to:
+  /// **'Time Travel'**
+  String get featuresSheet_timeTravelName;
+
+  /// No description provided for @featuresSheet_timeTravelDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Replay your study in playback, stroke by stroke.'**
+  String get featuresSheet_timeTravelDesc;
+
+  /// No description provided for @radialMode_settingsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Radial mode'**
+  String get radialMode_settingsTitle;
+
+  /// No description provided for @radialMode_settingsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace the toolbar with a radial menu summoned by long-press. Best with stylus.'**
+  String get radialMode_settingsSubtitle;
+
+  /// No description provided for @radialMode_coachmarkTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Radial mode'**
+  String get radialMode_coachmarkTitle;
+
+  /// No description provided for @radialMode_coachmarkBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If you use a stylus, try radial mode: Settings → Advanced studio.'**
+  String get radialMode_coachmarkBody;
+
+  /// No description provided for @pdfBookmark_pageBookmarked.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} bookmarked'**
+  String pdfBookmark_pageBookmarked(int page);
+
+  /// No description provided for @pdfBookmark_pageRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page} bookmark removed'**
+  String pdfBookmark_pageRemoved(int page);
+
+  /// No description provided for @pdfBookmark_undo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get pdfBookmark_undo;
+
+  /// No description provided for @pdfBookmark_noteDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Note - Page {page}'**
+  String pdfBookmark_noteDialogTitle(int page);
+
+  /// No description provided for @pdfBookmark_noteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a note...'**
+  String get pdfBookmark_noteHint;
+
+  /// No description provided for @pdfBookmark_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get pdfBookmark_cancel;
+
+  /// No description provided for @pdfBookmark_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get pdfBookmark_save;
+
+  /// No description provided for @pdfBookmark_tooltipPrev.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous bookmark'**
+  String get pdfBookmark_tooltipPrev;
+
+  /// No description provided for @pdfBookmark_tooltipNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next bookmark'**
+  String get pdfBookmark_tooltipNext;
+
+  /// No description provided for @pdfBookmark_summaryShareText.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmark summary ({count} pages)'**
+  String pdfBookmark_summaryShareText(int count);
+
+  /// No description provided for @pdfReader_searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in PDF...'**
+  String get pdfReader_searchHint;
+
+  /// No description provided for @pdfReader_pinchToExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinch to exit'**
+  String get pdfReader_pinchToExit;
+
+  /// No description provided for @pdfReader_releaseToGoBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Release to go back'**
+  String get pdfReader_releaseToGoBack;
+
+  /// No description provided for @settings_searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search settings...'**
+  String get settings_searchHint;
+
+  /// No description provided for @settings_themeSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'System'**
+  String get settings_themeSystem;
+
+  /// No description provided for @settings_themeDark.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get settings_themeDark;
+
+  /// No description provided for @settings_themeLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Light'**
+  String get settings_themeLight;
+
+  /// No description provided for @settings_signOutTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out?'**
+  String get settings_signOutTitle;
+
+  /// No description provided for @settings_signOutTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get settings_signOutTooltip;
+
+  /// No description provided for @settings_signOutConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get settings_signOutConfirm;
+
+  /// No description provided for @settings_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get settings_cancel;
+
+  /// No description provided for @settings_resetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore all settings?'**
+  String get settings_resetTitle;
+
+  /// No description provided for @settings_resetTypeRESET.
+  ///
+  /// In en, this message translates to:
+  /// **'Type RESET to confirm'**
+  String get settings_resetTypeRESET;
+
+  /// No description provided for @settings_resetConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore all'**
+  String get settings_resetConfirm;
+
+  /// No description provided for @settings_resetDone.
+  ///
+  /// In en, this message translates to:
+  /// **'All settings restored to defaults'**
+  String get settings_resetDone;
+
+  /// No description provided for @settings_onboardingNextLaunch.
+  ///
+  /// In en, this message translates to:
+  /// **'Onboarding will appear on next launch'**
+  String get settings_onboardingNextLaunch;
+
+  /// No description provided for @settings_cacheClearMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear memory'**
+  String get settings_cacheClearMemory;
+
+  /// No description provided for @settings_cacheClearDisk.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear disk'**
+  String get settings_cacheClearDisk;
+
+  /// No description provided for @settings_cacheClearDictionary.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear dictionary'**
+  String get settings_cacheClearDictionary;
+
+  /// No description provided for @settings_cacheClearAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all'**
+  String get settings_cacheClearAll;
+
+  /// No description provided for @settings_cacheMemoryCleared.
+  ///
+  /// In en, this message translates to:
+  /// **'Memory cache cleared'**
+  String get settings_cacheMemoryCleared;
+
+  /// No description provided for @settings_cacheDiskCleared.
+  ///
+  /// In en, this message translates to:
+  /// **'Disk cache cleared'**
+  String get settings_cacheDiskCleared;
+
+  /// No description provided for @settings_cacheDictionaryCleared.
+  ///
+  /// In en, this message translates to:
+  /// **'Dictionary cache cleared'**
+  String get settings_cacheDictionaryCleared;
+
+  /// No description provided for @settings_addWordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a word...'**
+  String get settings_addWordHint;
+
+  /// No description provided for @settings_handednessRight.
+  ///
+  /// In en, this message translates to:
+  /// **'Right'**
+  String get settings_handednessRight;
+
+  /// No description provided for @settings_handednessLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get settings_handednessLeft;
+
+  /// No description provided for @settings_difficultyEasy.
+  ///
+  /// In en, this message translates to:
+  /// **'Easy'**
+  String get settings_difficultyEasy;
+
+  /// No description provided for @settings_difficultyNormal.
+  ///
+  /// In en, this message translates to:
+  /// **'Norm'**
+  String get settings_difficultyNormal;
+
+  /// No description provided for @settings_difficultyHard.
+  ///
+  /// In en, this message translates to:
+  /// **'Hard'**
+  String get settings_difficultyHard;
+
+  /// No description provided for @settings_storeComingSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Store page coming soon!'**
+  String get settings_storeComingSoon;
+
+  /// No description provided for @settings_emptyNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Notes are empty'**
+  String get settings_emptyNotes;
+
+  /// No description provided for @settings_invalidJson.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid JSON: {error}'**
+  String settings_invalidJson(String error);
+
+  /// No description provided for @settings_feedbackHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback...'**
+  String get settings_feedbackHint;
+
+  /// No description provided for @settings_feedbackThanks.
+  ///
+  /// In en, this message translates to:
+  /// **'Thank you for your feedback! 💜'**
+  String get settings_feedbackThanks;
+
+  /// No description provided for @settings_feedbackSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send Feedback'**
+  String get settings_feedbackSend;
+
+  /// No description provided for @settings_chartCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'Current'**
+  String get settings_chartCurrent;
+
+  /// No description provided for @settings_chartMin.
+  ///
+  /// In en, this message translates to:
+  /// **'Min'**
+  String get settings_chartMin;
+
+  /// No description provided for @settings_chartMax.
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get settings_chartMax;
+
+  /// No description provided for @settings_chartClear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get settings_chartClear;
+
+  /// No description provided for @settings_imagesUnit.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} images'**
+  String settings_imagesUnit(int count);
+
+  /// No description provided for @settings_filesUnit.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} files'**
+  String settings_filesUnit(int count);
+
+  /// No description provided for @canvasSettings_surfaceTexture.
+  ///
+  /// In en, this message translates to:
+  /// **'Surface Texture'**
+  String get canvasSettings_surfaceTexture;
+
+  /// No description provided for @canvasSettings_gpuShaderEngine.
+  ///
+  /// In en, this message translates to:
+  /// **'GPU Shader Engine'**
+  String get canvasSettings_gpuShaderEngine;
+
+  /// No description provided for @canvasSettings_gpuShaderActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active — per-pixel texture rendering'**
+  String get canvasSettings_gpuShaderActive;
+
+  /// No description provided for @brushEditor_saveAsPreset.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as Preset'**
+  String get brushEditor_saveAsPreset;
+
+  /// No description provided for @brushEditor_savePresetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save Preset'**
+  String get brushEditor_savePresetTitle;
+
+  /// No description provided for @brushEditor_presetNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset name'**
+  String get brushEditor_presetNameHint;
+
+  /// No description provided for @brushEditor_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get brushEditor_cancel;
+
+  /// No description provided for @brushEditor_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get brushEditor_save;
+
+  /// No description provided for @brushEditor_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get brushEditor_delete;
+
+  /// No description provided for @brushEditor_deletePresetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete \"{name}\"?'**
+  String brushEditor_deletePresetTitle(String name);
+
+  /// No description provided for @brushEditor_deletePresetBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This preset will be permanently removed.'**
+  String get brushEditor_deletePresetBody;
+
+  /// No description provided for @brushEditor_brushBallpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'Ballpoint'**
+  String get brushEditor_brushBallpoint;
+
+  /// No description provided for @brushEditor_brushFountain.
+  ///
+  /// In en, this message translates to:
+  /// **'Fountain Pen'**
+  String get brushEditor_brushFountain;
+
+  /// No description provided for @brushEditor_brushPencil.
+  ///
+  /// In en, this message translates to:
+  /// **'Pencil'**
+  String get brushEditor_brushPencil;
+
+  /// No description provided for @brushEditor_brushHighlighter.
+  ///
+  /// In en, this message translates to:
+  /// **'Highlighter'**
+  String get brushEditor_brushHighlighter;
+
+  /// No description provided for @brushEditor_brushWatercolor.
+  ///
+  /// In en, this message translates to:
+  /// **'Watercolor'**
+  String get brushEditor_brushWatercolor;
+
+  /// No description provided for @brushEditor_brushMarker.
+  ///
+  /// In en, this message translates to:
+  /// **'Marker'**
+  String get brushEditor_brushMarker;
+
+  /// No description provided for @brushEditor_brushCharcoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Charcoal'**
+  String get brushEditor_brushCharcoal;
+
+  /// No description provided for @brushEditor_brushOilPaint.
+  ///
+  /// In en, this message translates to:
+  /// **'Oil Paint'**
+  String get brushEditor_brushOilPaint;
+
+  /// No description provided for @brushEditor_brushSprayPaint.
+  ///
+  /// In en, this message translates to:
+  /// **'Spray Paint'**
+  String get brushEditor_brushSprayPaint;
+
+  /// No description provided for @brushEditor_brushNeonGlow.
+  ///
+  /// In en, this message translates to:
+  /// **'Neon Glow'**
+  String get brushEditor_brushNeonGlow;
+
+  /// No description provided for @brushEditor_brushInkWash.
+  ///
+  /// In en, this message translates to:
+  /// **'Ink Wash'**
+  String get brushEditor_brushInkWash;
+
+  /// No description provided for @brushEditor_brushTechnicalPen.
+  ///
+  /// In en, this message translates to:
+  /// **'Technical Pen'**
+  String get brushEditor_brushTechnicalPen;
+
+  /// No description provided for @paperPicker_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Paper Type'**
+  String get paperPicker_title;
+
+  /// No description provided for @handwritingConfirm_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Handwriting Recognized'**
+  String get handwritingConfirm_title;
+
+  /// No description provided for @handwritingConfirm_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit the text if needed'**
+  String get handwritingConfirm_subtitle;
+
+  /// No description provided for @handwritingConfirm_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognized text...'**
+  String get handwritingConfirm_hint;
+
+  /// No description provided for @handwritingConfirm_replaceStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace strokes with text'**
+  String get handwritingConfirm_replaceStrokes;
+
+  /// No description provided for @handwritingConfirm_keepStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep strokes, add text'**
+  String get handwritingConfirm_keepStrokes;
+
+  /// No description provided for @handwritingConfirm_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get handwritingConfirm_cancel;
+
+  /// No description provided for @handwritingConfirm_convert.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert'**
+  String get handwritingConfirm_convert;
+
+  /// No description provided for @handwritingConfirm_selectLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Language'**
+  String get handwritingConfirm_selectLanguage;
+
+  /// No description provided for @shapeConfirm_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Shape Recognized'**
+  String get shapeConfirm_title;
+
+  /// No description provided for @shapeConfirm_shapeType.
+  ///
+  /// In en, this message translates to:
+  /// **'Shape Type'**
+  String get shapeConfirm_shapeType;
+
+  /// No description provided for @shapeConfirm_filled.
+  ///
+  /// In en, this message translates to:
+  /// **'Filled'**
+  String get shapeConfirm_filled;
+
+  /// No description provided for @shapeConfirm_outlineOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Outline only'**
+  String get shapeConfirm_outlineOnly;
+
+  /// No description provided for @shapeConfirm_replaceStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace strokes with shape'**
+  String get shapeConfirm_replaceStrokes;
+
+  /// No description provided for @shapeConfirm_keepStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep strokes, add shape'**
+  String get shapeConfirm_keepStrokes;
+
+  /// No description provided for @shapeConfirm_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get shapeConfirm_cancel;
+
+  /// No description provided for @shapeConfirm_convert.
+  ///
+  /// In en, this message translates to:
+  /// **'Convert'**
+  String get shapeConfirm_convert;
+
+  /// No description provided for @shape_freehand.
+  ///
+  /// In en, this message translates to:
+  /// **'Freehand'**
+  String get shape_freehand;
+
+  /// No description provided for @shape_line.
+  ///
+  /// In en, this message translates to:
+  /// **'Line'**
+  String get shape_line;
+
+  /// No description provided for @shape_arrow.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrow'**
+  String get shape_arrow;
+
+  /// No description provided for @shape_circle.
+  ///
+  /// In en, this message translates to:
+  /// **'Circle'**
+  String get shape_circle;
+
+  /// No description provided for @shape_rectangle.
+  ///
+  /// In en, this message translates to:
+  /// **'Rectangle'**
+  String get shape_rectangle;
+
+  /// No description provided for @shape_triangle.
+  ///
+  /// In en, this message translates to:
+  /// **'Triangle'**
+  String get shape_triangle;
+
+  /// No description provided for @shape_diamond.
+  ///
+  /// In en, this message translates to:
+  /// **'Diamond'**
+  String get shape_diamond;
+
+  /// No description provided for @shape_pentagon.
+  ///
+  /// In en, this message translates to:
+  /// **'Pentagon'**
+  String get shape_pentagon;
+
+  /// No description provided for @shape_hexagon.
+  ///
+  /// In en, this message translates to:
+  /// **'Hexagon'**
+  String get shape_hexagon;
+
+  /// No description provided for @shape_star.
+  ///
+  /// In en, this message translates to:
+  /// **'Star'**
+  String get shape_star;
+
+  /// No description provided for @shape_heart.
+  ///
+  /// In en, this message translates to:
+  /// **'Heart'**
+  String get shape_heart;
+
+  /// No description provided for @ocrScan_noTextFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No text found in image'**
+  String get ocrScan_noTextFound;
+
+  /// No description provided for @ocrScan_tryAnotherImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Try another image'**
+  String get ocrScan_tryAnotherImage;
+
+  /// No description provided for @ocrScan_anotherImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Another image'**
+  String get ocrScan_anotherImage;
+
+  /// No description provided for @ocrScan_separatedBlocks.
+  ///
+  /// In en, this message translates to:
+  /// **'Separated blocks'**
+  String get ocrScan_separatedBlocks;
+
+  /// No description provided for @ocrScan_mergedText.
+  ///
+  /// In en, this message translates to:
+  /// **'Merged text'**
+  String get ocrScan_mergedText;
+
+  /// No description provided for @ocrScan_showBlocks.
+  ///
+  /// In en, this message translates to:
+  /// **'Show detected blocks'**
+  String get ocrScan_showBlocks;
+
+  /// No description provided for @ocrScan_deselectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Deselect all'**
+  String get ocrScan_deselectAll;
+
+  /// No description provided for @ocrScan_selectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get ocrScan_selectAll;
+
+  /// No description provided for @handwritingPicker_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Handwriting Languages'**
+  String get handwritingPicker_title;
+
+  /// No description provided for @handwritingPicker_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Download models for offline recognition (~15 MB each)'**
+  String get handwritingPicker_subtitle;
+
+  /// No description provided for @handwritingPicker_active.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get handwritingPicker_active;
+
+  /// No description provided for @handwritingPicker_use.
+  ///
+  /// In en, this message translates to:
+  /// **'Use'**
+  String get handwritingPicker_use;
+
+  /// No description provided for @handwritingPicker_modelSize.
+  ///
+  /// In en, this message translates to:
+  /// **'~15 MB'**
+  String get handwritingPicker_modelSize;
+
+  /// No description provided for @share_invalidEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid email'**
+  String get share_invalidEmail;
+
+  /// No description provided for @share_inviteSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite sent to {email} — they\'ll get access on signup'**
+  String share_inviteSent(String email);
+
+  /// No description provided for @share_userNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No user found with this email'**
+  String get share_userNotFound;
+
+  /// No description provided for @share_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Share canvas'**
+  String get share_title;
+
+  /// No description provided for @share_emailLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Email address'**
+  String get share_emailLabel;
+
+  /// No description provided for @share_roleViewer.
+  ///
+  /// In en, this message translates to:
+  /// **'View'**
+  String get share_roleViewer;
+
+  /// No description provided for @share_roleEditor.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get share_roleEditor;
+
+  /// No description provided for @share_canEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Can edit'**
+  String get share_canEdit;
+
+  /// No description provided for @share_canView.
+  ///
+  /// In en, this message translates to:
+  /// **'View only'**
+  String get share_canView;
+
+  /// No description provided for @share_revokeAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke access'**
+  String get share_revokeAccess;
+
+  /// No description provided for @share_shareButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get share_shareButton;
+
+  /// No description provided for @galleryComp_sortNewest.
+  ///
+  /// In en, this message translates to:
+  /// **'Newest first'**
+  String get galleryComp_sortNewest;
+
+  /// No description provided for @galleryComp_sortOldest.
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest first'**
+  String get galleryComp_sortOldest;
+
+  /// No description provided for @galleryComp_newest.
+  ///
+  /// In en, this message translates to:
+  /// **'Newest'**
+  String get galleryComp_newest;
+
+  /// No description provided for @galleryComp_oldest.
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest'**
+  String get galleryComp_oldest;
+
+  /// No description provided for @workspace_resume.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume'**
+  String get workspace_resume;
+
+  /// No description provided for @workspace_open.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get workspace_open;
+
+  /// No description provided for @workspace_origin.
+  ///
+  /// In en, this message translates to:
+  /// **'Origin'**
+  String get workspace_origin;
+
+  /// No description provided for @workspace_continue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get workspace_continue;
+
+  /// No description provided for @workspace_recentBookmarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent bookmarks'**
+  String get workspace_recentBookmarks;
+
+  /// No description provided for @workspace_showAllCanvases.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all canvases'**
+  String get workspace_showAllCanvases;
+
+  /// No description provided for @workspace_justNow.
+  ///
+  /// In en, this message translates to:
+  /// **'just now'**
+  String get workspace_justNow;
+
+  /// No description provided for @hub_bookmarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmarks'**
+  String get hub_bookmarks;
+
+  /// No description provided for @hub_tapToJump.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to jump'**
+  String get hub_tapToJump;
+
+  /// No description provided for @hub_now.
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get hub_now;
+
+  /// No description provided for @examDash_sectionScoreTrend.
+  ///
+  /// In en, this message translates to:
+  /// **'Score trend (30 days)'**
+  String get examDash_sectionScoreTrend;
+
+  /// No description provided for @examDash_sectionTopicsToReinforce.
+  ///
+  /// In en, this message translates to:
+  /// **'Topics to reinforce'**
+  String get examDash_sectionTopicsToReinforce;
+
+  /// No description provided for @examDash_sectionBloomDistribution.
+  ///
+  /// In en, this message translates to:
+  /// **'Bloom distribution of training'**
+  String get examDash_sectionBloomDistribution;
+
+  /// No description provided for @examDash_sectionRecentSessions.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent sessions'**
+  String get examDash_sectionRecentSessions;
+
+  /// No description provided for @examDash_sectionRecentSocratic.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent Socratic sessions'**
+  String get examDash_sectionRecentSocratic;
+
+  /// No description provided for @examDash_noExamsYet.
+  ///
+  /// In en, this message translates to:
+  /// **'No exams completed yet'**
+  String get examDash_noExamsYet;
+
+  /// No description provided for @examDash_totalSessionsKpi.
+  ///
+  /// In en, this message translates to:
+  /// **'total sessions'**
+  String get examDash_totalSessionsKpi;
+
+  /// No description provided for @examDash_streakKpi.
+  ///
+  /// In en, this message translates to:
+  /// **'daily streak'**
+  String get examDash_streakKpi;
+
+  /// No description provided for @examDash_avg30Kpi.
+  ///
+  /// In en, this message translates to:
+  /// **'30-day average'**
+  String get examDash_avg30Kpi;
+
+  /// No description provided for @examDash_noDataLast30.
+  ///
+  /// In en, this message translates to:
+  /// **'No data in the last 30 days'**
+  String get examDash_noDataLast30;
+
+  /// No description provided for @examDash_needTwoSessions.
+  ///
+  /// In en, this message translates to:
+  /// **'Need at least 2 sessions for the chart'**
+  String get examDash_needTwoSessions;
+
+  /// No description provided for @examDash_allTopicsAbove60.
+  ///
+  /// In en, this message translates to:
+  /// **'No topics below 60%. Keep it up!'**
+  String get examDash_allTopicsAbove60;
+
+  /// No description provided for @examDash_socraticReviewSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Detailed Socratic review coming in V1.6'**
+  String get examDash_socraticReviewSoon;
+
+  /// No description provided for @examDash_session.
+  ///
+  /// In en, this message translates to:
+  /// **'Session'**
+  String get examDash_session;
+
+  /// No description provided for @examDash_yesterday.
+  ///
+  /// In en, this message translates to:
+  /// **'yesterday'**
+  String get examDash_yesterday;
+
+  /// No description provided for @bloom_remember.
+  ///
+  /// In en, this message translates to:
+  /// **'Remember'**
+  String get bloom_remember;
+
+  /// No description provided for @bloom_understand.
+  ///
+  /// In en, this message translates to:
+  /// **'Understand'**
+  String get bloom_understand;
+
+  /// No description provided for @bloom_apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get bloom_apply;
+
+  /// No description provided for @bloom_analyze.
+  ///
+  /// In en, this message translates to:
+  /// **'Analyze'**
+  String get bloom_analyze;
+
+  /// No description provided for @bloom_evaluate.
+  ///
+  /// In en, this message translates to:
+  /// **'Evaluate'**
+  String get bloom_evaluate;
+
+  /// No description provided for @bloom_create.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get bloom_create;
+
+  /// No description provided for @authExc_invalidCredentials.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid email or password'**
+  String get authExc_invalidCredentials;
+
+  /// No description provided for @authExc_emailInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'This email is already registered'**
+  String get authExc_emailInUse;
+
+  /// No description provided for @authExc_weakPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password too weak (min. 6 characters)'**
+  String get authExc_weakPassword;
+
+  /// No description provided for @authExc_invalidEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid email format'**
+  String get authExc_invalidEmail;
+
+  /// No description provided for @authExc_emailNotConfirmed.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm your email before signing in'**
+  String get authExc_emailNotConfirmed;
+
+  /// No description provided for @authExc_banned.
+  ///
+  /// In en, this message translates to:
+  /// **'This account has been suspended'**
+  String get authExc_banned;
+
+  /// No description provided for @authExc_userNotFound.
+  ///
+  /// In en, this message translates to:
+  /// **'User not found'**
+  String get authExc_userNotFound;
+
+  /// No description provided for @authExc_signupDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Signups are temporarily disabled'**
+  String get authExc_signupDisabled;
+
+  /// No description provided for @authExc_providerLinked.
+  ///
+  /// In en, this message translates to:
+  /// **'This {provider} account is already linked to another profile'**
+  String authExc_providerLinked(String provider);
+
+  /// No description provided for @authExc_sessionExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Session expired — sign in again'**
+  String get authExc_sessionExpired;
+
+  /// No description provided for @authExc_accountDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Your account has been deleted'**
+  String get authExc_accountDeleted;
+
+  /// No description provided for @authExc_offline.
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re offline — sign-in requires connection'**
+  String get authExc_offline;
+
+  /// No description provided for @authExc_rateLimited.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many attempts. Try again shortly.'**
+  String get authExc_rateLimited;
+
+  /// No description provided for @examReview_emptyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to review'**
+  String get examReview_emptyTitle;
+
+  /// No description provided for @examReview_emptyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'For exams completed before V1.5 we only save handwritten strokes, not the questions. New exams will show question + answer + strokes here.'**
+  String get examReview_emptyBody;
+
+  /// No description provided for @examReview_resultCorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'✓ correct'**
+  String get examReview_resultCorrect;
+
+  /// No description provided for @examReview_resultIncorrect.
+  ///
+  /// In en, this message translates to:
+  /// **'✗ wrong'**
+  String get examReview_resultIncorrect;
+
+  /// No description provided for @examReview_resultSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'➜ skipped'**
+  String get examReview_resultSkipped;
+
+  /// No description provided for @examReview_resultPartial.
+  ///
+  /// In en, this message translates to:
+  /// **'◐ partial'**
+  String get examReview_resultPartial;
+
+  /// No description provided for @examReview_questionLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Question {n}'**
+  String examReview_questionLabel(int n);
+
+  /// No description provided for @examReview_reworked.
+  ///
+  /// In en, this message translates to:
+  /// **'reworked'**
+  String get examReview_reworked;
+
+  /// No description provided for @examReview_yourAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'Your answer'**
+  String get examReview_yourAnswer;
+
+  /// No description provided for @examReview_correctAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'Correct answer'**
+  String get examReview_correctAnswer;
+
+  /// No description provided for @storage_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud storage'**
+  String get storage_title;
+
+  /// No description provided for @storage_refresh.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh'**
+  String get storage_refresh;
+
+  /// No description provided for @storage_detailTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Storage detail'**
+  String get storage_detailTitle;
+
+  /// No description provided for @storage_images.
+  ///
+  /// In en, this message translates to:
+  /// **'Images'**
+  String get storage_images;
+
+  /// No description provided for @storage_pdfs.
+  ///
+  /// In en, this message translates to:
+  /// **'PDFs'**
+  String get storage_pdfs;
+
+  /// No description provided for @storage_recordings.
+  ///
+  /// In en, this message translates to:
+  /// **'Recordings'**
+  String get storage_recordings;
+
+  /// No description provided for @storage_largestCanvases.
+  ///
+  /// In en, this message translates to:
+  /// **'Largest canvases'**
+  String get storage_largestCanvases;
+
+  /// No description provided for @storage_usedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'used'**
+  String get storage_usedLabel;
+
+  /// No description provided for @storage_quotaTotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Total quota'**
+  String get storage_quotaTotal;
+
+  /// No description provided for @storage_usedAmount.
+  ///
+  /// In en, this message translates to:
+  /// **'Used'**
+  String get storage_usedAmount;
+
+  /// No description provided for @storage_remaining.
+  ///
+  /// In en, this message translates to:
+  /// **'Remaining'**
+  String get storage_remaining;
+
+  /// No description provided for @brushStamp_spacing.
+  ///
+  /// In en, this message translates to:
+  /// **'Spacing'**
+  String get brushStamp_spacing;
+
+  /// No description provided for @brushStamp_scatter.
+  ///
+  /// In en, this message translates to:
+  /// **'Scatter'**
+  String get brushStamp_scatter;
+
+  /// No description provided for @brushStamp_symmetry.
+  ///
+  /// In en, this message translates to:
+  /// **'Symmetry'**
+  String get brushStamp_symmetry;
+
+  /// No description provided for @brushStamp_textureNone.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get brushStamp_textureNone;
+
+  /// No description provided for @brushStamp_texturePencil.
+  ///
+  /// In en, this message translates to:
+  /// **'Pencil Grain'**
+  String get brushStamp_texturePencil;
+
+  /// No description provided for @brushStamp_textureCharcoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Charcoal'**
+  String get brushStamp_textureCharcoal;
+
+  /// No description provided for @brushStamp_textureWatercolor.
+  ///
+  /// In en, this message translates to:
+  /// **'Watercolor'**
+  String get brushStamp_textureWatercolor;
+
+  /// No description provided for @brushStamp_textureCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas'**
+  String get brushStamp_textureCanvas;
+
+  /// No description provided for @brushStamp_textureKraft.
+  ///
+  /// In en, this message translates to:
+  /// **'Kraft'**
+  String get brushStamp_textureKraft;
+
+  /// No description provided for @brushStamp_shapeCircle.
+  ///
+  /// In en, this message translates to:
+  /// **'Circle'**
+  String get brushStamp_shapeCircle;
+
+  /// No description provided for @brushStamp_shapeSquare.
+  ///
+  /// In en, this message translates to:
+  /// **'Square'**
+  String get brushStamp_shapeSquare;
+
+  /// No description provided for @brushStamp_shapeDiamond.
+  ///
+  /// In en, this message translates to:
+  /// **'Diamond'**
+  String get brushStamp_shapeDiamond;
+
+  /// No description provided for @brushStamp_presetWatercolor.
+  ///
+  /// In en, this message translates to:
+  /// **'Watercolor'**
+  String get brushStamp_presetWatercolor;
+
+  /// No description provided for @brushStamp_presetCharcoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Charcoal'**
+  String get brushStamp_presetCharcoal;
+
+  /// No description provided for @brushStamp_presetAirbrush.
+  ///
+  /// In en, this message translates to:
+  /// **'Airbrush'**
+  String get brushStamp_presetAirbrush;
+
+  /// No description provided for @ruler_annotationLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotation'**
+  String get ruler_annotationLabel;
+
+  /// No description provided for @ruler_copyCoordinate.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy coordinate'**
+  String get ruler_copyCoordinate;
+
+  /// No description provided for @ruler_copied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied: {coord}'**
+  String ruler_copied(String coord);
+
+  /// No description provided for @ruler_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get ruler_cancel;
+
+  /// No description provided for @ruler_ok.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get ruler_ok;
+
+  /// No description provided for @ruler_apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get ruler_apply;
+
+  /// No description provided for @ruler_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get ruler_save;
+
+  /// No description provided for @ruler_customGridTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom Grid'**
+  String get ruler_customGridTitle;
+
+  /// No description provided for @ruler_numberOfGuides.
+  ///
+  /// In en, this message translates to:
+  /// **'Number of guides'**
+  String get ruler_numberOfGuides;
+
+  /// No description provided for @ruler_distribute.
+  ///
+  /// In en, this message translates to:
+  /// **'Distribute'**
+  String get ruler_distribute;
+
+  /// No description provided for @ruler_presetNameLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Preset name'**
+  String get ruler_presetNameLabel;
+
+  /// No description provided for @latex_undo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get latex_undo;
+
+  /// No description provided for @latex_redo.
+  ///
+  /// In en, this message translates to:
+  /// **'Redo'**
+  String get latex_redo;
+
+  /// No description provided for @latex_history.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get latex_history;
+
+  /// No description provided for @latex_templates.
+  ///
+  /// In en, this message translates to:
+  /// **'Templates'**
+  String get latex_templates;
+
+  /// No description provided for @latex_graph.
+  ///
+  /// In en, this message translates to:
+  /// **'Graph'**
+  String get latex_graph;
+
+  /// No description provided for @latex_commands.
+  ///
+  /// In en, this message translates to:
+  /// **'Commands'**
+  String get latex_commands;
+
+  /// No description provided for @latex_preview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get latex_preview;
+
+  /// No description provided for @latex_reset.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset'**
+  String get latex_reset;
+
+  /// No description provided for @latex_noRecentExpressions.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent expressions'**
+  String get latex_noRecentExpressions;
+
+  /// No description provided for @latex_enterExpressionFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter an expression before viewing the graph'**
+  String get latex_enterExpressionFirst;
+
+  /// No description provided for @versionHistory_saveVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Save checkpoint'**
+  String get versionHistory_saveVersion;
+
+  /// No description provided for @versionHistory_saveVersionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save checkpoint'**
+  String get versionHistory_saveVersionTitle;
+
+  /// No description provided for @versionHistory_noVersions.
+  ///
+  /// In en, this message translates to:
+  /// **'No checkpoints yet'**
+  String get versionHistory_noVersions;
+
+  /// No description provided for @versionHistory_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get versionHistory_cancel;
+
+  /// No description provided for @versionHistory_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get versionHistory_save;
+
+  /// No description provided for @versionHistory_restore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get versionHistory_restore;
+
+  /// No description provided for @versionHistory_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get versionHistory_delete;
+
+  /// No description provided for @varManager_close.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get varManager_close;
+
+  /// No description provided for @varManager_remove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get varManager_remove;
+
+  /// No description provided for @varManager_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get varManager_cancel;
+
+  /// No description provided for @varManager_create.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get varManager_create;
+
+  /// No description provided for @varManager_import.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get varManager_import;
+
+  /// No description provided for @varManager_apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get varManager_apply;
+
+  /// No description provided for @varManager_noVariables.
+  ///
+  /// In en, this message translates to:
+  /// **'No variables yet'**
+  String get varManager_noVariables;
+
+  /// No description provided for @varManager_noResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No results'**
+  String get varManager_noResults;
+
+  /// No description provided for @varManager_noCollections.
+  ///
+  /// In en, this message translates to:
+  /// **'No variable collections'**
+  String get varManager_noCollections;
+
+  /// No description provided for @varManager_variableName.
+  ///
+  /// In en, this message translates to:
+  /// **'Variable name'**
+  String get varManager_variableName;
+
+  /// No description provided for @varManager_typeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Type'**
+  String get varManager_typeLabel;
+
+  /// No description provided for @varManager_valueLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Value'**
+  String get varManager_valueLabel;
+
+  /// No description provided for @warp_undoLastMove.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo last move'**
+  String get warp_undoLastMove;
+
+  /// No description provided for @warp_resetMesh.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset mesh'**
+  String get warp_resetMesh;
+
+  /// No description provided for @warp_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get warp_cancel;
+
+  /// No description provided for @warp_apply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get warp_apply;
+
+  /// No description provided for @warp_gridLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid: '**
+  String get warp_gridLabel;
+
+  /// No description provided for @smudge_label.
+  ///
+  /// In en, this message translates to:
+  /// **'Smudge'**
+  String get smudge_label;
+
+  /// No description provided for @smudge_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag and blend colors like a finger on wet paint'**
+  String get smudge_description;
+
+  /// No description provided for @smudge_fingerPainting.
+  ///
+  /// In en, this message translates to:
+  /// **'Finger Painting'**
+  String get smudge_fingerPainting;
+
+  /// No description provided for @transformWarp_description.
+  ///
+  /// In en, this message translates to:
+  /// **'Deform with a control-point mesh grid'**
+  String get transformWarp_description;
+
+  /// No description provided for @titleBar_minimize.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize'**
+  String get titleBar_minimize;
+
+  /// No description provided for @titleBar_restore.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore'**
+  String get titleBar_restore;
+
+  /// No description provided for @titleBar_maximize.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize'**
+  String get titleBar_maximize;
+
+  /// No description provided for @titleBar_close.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get titleBar_close;
+
+  /// No description provided for @cmdPalette_hint.
+  ///
+  /// In en, this message translates to:
+  /// **'Type a command...'**
+  String get cmdPalette_hint;
+
+  /// No description provided for @cmdPalette_noCommands.
+  ///
+  /// In en, this message translates to:
+  /// **'No commands found'**
+  String get cmdPalette_noCommands;
+
+  /// No description provided for @cmdPalette_navigate.
+  ///
+  /// In en, this message translates to:
+  /// **'navigate'**
+  String get cmdPalette_navigate;
+
+  /// No description provided for @cmdPalette_select.
+  ///
+  /// In en, this message translates to:
+  /// **'select'**
+  String get cmdPalette_select;
+
+  /// No description provided for @cmdPalette_toggleFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle Fullscreen'**
+  String get cmdPalette_toggleFullscreen;
+
+  /// No description provided for @cmdPalette_toggleAlwaysOnTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Toggle Always on Top'**
+  String get cmdPalette_toggleAlwaysOnTop;
+
+  /// No description provided for @cmdPalette_minimize.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimize Window'**
+  String get cmdPalette_minimize;
+
+  /// No description provided for @cmdPalette_maximize.
+  ///
+  /// In en, this message translates to:
+  /// **'Maximize / Restore Window'**
+  String get cmdPalette_maximize;
+
+  /// No description provided for @cmdPalette_center.
+  ///
+  /// In en, this message translates to:
+  /// **'Center Window'**
+  String get cmdPalette_center;
+
+  /// No description provided for @cmdPalette_themeDark.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme: Dark Mode'**
+  String get cmdPalette_themeDark;
+
+  /// No description provided for @cmdPalette_themeLight.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme: Light Mode'**
+  String get cmdPalette_themeLight;
+
+  /// No description provided for @cmdPalette_themeSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme: System Default'**
+  String get cmdPalette_themeSystem;
+
+  /// No description provided for @cmdPalette_newCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'New Canvas'**
+  String get cmdPalette_newCanvas;
+
+  /// No description provided for @cmdPalette_openSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Settings'**
+  String get cmdPalette_openSettings;
+
+  /// No description provided for @cmdPalette_closeFluera.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Fluera'**
+  String get cmdPalette_closeFluera;
+
+  /// No description provided for @pdfExport_print.
+  ///
+  /// In en, this message translates to:
+  /// **'Print'**
+  String get pdfExport_print;
+
+  /// No description provided for @pdfExport_archive.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive'**
+  String get pdfExport_archive;
+
+  /// No description provided for @atlasCard_answer.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer'**
+  String get atlasCard_answer;
+
+  /// No description provided for @atlasCard_oneMoment.
+  ///
+  /// In en, this message translates to:
+  /// **'One moment…'**
+  String get atlasCard_oneMoment;
+
+  /// No description provided for @atlasCard_nextConcept.
+  ///
+  /// In en, this message translates to:
+  /// **'Next → {concept}'**
+  String atlasCard_nextConcept(String concept);
+
+  /// No description provided for @atlasCard_swipeForHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'swipe for history'**
+  String get atlasCard_swipeForHistory;
+
+  /// No description provided for @atlasCard_canExplain.
+  ///
+  /// In en, this message translates to:
+  /// **'I can explain it'**
+  String get atlasCard_canExplain;
+
+  /// No description provided for @atlasCard_hesitant.
+  ///
+  /// In en, this message translates to:
+  /// **'I have doubts'**
+  String get atlasCard_hesitant;
+
+  /// No description provided for @atlasCard_cantRemember.
+  ///
+  /// In en, this message translates to:
+  /// **'I don\'t remember'**
+  String get atlasCard_cantRemember;
+
+  /// No description provided for @pdfExport_quickShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick Share'**
+  String get pdfExport_quickShare;
+
+  /// No description provided for @pdfExport_pageOfPages.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {current} of {total}'**
+  String pdfExport_pageOfPages(int current, int total);
+
+  /// No description provided for @pdfExport_exportComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Export Complete'**
+  String get pdfExport_exportComplete;
+
+  /// No description provided for @pdfExport_proPlanBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Pro'**
+  String get pdfExport_proPlanBadge;
+
+  /// No description provided for @pdfExport_freePlanLimit.
+  ///
+  /// In en, this message translates to:
+  /// **'The Free plan exports only to PNG. With Pro, export to PDF, SVG, and all formats.'**
+  String get pdfExport_freePlanLimit;
+
+  /// No description provided for @pdfExport_position.
+  ///
+  /// In en, this message translates to:
+  /// **'Position'**
+  String get pdfExport_position;
+
+  /// No description provided for @pdfExport_positionDiagonal.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagonal'**
+  String get pdfExport_positionDiagonal;
+
+  /// No description provided for @pdfExport_positionCenter.
+  ///
+  /// In en, this message translates to:
+  /// **'Center'**
+  String get pdfExport_positionCenter;
+
+  /// No description provided for @pdfExport_positionTiled.
+  ///
+  /// In en, this message translates to:
+  /// **'Tiled'**
+  String get pdfExport_positionTiled;
+
+  /// No description provided for @pdfExport_opacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Opacity {percent}%'**
+  String pdfExport_opacity(int percent);
+
+  /// No description provided for @brushCtrl_angleSnap.
+  ///
+  /// In en, this message translates to:
+  /// **'Angle Snap'**
+  String get brushCtrl_angleSnap;
+
+  /// No description provided for @brushCtrl_snapAngle.
+  ///
+  /// In en, this message translates to:
+  /// **'Snap Angle'**
+  String get brushCtrl_snapAngle;
+
+  /// No description provided for @brushCtrl_closeShapes.
+  ///
+  /// In en, this message translates to:
+  /// **'Close Shapes'**
+  String get brushCtrl_closeShapes;
+
+  /// No description provided for @brushCtrl_cornerSharpness.
+  ///
+  /// In en, this message translates to:
+  /// **'Corner Sharpness'**
+  String get brushCtrl_cornerSharpness;
+
+  /// No description provided for @brushCtrl_gridSnap.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid Snap'**
+  String get brushCtrl_gridSnap;
+
+  /// No description provided for @brushCtrl_gridSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid Size'**
+  String get brushCtrl_gridSize;
+
+  /// No description provided for @brushCtrl_straightAssist.
+  ///
+  /// In en, this message translates to:
+  /// **'Straight Assist'**
+  String get brushCtrl_straightAssist;
+
+  /// No description provided for @brushCtrl_showGuides.
+  ///
+  /// In en, this message translates to:
+  /// **'Show Guides'**
+  String get brushCtrl_showGuides;
+
+  /// No description provided for @brushCtrl_parallelSnap.
+  ///
+  /// In en, this message translates to:
+  /// **'Parallel Snap'**
+  String get brushCtrl_parallelSnap;
+
+  /// No description provided for @brushCtrl_perpendicularSnap.
+  ///
+  /// In en, this message translates to:
+  /// **'Perpendicular Snap'**
+  String get brushCtrl_perpendicularSnap;
+
+  /// No description provided for @brushCtrl_sensitivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Sensitivity'**
+  String get brushCtrl_sensitivity;
+
+  /// No description provided for @brushCtrl_thinning.
+  ///
+  /// In en, this message translates to:
+  /// **'Thinning'**
+  String get brushCtrl_thinning;
+
+  /// No description provided for @brushCtrl_velocity.
+  ///
+  /// In en, this message translates to:
+  /// **'Velocity'**
+  String get brushCtrl_velocity;
+
+  /// No description provided for @brushCtrl_tilt.
+  ///
+  /// In en, this message translates to:
+  /// **'Tilt'**
+  String get brushCtrl_tilt;
+
+  /// No description provided for @brushCtrl_nibAngle.
+  ///
+  /// In en, this message translates to:
+  /// **'Nib Angle'**
+  String get brushCtrl_nibAngle;
+
+  /// No description provided for @brushCtrl_nibStrength.
+  ///
+  /// In en, this message translates to:
+  /// **'Nib Strength'**
+  String get brushCtrl_nibStrength;
+
+  /// No description provided for @brushCtrl_taperStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Taper Start'**
+  String get brushCtrl_taperStart;
+
+  /// No description provided for @brushCtrl_taperEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'Taper End'**
+  String get brushCtrl_taperEnd;
+
+  /// No description provided for @brushCtrl_opacity.
+  ///
+  /// In en, this message translates to:
+  /// **'Opacity'**
+  String get brushCtrl_opacity;
+
+  /// No description provided for @brushCtrl_softness.
+  ///
+  /// In en, this message translates to:
+  /// **'Softness'**
+  String get brushCtrl_softness;
+
+  /// No description provided for @brushCtrl_pressure.
+  ///
+  /// In en, this message translates to:
+  /// **'Pressure'**
+  String get brushCtrl_pressure;
+
+  /// No description provided for @brushCtrl_width.
+  ///
+  /// In en, this message translates to:
+  /// **'Width'**
+  String get brushCtrl_width;
+
+  /// No description provided for @brushCtrl_autoStraighten.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-Straighten'**
+  String get brushCtrl_autoStraighten;
+
+  /// No description provided for @brushCtrl_stabilizer.
+  ///
+  /// In en, this message translates to:
+  /// **'Stabilizer'**
+  String get brushCtrl_stabilizer;
+
+  /// No description provided for @voice_qualitySettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality Settings'**
+  String get voice_qualitySettings;
+
+  /// No description provided for @voice_withStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'With Strokes'**
+  String get voice_withStrokes;
+
+  /// No description provided for @voice_withoutStrokes.
+  ///
+  /// In en, this message translates to:
+  /// **'Without Strokes'**
+  String get voice_withoutStrokes;
+
+  /// No description provided for @voice_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get voice_cancel;
+
+  /// No description provided for @voice_save.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get voice_save;
+
+  /// No description provided for @voice_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get voice_delete;
+
+  /// No description provided for @voice_deleteAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete All'**
+  String get voice_deleteAll;
+
+  /// No description provided for @voice_download.
+  ///
+  /// In en, this message translates to:
+  /// **'Download'**
+  String get voice_download;
+
+  /// No description provided for @voice_retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get voice_retry;
+
+  /// No description provided for @voice_play.
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get voice_play;
+
+  /// No description provided for @voice_unpin.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpin'**
+  String get voice_unpin;
+
+  /// No description provided for @voice_recordingComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording Complete'**
+  String get voice_recordingComplete;
+
+  /// No description provided for @voice_recordingDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording deleted'**
+  String get voice_recordingDeleted;
+
+  /// No description provided for @voice_noRecordingsSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'No recordings saved for this canvas'**
+  String get voice_noRecordingsSaved;
+
+  /// No description provided for @voice_errorStarting.
+  ///
+  /// In en, this message translates to:
+  /// **'Error starting recording: {error}'**
+  String voice_errorStarting(String error);
+
+  /// No description provided for @voice_errorStopping.
+  ///
+  /// In en, this message translates to:
+  /// **'Error stopping recording: {error}'**
+  String voice_errorStopping(String error);
+
+  /// No description provided for @voice_deleteRecording.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete recording?'**
+  String get voice_deleteRecording;
+
+  /// No description provided for @voice_downloadSpeechModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Download Speech Model'**
+  String get voice_downloadSpeechModel;
+
+  /// No description provided for @voice_transcriptionLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Transcription Language'**
+  String get voice_transcriptionLanguage;
+
+  /// No description provided for @voice_autoDetect.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-detect'**
+  String get voice_autoDetect;
+
+  /// No description provided for @voice_autoDetectSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Let the model detect the language'**
+  String get voice_autoDetectSubtitle;
+
+  /// No description provided for @brushWidget_texture.
+  ///
+  /// In en, this message translates to:
+  /// **'Texture'**
+  String get brushWidget_texture;
+
+  /// No description provided for @brushWidget_textureHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies a texture overlay to strokes for a more natural feel.'**
+  String get brushWidget_textureHint;
+
+  /// No description provided for @brushWidget_intensity.
+  ///
+  /// In en, this message translates to:
+  /// **'Intensity'**
+  String get brushWidget_intensity;
+
+  /// No description provided for @brushWidget_intensityHint.
+  ///
+  /// In en, this message translates to:
+  /// **'How strongly the texture shows through the stroke.'**
+  String get brushWidget_intensityHint;
+
+  /// No description provided for @brushWidget_pressureCurve.
+  ///
+  /// In en, this message translates to:
+  /// **'Pressure Curve'**
+  String get brushWidget_pressureCurve;
+
+  /// No description provided for @brushWidget_pressureCurveHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Maps raw stylus pressure to output. Soft = light touch produces more, Firm = needs harder press.'**
+  String get brushWidget_pressureCurveHint;
+
+  /// No description provided for @brushWidget_curveLinear.
+  ///
+  /// In en, this message translates to:
+  /// **'Linear'**
+  String get brushWidget_curveLinear;
+
+  /// No description provided for @brushWidget_curveSoft.
+  ///
+  /// In en, this message translates to:
+  /// **'Soft'**
+  String get brushWidget_curveSoft;
+
+  /// No description provided for @brushWidget_curveFirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Firm'**
+  String get brushWidget_curveFirm;
+
+  /// No description provided for @brushWidget_curveSCurve.
+  ///
+  /// In en, this message translates to:
+  /// **'S-Curve'**
+  String get brushWidget_curveSCurve;
+
+  /// No description provided for @brushWidget_curveHeavy.
+  ///
+  /// In en, this message translates to:
+  /// **'Heavy'**
+  String get brushWidget_curveHeavy;
+
+  /// No description provided for @canvasParts_mustKeepOnePage.
+  ///
+  /// In en, this message translates to:
+  /// **'Must keep at least one page'**
+  String get canvasParts_mustKeepOnePage;
+
+  /// No description provided for @canvasParts_noContentToFrame.
+  ///
+  /// In en, this message translates to:
+  /// **'No content to frame'**
+  String get canvasParts_noContentToFrame;
+
+  /// No description provided for @canvasParts_exportNotConfigured.
+  ///
+  /// In en, this message translates to:
+  /// **'Export not configured in this app'**
+  String get canvasParts_exportNotConfigured;
+
+  /// No description provided for @canvasParts_handwritingUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Handwriting recognition is not available on this platform'**
+  String get canvasParts_handwritingUnavailable;
+
+  /// No description provided for @canvasParts_handwritingModelLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load handwriting model'**
+  String get canvasParts_handwritingModelLoadFailed;
+
+  /// No description provided for @canvasParts_thisDocument.
+  ///
+  /// In en, this message translates to:
+  /// **'this document'**
+  String get canvasParts_thisDocument;
+
+  /// No description provided for @canvasParts_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get canvasParts_cancel;
+
+  /// No description provided for @canvasParts_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get canvasParts_delete;
+
+  /// No description provided for @toolbarTools_allBorders.
+  ///
+  /// In en, this message translates to:
+  /// **'All Borders'**
+  String get toolbarTools_allBorders;
+
+  /// No description provided for @toolbarTools_outsideBorders.
+  ///
+  /// In en, this message translates to:
+  /// **'Outside'**
+  String get toolbarTools_outsideBorders;
+
+  /// No description provided for @toolbarTools_insideBorders.
+  ///
+  /// In en, this message translates to:
+  /// **'Inside'**
+  String get toolbarTools_insideBorders;
+
+  /// No description provided for @toolbarTools_bottomBorder.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom'**
+  String get toolbarTools_bottomBorder;
+
+  /// No description provided for @toolbarTools_noBorders.
+  ///
+  /// In en, this message translates to:
+  /// **'No Borders'**
+  String get toolbarTools_noBorders;
+
+  /// No description provided for @toolbarTools_newSpreadsheet.
+  ///
+  /// In en, this message translates to:
+  /// **'New Spreadsheet'**
+  String get toolbarTools_newSpreadsheet;
+
+  /// No description provided for @toolbarTools_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get toolbarTools_cancel;
+
+  /// No description provided for @toolbarTools_create.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get toolbarTools_create;
+
+  /// No description provided for @collabShare_inviteCanvas.
+  ///
+  /// In en, this message translates to:
+  /// **'Invite to canvas'**
+  String get collabShare_inviteCanvas;
+
+  /// No description provided for @collabShare_copyLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy link'**
+  String get collabShare_copyLink;
+
+  /// No description provided for @collabShare_generateNew.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate new'**
+  String get collabShare_generateNew;
+
+  /// No description provided for @collabShare_close.
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get collabShare_close;
+
+  /// No description provided for @collabShare_linkCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Link copied'**
+  String get collabShare_linkCopied;
+
+  /// No description provided for @collabShare_retry.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry'**
+  String get collabShare_retry;
+
+  /// No description provided for @imageFeatures_errorLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Error loading image'**
+  String get imageFeatures_errorLoading;
+
+  /// No description provided for @imageFeatures_errorDecoding.
+  ///
+  /// In en, this message translates to:
+  /// **'Error decoding image'**
+  String get imageFeatures_errorDecoding;
+
+  /// No description provided for @imageFeatures_beingEdited.
+  ///
+  /// In en, this message translates to:
+  /// **'Image is being edited by another collaborator'**
+  String get imageFeatures_beingEdited;
+
+  /// No description provided for @imageFeatures_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get imageFeatures_cancel;
+
+  /// No description provided for @imageFeatures_delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get imageFeatures_delete;
+
+  /// No description provided for @uiOverlays_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get uiOverlays_cancel;
+
+  /// No description provided for @uiOverlays_cluster.
+  ///
+  /// In en, this message translates to:
+  /// **'Cluster'**
+  String get uiOverlays_cluster;
+
+  /// No description provided for @uiOverlays_ok.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get uiOverlays_ok;
+
+  /// No description provided for @uiOverlays_quizMe.
+  ///
+  /// In en, this message translates to:
+  /// **'Quiz me'**
+  String get uiOverlays_quizMe;
+
+  /// No description provided for @uiOverlays_quizMeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Interactive exam on your notes'**
+  String get uiOverlays_quizMeSubtitle;
+
+  /// No description provided for @uiOverlays_trendsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Progress + topics to reinforce'**
+  String get uiOverlays_trendsSubtitle;
+
+  /// No description provided for @uiOverlays_lasso.
+  ///
+  /// In en, this message translates to:
+  /// **'Lasso'**
+  String get uiOverlays_lasso;
+
+  /// No description provided for @uiOverlays_rect.
+  ///
+  /// In en, this message translates to:
+  /// **'Rect'**
+  String get uiOverlays_rect;
+
+  /// No description provided for @uiOverlays_ellipse.
+  ///
+  /// In en, this message translates to:
+  /// **'Ellipse'**
+  String get uiOverlays_ellipse;
+
+  /// No description provided for @svgImport_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Import SVG'**
+  String get svgImport_title;
+
+  /// No description provided for @svgImport_pasteFromClipboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste from clipboard'**
+  String get svgImport_pasteFromClipboard;
+
+  /// No description provided for @svgImport_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get svgImport_cancel;
+
+  /// No description provided for @svgImport_import.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get svgImport_import;
+
+  /// No description provided for @noteImport_importingNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Importing Notes'**
+  String get noteImport_importingNotes;
+
+  /// No description provided for @noteImport_noHandwrittenContent.
+  ///
+  /// In en, this message translates to:
+  /// **'No handwritten content found in the file.'**
+  String get noteImport_noHandwrittenContent;
+
+  /// No description provided for @noteImport_importedSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Imported {count} strokes successfully.'**
+  String noteImport_importedSuccess(int count);
+
+  /// No description provided for @noteImport_importFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Import failed: {error}'**
+  String noteImport_importFailed(String error);
+
+  /// No description provided for @branching_branchName.
+  ///
+  /// In en, this message translates to:
+  /// **'Branch name'**
+  String get branching_branchName;
+
+  /// No description provided for @branching_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get branching_cancel;
+
+  /// No description provided for @branching_create.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get branching_create;
+
+  /// No description provided for @branching_newBranch.
+  ///
+  /// In en, this message translates to:
+  /// **'New Branch'**
+  String get branching_newBranch;
+
+  /// No description provided for @branching_forkFromEvent.
+  ///
+  /// In en, this message translates to:
+  /// **'Fork from event {current} of {total}'**
+  String branching_forkFromEvent(int current, int total);
+
+  /// No description provided for @branching_forkFromBranch.
+  ///
+  /// In en, this message translates to:
+  /// **'Fork from \"{branchName}\"'**
+  String branching_forkFromBranch(String branchName);
+
+  /// No description provided for @branching_defaultBranchName.
+  ///
+  /// In en, this message translates to:
+  /// **'Branch {time}'**
+  String branching_defaultBranchName(String time);
+
+  /// No description provided for @branching_untitledBranch.
+  ///
+  /// In en, this message translates to:
+  /// **'Untitled Branch'**
+  String get branching_untitledBranch;
+
+  /// No description provided for @audioSync_recordingStoppedOnBranchSwitch.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording stopped — switching branch'**
+  String get audioSync_recordingStoppedOnBranchSwitch;
+
+  /// No description provided for @audioSync_quotaReachedAutoStop.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice minutes quota reached — recording stopped'**
+  String get audioSync_quotaReachedAutoStop;
+
+  /// No description provided for @audioSync_downloadFailedOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t download the recording — check your connection'**
+  String get audioSync_downloadFailedOffline;
+
+  /// No description provided for @toolbarTool_panMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Pan Mode'**
+  String get toolbarTool_panMode;
+
+  /// No description provided for @toolbarTool_stylusOnlyMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Stylus Only Mode'**
+  String get toolbarTool_stylusOnlyMode;
+
+  /// No description provided for @toolbarTool_lassoSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Lasso Selection'**
+  String get toolbarTool_lassoSelection;
+
+  /// No description provided for @toolbarTool_ruler.
+  ///
+  /// In en, this message translates to:
+  /// **'Ruler'**
+  String get toolbarTool_ruler;
+
+  /// No description provided for @toolbarTool_minimap.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimap'**
+  String get toolbarTool_minimap;
+
+  /// No description provided for @toolbarTool_worldView.
+  ///
+  /// In en, this message translates to:
+  /// **'Mappamondo view'**
+  String get toolbarTool_worldView;
+
+  /// No description provided for @toolbarTool_worldViewTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out to see the entire canvas'**
+  String get toolbarTool_worldViewTooltip;
+
+  /// No description provided for @monumentNudge_messageWithLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'🏛️ \"{label}\" has become a landmark of your Palace. Consider making it bigger or a distinctive color — landmarks anchor memory.'**
+  String monumentNudge_messageWithLabel(String label);
+
+  /// No description provided for @monumentNudge_dismissCta.
+  ///
+  /// In en, this message translates to:
+  /// **'Got it'**
+  String get monumentNudge_dismissCta;
+
+  /// No description provided for @toolbarTool_vectorPen.
+  ///
+  /// In en, this message translates to:
+  /// **'Vector Pen Tool'**
+  String get toolbarTool_vectorPen;
+
+  /// No description provided for @toolbarTool_digitalText.
+  ///
+  /// In en, this message translates to:
+  /// **'Digital Text'**
+  String get toolbarTool_digitalText;
+
+  /// No description provided for @toolbarTool_insertImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert Image'**
+  String get toolbarTool_insertImage;
+
+  /// No description provided for @toolbarTool_latexMath.
+  ///
+  /// In en, this message translates to:
+  /// **'LaTeX / Math Editor'**
+  String get toolbarTool_latexMath;
+
+  /// No description provided for @toolbarTool_spreadsheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Spreadsheet'**
+  String get toolbarTool_spreadsheet;
+
+  /// No description provided for @toolbarTool_sectionArtboard.
+  ///
+  /// In en, this message translates to:
+  /// **'Section / Artboard'**
+  String get toolbarTool_sectionArtboard;
+
+  /// No description provided for @toolbarTool_searchHandwriting.
+  ///
+  /// In en, this message translates to:
+  /// **'Search Handwriting'**
+  String get toolbarTool_searchHandwriting;
+
+  /// No description provided for @hwSearch_allPagesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'All pages'**
+  String get hwSearch_allPagesTitle;
+
+  /// No description provided for @hwSearch_allPagesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in ALL your gallery canvases, not just this one. When off, you only search here.'**
+  String get hwSearch_allPagesBody;
+
+  /// No description provided for @hwSearch_caseSensitiveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Case sensitive'**
+  String get hwSearch_caseSensitiveTitle;
+
+  /// No description provided for @hwSearch_caseSensitiveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Distinguishes uppercase and lowercase. \"Rome\" doesn\'t match \"rome\" when on.'**
+  String get hwSearch_caseSensitiveBody;
+
+  /// No description provided for @hwSearch_wholeWordTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Whole word'**
+  String get hwSearch_wholeWordTitle;
+
+  /// No description provided for @hwSearch_wholeWordBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Finds only whole words. \"art\" doesn\'t match \"smart\" or \"artist\" when on.'**
+  String get hwSearch_wholeWordBody;
+
+  /// No description provided for @hwSearch_fuzzyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Typo-tolerant search'**
+  String get hwSearch_fuzzyTitle;
+
+  /// No description provided for @hwSearch_fuzzyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Finds words with up to 2 typing errors. Useful for fast handwriting or quick notes.'**
+  String get hwSearch_fuzzyBody;
+
+  /// No description provided for @hwSearch_regexTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Regex'**
+  String get hwSearch_regexTitle;
+
+  /// No description provided for @hwSearch_regexBody.
+  ///
+  /// In en, this message translates to:
+  /// **'For advanced users: use regular expression patterns (e.g. \"ca[sr]a\" for cara or casa).'**
+  String get hwSearch_regexBody;
+
+  /// No description provided for @hwSearch_visibleAreaTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Visible area only'**
+  String get hwSearch_visibleAreaTitle;
+
+  /// No description provided for @hwSearch_visibleAreaBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Search only the area visible on screen. Useful to narrow down to a specific zone.'**
+  String get hwSearch_visibleAreaBody;
+
+  /// No description provided for @hwSearch_gotIt.
+  ///
+  /// In en, this message translates to:
+  /// **'Got it'**
+  String get hwSearch_gotIt;
+
+  /// No description provided for @hwSearch_caseSensitiveTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Case sensitive matching'**
+  String get hwSearch_caseSensitiveTooltip;
+
+  /// No description provided for @hwSearch_wholeWordTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Whole words only'**
+  String get hwSearch_wholeWordTooltip;
+
+  /// No description provided for @hwSearch_fuzzyTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Typo-tolerant (≤2 errors)'**
+  String get hwSearch_fuzzyTooltip;
+
+  /// No description provided for @hwSearch_regexTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Regex patterns (advanced users)'**
+  String get hwSearch_regexTooltip;
+
+  /// No description provided for @hwSearch_visibleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Visible'**
+  String get hwSearch_visibleLabel;
+
+  /// No description provided for @hwSearch_visibleTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the area you see on screen'**
+  String get hwSearch_visibleTooltip;
+
+  /// No description provided for @hwSearch_searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search handwriting...'**
+  String get hwSearch_searchHint;
+
+  /// No description provided for @hwSearch_filtersHelpTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'What do the filters do?'**
+  String get hwSearch_filtersHelpTooltip;
+
+  /// No description provided for @hwSearch_copiedResults.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied {count} results'**
+  String hwSearch_copiedResults(int count);
+
+  /// No description provided for @hwSearch_replaceHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Replace with...'**
+  String get hwSearch_replaceHint;
+
+  /// No description provided for @hwSearch_wordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Word'**
+  String get hwSearch_wordLabel;
+
+  /// No description provided for @hwSearch_fuzzyLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Fuzzy'**
+  String get hwSearch_fuzzyLabel;
+
+  /// No description provided for @hwSearch_regexLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Regex'**
+  String get hwSearch_regexLabel;
+
+  /// No description provided for @hwSearch_filtersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Search filters'**
+  String get hwSearch_filtersTitle;
+
+  /// No description provided for @buildUi_tapToReveal.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to reveal'**
+  String get buildUi_tapToReveal;
+
+  /// No description provided for @buildUi_clusterPrev.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous Cluster'**
+  String get buildUi_clusterPrev;
+
+  /// No description provided for @buildUi_clusterNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next Cluster'**
+  String get buildUi_clusterNext;
+
+  /// No description provided for @buildUi_addPage.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Page'**
+  String get buildUi_addPage;
+
+  /// No description provided for @buildUi_removePage.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove Page'**
+  String get buildUi_removePage;
+
+  /// No description provided for @buildUi_gridFreeFormatTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap: Grid/Free • Long: Format'**
+  String get buildUi_gridFreeFormatTooltip;
+
+  /// No description provided for @buildUi_backgroundTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Background (Transparent/Template)'**
+  String get buildUi_backgroundTooltip;
+
+  /// No description provided for @buildUi_autoFrameContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-Frame Content'**
+  String get buildUi_autoFrameContent;
+
+  /// No description provided for @buildUi_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get buildUi_cancel;
+
+  /// No description provided for @tabularLatex_generated.
+  ///
+  /// In en, this message translates to:
+  /// **'LaTeX Table Generated'**
+  String get tabularLatex_generated;
+
+  /// No description provided for @tabularLatex_mergedCellsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Merged Cells Detected'**
+  String get tabularLatex_mergedCellsTitle;
+
+  /// No description provided for @tabularLatex_mergedCellsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The selected range contains merged cells.\n\nMerged cells will use the master cell value only — slave cells will be skipped to avoid duplicate zeros.'**
+  String get tabularLatex_mergedCellsBody;
+
+  /// No description provided for @tabularLatex_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get tabularLatex_cancel;
+
+  /// No description provided for @tabularLatex_continue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get tabularLatex_continue;
+
+  /// No description provided for @tabularLatex_importTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Import LaTeX Table'**
+  String get tabularLatex_importTitle;
+
+  /// No description provided for @tabularLatex_importHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste LaTeX tabular environment here'**
+  String get tabularLatex_importHint;
+
+  /// No description provided for @tabularLatex_import.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get tabularLatex_import;
+
+  /// No description provided for @tabularLatex_noValidTable.
+  ///
+  /// In en, this message translates to:
+  /// **'No valid LaTeX table found'**
+  String get tabularLatex_noValidTable;
+
+  /// No description provided for @tabularLatex_imported.
+  ///
+  /// In en, this message translates to:
+  /// **'Imported {env} → {cols}×{rows} table'**
+  String tabularLatex_imported(String env, int cols, int rows);
+
+  /// No description provided for @tabularLatex_documentCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'.tex document copied to clipboard'**
+  String get tabularLatex_documentCopied;
+
+  /// No description provided for @componentSet_autoGroupByName.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-group by name'**
+  String get componentSet_autoGroupByName;
+
+  /// No description provided for @componentSet_insertInstance.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert instance'**
+  String get componentSet_insertInstance;
+
+  /// No description provided for @socraticScratchpad_clear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get socraticScratchpad_clear;
+
+  /// No description provided for @socraticScratchpad_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get socraticScratchpad_cancel;
+
+  /// No description provided for @socraticBubble_reflectMentally.
+  ///
+  /// In en, this message translates to:
+  /// **'Reflect mentally, no sketch'**
+  String get socraticBubble_reflectMentally;
+
+  /// No description provided for @socraticBubble_sketchAndContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Sketch a thought, AI continues'**
+  String get socraticBubble_sketchAndContinue;
+
+  /// No description provided for @socraticBubble_thinkOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Think only'**
+  String get socraticBubble_thinkOnly;
+
+  /// No description provided for @socraticBubble_sketch.
+  ///
+  /// In en, this message translates to:
+  /// **'Sketch'**
+  String get socraticBubble_sketch;
+
+  /// No description provided for @toolsArea_pages.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get toolsArea_pages;
+
+  /// No description provided for @toolsArea_searchPdf.
+  ///
+  /// In en, this message translates to:
+  /// **'Search PDF'**
+  String get toolsArea_searchPdf;
+
+  /// No description provided for @toolsArea_layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout'**
+  String get toolsArea_layout;
+
+  /// No description provided for @toolsArea_nightMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Night Mode'**
+  String get toolsArea_nightMode;
+
+  /// No description provided for @toolsArea_zoomToFit.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom to Fit'**
+  String get toolsArea_zoomToFit;
+
+  /// No description provided for @toolsArea_annotate.
+  ///
+  /// In en, this message translates to:
+  /// **'Annotate'**
+  String get toolsArea_annotate;
+
+  /// No description provided for @toolsArea_export.
+  ///
+  /// In en, this message translates to:
+  /// **'Export'**
+  String get toolsArea_export;
+
+  /// No description provided for @toolsArea_print.
+  ///
+  /// In en, this message translates to:
+  /// **'Print'**
+  String get toolsArea_print;
+
+  /// No description provided for @toolsArea_present.
+  ///
+  /// In en, this message translates to:
+  /// **'Present'**
+  String get toolsArea_present;
+
+  /// No description provided for @toolsArea_newBlankDocument.
+  ///
+  /// In en, this message translates to:
+  /// **'New blank document'**
+  String get toolsArea_newBlankDocument;
+
+  /// No description provided for @toolsArea_newTable.
+  ///
+  /// In en, this message translates to:
+  /// **'New Table'**
+  String get toolsArea_newTable;
+
+  /// No description provided for @toolsArea_deleteTable.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Table'**
+  String get toolsArea_deleteTable;
+
+  /// No description provided for @toolsArea_bold.
+  ///
+  /// In en, this message translates to:
+  /// **'Bold'**
+  String get toolsArea_bold;
+
+  /// No description provided for @toolsArea_italic.
+  ///
+  /// In en, this message translates to:
+  /// **'Italic'**
+  String get toolsArea_italic;
+
+  /// No description provided for @toolsArea_borders.
+  ///
+  /// In en, this message translates to:
+  /// **'Borders'**
+  String get toolsArea_borders;
+
+  /// No description provided for @toolsArea_clear.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get toolsArea_clear;
+
+  /// No description provided for @toolsArea_alignLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Left'**
+  String get toolsArea_alignLeft;
+
+  /// No description provided for @toolsArea_alignCenter.
+  ///
+  /// In en, this message translates to:
+  /// **'Center'**
+  String get toolsArea_alignCenter;
+
+  /// No description provided for @toolsArea_alignRight.
+  ///
+  /// In en, this message translates to:
+  /// **'Right'**
+  String get toolsArea_alignRight;
+
+  /// No description provided for @toolsArea_textColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Text Color'**
+  String get toolsArea_textColor;
+
+  /// No description provided for @toolsArea_fillColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Fill Color'**
+  String get toolsArea_fillColor;
+
+  /// No description provided for @toolsArea_insertRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert Row'**
+  String get toolsArea_insertRow;
+
+  /// No description provided for @toolsArea_deleteRow.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Row'**
+  String get toolsArea_deleteRow;
+
+  /// No description provided for @toolsArea_insertCol.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert Col'**
+  String get toolsArea_insertCol;
+
+  /// No description provided for @toolsArea_deleteCol.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete Col'**
+  String get toolsArea_deleteCol;
+
+  /// No description provided for @toolsArea_moreActions.
+  ///
+  /// In en, this message translates to:
+  /// **'More Actions'**
+  String get toolsArea_moreActions;
+
+  /// No description provided for @toolsArea_formulaReference.
+  ///
+  /// In en, this message translates to:
+  /// **'Formula Reference'**
+  String get toolsArea_formulaReference;
+
+  /// No description provided for @toolsArea_switchPdf.
+  ///
+  /// In en, this message translates to:
+  /// **'Switch PDF'**
+  String get toolsArea_switchPdf;
+
+  /// No description provided for @toolsArea_wheelMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Wheel mode'**
+  String get toolsArea_wheelMode;
+
+  /// No description provided for @toolsArea_pasteSvgHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste SVG content here...'**
+  String get toolsArea_pasteSvgHint;
+
+  /// No description provided for @latexEditor_info.
+  ///
+  /// In en, this message translates to:
+  /// **'Info'**
+  String get latexEditor_info;
+
+  /// No description provided for @latexEditor_searchCommands.
+  ///
+  /// In en, this message translates to:
+  /// **'Search commands...'**
+  String get latexEditor_searchCommands;
+
+  /// No description provided for @latexEditor_color.
+  ///
+  /// In en, this message translates to:
+  /// **'Color'**
+  String get latexEditor_color;
+
+  /// No description provided for @latexEditor_commands.
+  ///
+  /// In en, this message translates to:
+  /// **'Commands'**
+  String get latexEditor_commands;
+
+  /// No description provided for @latexEditor_latexCommands.
+  ///
+  /// In en, this message translates to:
+  /// **'LaTeX Commands'**
+  String get latexEditor_latexCommands;
+
+  /// No description provided for @latexEditor_fontSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Size: {size}'**
+  String latexEditor_fontSize(int size);
+
+  /// No description provided for @latexSymbol_searchSymbol.
+  ///
+  /// In en, this message translates to:
+  /// **'Search symbol...'**
+  String get latexSymbol_searchSymbol;
+
+  /// No description provided for @socraticScope_searchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search topic (title or note)'**
+  String get socraticScope_searchHint;
+
+  /// No description provided for @timeTravel_previousSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous session'**
+  String get timeTravel_previousSession;
+
+  /// No description provided for @timeTravel_nextSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Next session'**
+  String get timeTravel_nextSession;
+
+  /// No description provided for @timeTravel_recoverInPresent.
+  ///
+  /// In en, this message translates to:
+  /// **'Recover in the present'**
+  String get timeTravel_recoverInPresent;
+
+  /// No description provided for @timeTravel_exportTimelapse.
+  ///
+  /// In en, this message translates to:
+  /// **'Export timelapse'**
+  String get timeTravel_exportTimelapse;
+
+  /// No description provided for @voiceRecording_options.
+  ///
+  /// In en, this message translates to:
+  /// **'Options'**
+  String get voiceRecording_options;
+
+  /// No description provided for @voiceRecording_copyText.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy text'**
+  String get voiceRecording_copyText;
+
+  /// No description provided for @voiceRecording_reTranscribe.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-transcribe'**
+  String get voiceRecording_reTranscribe;
+
+  /// No description provided for @ghostMap_info.
+  ///
+  /// In en, this message translates to:
+  /// **'Ghost Map info'**
+  String get ghostMap_info;
+
+  /// No description provided for @animTimeline_loop.
+  ///
+  /// In en, this message translates to:
+  /// **'Loop'**
+  String get animTimeline_loop;
+
+  /// No description provided for @varProp_searchVariables.
+  ///
+  /// In en, this message translates to:
+  /// **'Search {type} variables…'**
+  String varProp_searchVariables(String type);
+
+  /// No description provided for @connLabel_addLabelHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add label...'**
+  String get connLabel_addLabelHint;
+
+  /// No description provided for @varManager_importW3CTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'Import W3C Tokens'**
+  String get varManager_importW3CTokens;
+
+  /// No description provided for @varManager_exportW3CTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'Export W3C Tokens'**
+  String get varManager_exportW3CTokens;
+
+  /// No description provided for @varManager_newCollection.
+  ///
+  /// In en, this message translates to:
+  /// **'New Collection'**
+  String get varManager_newCollection;
+
+  /// No description provided for @varManager_searchVariables.
+  ///
+  /// In en, this message translates to:
+  /// **'Search variables…'**
+  String get varManager_searchVariables;
+
+  /// No description provided for @varManager_groupHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Group (e.g. colors/primary)'**
+  String get varManager_groupHint;
+
+  /// No description provided for @varManager_pasteW3CHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste W3C DTCG JSON here…'**
+  String get varManager_pasteW3CHint;
+
+  /// No description provided for @tokenExport_copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get tokenExport_copy;
+
+  /// No description provided for @tabularHandler_enterValueOrFormula.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter value or formula'**
+  String get tabularHandler_enterValueOrFormula;
+
+  /// No description provided for @syncPlayback_restart.
+  ///
+  /// In en, this message translates to:
+  /// **'Restart'**
+  String get syncPlayback_restart;
+
+  /// No description provided for @syncPlayback_stop.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop'**
+  String get syncPlayback_stop;
+
+  /// No description provided for @echoSearch_typeQuery.
+  ///
+  /// In en, this message translates to:
+  /// **'Type query...'**
+  String get echoSearch_typeQuery;
+
+  /// No description provided for @imageViewer_grid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid'**
+  String get imageViewer_grid;
+
+  /// No description provided for @imageViewer_histogram.
+  ///
+  /// In en, this message translates to:
+  /// **'Histogram'**
+  String get imageViewer_histogram;
+
+  /// No description provided for @imageViewer_background.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get imageViewer_background;
+
+  /// No description provided for @imageViewer_edit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get imageViewer_edit;
+
+  /// No description provided for @imageViewer_share.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get imageViewer_share;
+
+  /// No description provided for @voiceRecording_recordingName.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording name'**
+  String get voiceRecording_recordingName;
+
+  /// No description provided for @voiceRecording_enterName.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter name'**
+  String get voiceRecording_enterName;
+
+  /// No description provided for @voiceRecording_searchRecordings.
+  ///
+  /// In en, this message translates to:
+  /// **'Search recordings...'**
+  String get voiceRecording_searchRecordings;
+
+  /// No description provided for @voiceRecording_name.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get voiceRecording_name;
+
+  /// No description provided for @tabular_mergeCells.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge cells'**
+  String get tabular_mergeCells;
+
+  /// No description provided for @tabular_unmergeCells.
+  ///
+  /// In en, this message translates to:
+  /// **'Unmerge cells'**
+  String get tabular_unmergeCells;
+
+  /// No description provided for @tabular_numberFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Number format'**
+  String get tabular_numberFormat;
+
+  /// No description provided for @tabular_validationRule.
+  ///
+  /// In en, this message translates to:
+  /// **'Validation rule'**
+  String get tabular_validationRule;
+
+  /// No description provided for @tabular_conditionalFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Conditional format'**
+  String get tabular_conditionalFormat;
+
+  /// No description provided for @tabular_generateLatex.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate LaTeX Table from Selection'**
+  String get tabular_generateLatex;
+
+  /// No description provided for @tabular_copyAsLatex.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Selection as LaTeX'**
+  String get tabular_copyAsLatex;
+
+  /// No description provided for @tabular_generateTikz.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate TikZ Chart from Selection'**
+  String get tabular_generateTikz;
+
+  /// No description provided for @tabular_importLatex.
+  ///
+  /// In en, this message translates to:
+  /// **'Import LaTeX → Spreadsheet'**
+  String get tabular_importLatex;
+
+  /// No description provided for @tabular_exportTex.
+  ///
+  /// In en, this message translates to:
+  /// **'Export .tex File'**
+  String get tabular_exportTex;
+
+  /// No description provided for @tabular_freezePanes.
+  ///
+  /// In en, this message translates to:
+  /// **'Freeze panes'**
+  String get tabular_freezePanes;
+
+  /// No description provided for @tabular_importCsv.
+  ///
+  /// In en, this message translates to:
+  /// **'Import CSV'**
+  String get tabular_importCsv;
+
+  /// No description provided for @tabular_exportCsv.
+  ///
+  /// In en, this message translates to:
+  /// **'Export CSV'**
+  String get tabular_exportCsv;
+
+  /// No description provided for @tabular_importXlsx.
+  ///
+  /// In en, this message translates to:
+  /// **'Import XLSX'**
+  String get tabular_importXlsx;
+
+  /// No description provided for @tabular_exportXlsx.
+  ///
+  /// In en, this message translates to:
+  /// **'Export XLSX'**
+  String get tabular_exportXlsx;
+
+  /// No description provided for @formulaRef_searchFunctions.
+  ///
+  /// In en, this message translates to:
+  /// **'Search functions…'**
+  String get formulaRef_searchFunctions;
+
+  /// No description provided for @pdfFeatures_documentTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Document title'**
+  String get pdfFeatures_documentTitle;
+
+  /// No description provided for @pdfToolbar_previousShiftEnter.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous (Shift+Enter)'**
+  String get pdfToolbar_previousShiftEnter;
+
+  /// No description provided for @knowledgeMap_searchClusters.
+  ///
+  /// In en, this message translates to:
+  /// **'Search clusters...'**
+  String get knowledgeMap_searchClusters;
+
+  /// No description provided for @multiview_pen.
+  ///
+  /// In en, this message translates to:
+  /// **'Pen'**
+  String get multiview_pen;
+
+  /// No description provided for @multiview_eraser.
+  ///
+  /// In en, this message translates to:
+  /// **'Eraser'**
+  String get multiview_eraser;
+
+  /// No description provided for @multiview_pan.
+  ///
+  /// In en, this message translates to:
+  /// **'Pan'**
+  String get multiview_pan;
+
+  /// No description provided for @multiview_brushType.
+  ///
+  /// In en, this message translates to:
+  /// **'Brush type'**
+  String get multiview_brushType;
+
+  /// No description provided for @multiview_undo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get multiview_undo;
+
+  /// No description provided for @multiview_redo.
+  ///
+  /// In en, this message translates to:
+  /// **'Redo'**
+  String get multiview_redo;
+
+  /// No description provided for @multiview_exit.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit Multiview'**
+  String get multiview_exit;
+
+  /// No description provided for @multiview_changeLayout.
+  ///
+  /// In en, this message translates to:
+  /// **'Change layout'**
+  String get multiview_changeLayout;
+
+  /// No description provided for @bookmarks_addNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a note...'**
+  String get bookmarks_addNote;
+
+  /// No description provided for @ruler_spacing.
+  ///
+  /// In en, this message translates to:
+  /// **'Spacing (px)'**
+  String get ruler_spacing;
+
+  /// No description provided for @ruler_start.
+  ///
+  /// In en, this message translates to:
+  /// **'Start (px)'**
+  String get ruler_start;
+
+  /// No description provided for @ruler_end.
+  ///
+  /// In en, this message translates to:
+  /// **'End (px)'**
+  String get ruler_end;
+
+  /// No description provided for @dictionary_explainOneLine.
+  ///
+  /// In en, this message translates to:
+  /// **'Explain it in one line…'**
+  String get dictionary_explainOneLine;
+
+  /// No description provided for @dictionary_rewriteWithoutCopying.
+  ///
+  /// In en, this message translates to:
+  /// **'Rewrite without copying from the definition…'**
+  String get dictionary_rewriteWithoutCopying;
+
+  /// No description provided for @proColor_colorBlindnessPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Color blindness preview'**
+  String get proColor_colorBlindnessPreview;
+
+  /// No description provided for @proColor_eyedropper.
+  ///
+  /// In en, this message translates to:
+  /// **'Eyedropper'**
+  String get proColor_eyedropper;
+
+  /// No description provided for @proColor_copyHex.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy hex'**
+  String get proColor_copyHex;
+
+  /// No description provided for @proColor_pasteHex.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste hex'**
+  String get proColor_pasteHex;
+
+  /// No description provided for @drawing_sectionName.
+  ///
+  /// In en, this message translates to:
+  /// **'Section name...'**
+  String get drawing_sectionName;
+
+  /// No description provided for @drawing_chartTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Chart title…'**
+  String get drawing_chartTitle;
+
+  /// No description provided for @uiOverlay_min.
+  ///
+  /// In en, this message translates to:
+  /// **'Min'**
+  String get uiOverlay_min;
+
+  /// No description provided for @uiOverlay_max.
+  ///
+  /// In en, this message translates to:
+  /// **'Max'**
+  String get uiOverlay_max;
+
+  /// No description provided for @liquify_undoLastBrush.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo last brush'**
+  String get liquify_undoLastBrush;
+
+  /// No description provided for @legal_openWebVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Open web version'**
+  String get legal_openWebVersion;
+
+  /// No description provided for @settings_addWord.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a word...'**
+  String get settings_addWord;
+
+  /// No description provided for @settings_yourFeedback.
+  ///
+  /// In en, this message translates to:
+  /// **'Your feedback...'**
+  String get settings_yourFeedback;
+
+  /// No description provided for @latexRec_noFormula.
+  ///
+  /// In en, this message translates to:
+  /// **'No formula recognized'**
+  String get latexRec_noFormula;
+
+  /// No description provided for @latexRec_formulaRecognized.
+  ///
+  /// In en, this message translates to:
+  /// **'Formula recognized'**
+  String get latexRec_formulaRecognized;
+
+  /// No description provided for @latexRec_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get latexRec_cancel;
+
+  /// No description provided for @latexRec_confirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm'**
+  String get latexRec_confirm;
+
+  /// No description provided for @tabular_compareCategories.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare values by category'**
+  String get tabular_compareCategories;
+
+  /// No description provided for @tabular_showTrends.
+  ///
+  /// In en, this message translates to:
+  /// **'Show trends over time'**
+  String get tabular_showTrends;
+
+  /// No description provided for @tabular_dataDistribution.
+  ///
+  /// In en, this message translates to:
+  /// **'Show data distribution'**
+  String get tabular_dataDistribution;
+
+  /// No description provided for @tabular_proportions.
+  ///
+  /// In en, this message translates to:
+  /// **'Show proportions'**
+  String get tabular_proportions;
+
+  /// No description provided for @tabular_filledTrends.
+  ///
+  /// In en, this message translates to:
+  /// **'Filled trends over time'**
+  String get tabular_filledTrends;
+
+  /// No description provided for @tabular_composition.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare composition'**
+  String get tabular_composition;
+
+  /// No description provided for @tabular_horizontalCompare.
+  ///
+  /// In en, this message translates to:
+  /// **'Horizontal value comparison'**
+  String get tabular_horizontalCompare;
+
+  /// No description provided for @tabular_waterfall.
+  ///
+  /// In en, this message translates to:
+  /// **'Waterfall'**
+  String get tabular_waterfall;
+
+  /// No description provided for @tabular_cancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get tabular_cancel;
+
+  /// No description provided for @tabular_continue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get tabular_continue;
+
+  /// No description provided for @tabular_import.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get tabular_import;
+
+  /// No description provided for @tabular_borderAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All'**
+  String get tabular_borderAll;
+
+  /// No description provided for @tabular_borderOutside.
+  ///
+  /// In en, this message translates to:
+  /// **'Outside'**
+  String get tabular_borderOutside;
+
+  /// No description provided for @tabular_borderInside.
+  ///
+  /// In en, this message translates to:
+  /// **'Inside'**
+  String get tabular_borderInside;
+
+  /// No description provided for @tabular_borderBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom'**
+  String get tabular_borderBottom;
+
+  /// No description provided for @tabular_borderNone.
+  ///
+  /// In en, this message translates to:
+  /// **'None'**
+  String get tabular_borderNone;
+
+  /// No description provided for @pdfReaderExport_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Export Annotated PDF'**
+  String get pdfReaderExport_title;
+
+  /// No description provided for @pdfReaderExport_quality.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality: '**
+  String get pdfReaderExport_quality;
+
+  /// No description provided for @pdfReaderExport_bookmarkSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'Bookmark Summary'**
+  String get pdfReaderExport_bookmarkSummary;
+
+  /// No description provided for @pdfReaderExport_exporting.
+  ///
+  /// In en, this message translates to:
+  /// **'Exporting...'**
+  String get pdfReaderExport_exporting;
+
+  /// No description provided for @pdfReaderExport_failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Export failed: {error}'**
+  String pdfReaderExport_failed(String error);
+
   /// No description provided for @consent_acceptAll.
   ///
   /// In en, this message translates to:
@@ -4716,6 +10474,78 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Continue with these choices'**
   String get consent_continueWithChoices;
+
+  /// No description provided for @consent_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Your privacy, your choices'**
+  String get consent_title;
+
+  /// No description provided for @consent_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Fluera respects GDPR. Choose what you want to share — you can change your mind anytime from Settings.'**
+  String get consent_subtitle;
+
+  /// No description provided for @consent_privacyLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy Policy'**
+  String get consent_privacyLink;
+
+  /// No description provided for @consent_termsLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Terms of use'**
+  String get consent_termsLink;
+
+  /// No description provided for @consent_analyticsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Product analytics'**
+  String get consent_analyticsTitle;
+
+  /// No description provided for @consent_analyticsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Helps us understand which features you use most so we can improve Fluera. Only aggregated events — never the content of your notes.'**
+  String get consent_analyticsBody;
+
+  /// No description provided for @consent_aiTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'AI features'**
+  String get consent_aiTitle;
+
+  /// No description provided for @consent_aiBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Required for Ghost Map, Socratic Mode, LaTeX OCR and Exam Session. Some text from your notes is sent to Google Gemini. Without this option, AI features are disabled.'**
+  String get consent_aiBody;
+
+  /// No description provided for @consent_cloudTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud Sync'**
+  String get consent_cloudTitle;
+
+  /// No description provided for @consent_cloudBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted backup of your canvases on our servers so you can use them on other devices. Without this option, all data stays on this device only.'**
+  String get consent_cloudBody;
+
+  /// No description provided for @consent_crashTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Crash reports'**
+  String get consent_crashTitle;
+
+  /// No description provided for @consent_crashBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Sends technical info when Fluera crashes (no content, no personal data) to help us fix bugs faster.'**
+  String get consent_crashBody;
 
   /// No description provided for @exam_headerLabel.
   ///
@@ -5778,6 +11608,702 @@ abstract class FlueraLocalizations {
   /// In en, this message translates to:
   /// **'Select nodes with the lasso to see available commands.'**
   String get atlasPrompt_emptySelectionHint;
+
+  /// No description provided for @selAction_selectedBadge.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected'**
+  String get selAction_selectedBadge;
+
+  /// No description provided for @selAction_copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get selAction_copy;
+
+  /// No description provided for @selAction_duplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get selAction_duplicate;
+
+  /// No description provided for @selAction_paste.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste'**
+  String get selAction_paste;
+
+  /// No description provided for @selAction_more.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get selAction_more;
+
+  /// No description provided for @selAction_transform.
+  ///
+  /// In en, this message translates to:
+  /// **'Transform'**
+  String get selAction_transform;
+
+  /// No description provided for @selAction_arrange.
+  ///
+  /// In en, this message translates to:
+  /// **'Arrange'**
+  String get selAction_arrange;
+
+  /// No description provided for @selAction_advanced.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced'**
+  String get selAction_advanced;
+
+  /// No description provided for @selAction_rotate90.
+  ///
+  /// In en, this message translates to:
+  /// **'Rotate 90°'**
+  String get selAction_rotate90;
+
+  /// No description provided for @selAction_bringToFront.
+  ///
+  /// In en, this message translates to:
+  /// **'Bring to Front'**
+  String get selAction_bringToFront;
+
+  /// No description provided for @selAction_sendToBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Send to Back'**
+  String get selAction_sendToBack;
+
+  /// No description provided for @selAction_alignLeft.
+  ///
+  /// In en, this message translates to:
+  /// **'Align Left'**
+  String get selAction_alignLeft;
+
+  /// No description provided for @selAction_alignCenter.
+  ///
+  /// In en, this message translates to:
+  /// **'Align Center'**
+  String get selAction_alignCenter;
+
+  /// No description provided for @selAction_alignRight.
+  ///
+  /// In en, this message translates to:
+  /// **'Align Right'**
+  String get selAction_alignRight;
+
+  /// No description provided for @selAction_alignTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Align Top'**
+  String get selAction_alignTop;
+
+  /// No description provided for @selAction_alignMiddle.
+  ///
+  /// In en, this message translates to:
+  /// **'Align Middle'**
+  String get selAction_alignMiddle;
+
+  /// No description provided for @selAction_alignBottom.
+  ///
+  /// In en, this message translates to:
+  /// **'Align Bottom'**
+  String get selAction_alignBottom;
+
+  /// No description provided for @selAction_distributeH.
+  ///
+  /// In en, this message translates to:
+  /// **'Distribute H'**
+  String get selAction_distributeH;
+
+  /// No description provided for @selAction_distributeV.
+  ///
+  /// In en, this message translates to:
+  /// **'Distribute V'**
+  String get selAction_distributeV;
+
+  /// No description provided for @selAction_selectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select All'**
+  String get selAction_selectAll;
+
+  /// No description provided for @selAction_undo.
+  ///
+  /// In en, this message translates to:
+  /// **'Undo'**
+  String get selAction_undo;
+
+  /// No description provided for @selAction_group.
+  ///
+  /// In en, this message translates to:
+  /// **'Group'**
+  String get selAction_group;
+
+  /// No description provided for @selAction_ungroup.
+  ///
+  /// In en, this message translates to:
+  /// **'Ungroup'**
+  String get selAction_ungroup;
+
+  /// No description provided for @selAction_lock.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock'**
+  String get selAction_lock;
+
+  /// No description provided for @selAction_unlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get selAction_unlock;
+
+  /// No description provided for @selAction_snapOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Snap: ON'**
+  String get selAction_snapOn;
+
+  /// No description provided for @selAction_snapOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Snap: OFF'**
+  String get selAction_snapOff;
+
+  /// No description provided for @selAction_multiLayerOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Multi-Layer: ON'**
+  String get selAction_multiLayerOn;
+
+  /// No description provided for @selAction_multiLayerOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Multi-Layer: OFF'**
+  String get selAction_multiLayerOff;
+
+  /// No description provided for @selAction_inverseSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Inverse Selection'**
+  String get selAction_inverseSelection;
+
+  /// No description provided for @selAction_pasteInPlace.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste in Place'**
+  String get selAction_pasteInPlace;
+
+  /// No description provided for @settingsL1_subscription_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscription and AI credits'**
+  String get settingsL1_subscription_title;
+
+  /// No description provided for @settingsL1_subscription_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan, remaining credits, Spark Pack'**
+  String get settingsL1_subscription_subtitle;
+
+  /// No description provided for @settingsL1_canvas_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas and pen'**
+  String get settingsL1_canvas_title;
+
+  /// No description provided for @settingsL1_canvas_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hand, grip, palm rejection, pressure test'**
+  String get settingsL1_canvas_subtitle;
+
+  /// No description provided for @settingsL1_appearance_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance and accessibility'**
+  String get settingsL1_appearance_title;
+
+  /// No description provided for @settingsL1_appearance_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme, reduce haptics, large text'**
+  String get settingsL1_appearance_subtitle;
+
+  /// No description provided for @settingsL1_cognitive_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Cognitive features'**
+  String get settingsL1_cognitive_title;
+
+  /// No description provided for @settingsL1_cognitive_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam, dictionary, spellcheck, advanced AI'**
+  String get settingsL1_cognitive_subtitle;
+
+  /// No description provided for @settingsL1_documents_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Documents and gallery'**
+  String get settingsL1_documents_title;
+
+  /// No description provided for @settingsL1_documents_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Default paper, export, view, sort'**
+  String get settingsL1_documents_subtitle;
+
+  /// No description provided for @settingsL1_data_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Data and sync'**
+  String get settingsL1_data_title;
+
+  /// No description provided for @settingsL1_data_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud sync, backup, cache, reset'**
+  String get settingsL1_data_subtitle;
+
+  /// No description provided for @settingsL1_privacy_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy and telemetry'**
+  String get settingsL1_privacy_title;
+
+  /// No description provided for @settingsL1_privacy_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'GDPR consents, analytics, AI, crash reports'**
+  String get settingsL1_privacy_subtitle;
+
+  /// No description provided for @settingsL1_about_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Info and support'**
+  String get settingsL1_about_title;
+
+  /// No description provided for @settingsL1_about_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Method, licenses, feedback, advanced studio'**
+  String get settingsL1_about_subtitle;
+
+  /// No description provided for @settingsScreen_account_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Profile and account'**
+  String get settingsScreen_account_title;
+
+  /// No description provided for @settingsScreen_subscription_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Subscription and AI credits'**
+  String get settingsScreen_subscription_title;
+
+  /// No description provided for @settingsScreen_appearance_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance and accessibility'**
+  String get settingsScreen_appearance_title;
+
+  /// No description provided for @settingsScreen_canvas_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas and pen'**
+  String get settingsScreen_canvas_title;
+
+  /// No description provided for @settingsScreen_documents_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Documents and gallery'**
+  String get settingsScreen_documents_title;
+
+  /// No description provided for @settingsScreen_cognitive_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Cognitive features'**
+  String get settingsScreen_cognitive_title;
+
+  /// No description provided for @settingsScreen_data_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Data and sync'**
+  String get settingsScreen_data_title;
+
+  /// No description provided for @settingsScreen_privacy_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy and telemetry'**
+  String get settingsScreen_privacy_title;
+
+  /// No description provided for @settingsScreen_about_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Info and support'**
+  String get settingsScreen_about_title;
+
+  /// No description provided for @settingsCognitive_examHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam (Interrogami)'**
+  String get settingsCognitive_examHeader;
+
+  /// No description provided for @settingsCognitive_accessibilityHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Exam accessibility'**
+  String get settingsCognitive_accessibilityHeader;
+
+  /// No description provided for @settingsCognitive_returnLandmarkHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Return & landmark'**
+  String get settingsCognitive_returnLandmarkHeader;
+
+  /// No description provided for @settingsCognitive_dictHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Dictionary & spellcheck'**
+  String get settingsCognitive_dictHeader;
+
+  /// No description provided for @settingsCognitive_questionCount_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Question count'**
+  String get settingsCognitive_questionCount_title;
+
+  /// No description provided for @settingsCognitive_difficulty_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Default difficulty'**
+  String get settingsCognitive_difficulty_title;
+
+  /// No description provided for @settingsCognitive_hypercorrection_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Hypercorrection effect'**
+  String get settingsCognitive_hypercorrection_title;
+
+  /// No description provided for @settingsCognitive_reduceMotion_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce motion (exam)'**
+  String get settingsCognitive_reduceMotion_title;
+
+  /// No description provided for @settingsCognitive_colorBlind_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Colorblind-safe palette'**
+  String get settingsCognitive_colorBlind_title;
+
+  /// No description provided for @settingsCognitive_sound_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound feedback'**
+  String get settingsCognitive_sound_title;
+
+  /// No description provided for @settingsCognitive_reminders_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Study reminders (FSRS)'**
+  String get settingsCognitive_reminders_title;
+
+  /// No description provided for @settingsCognitive_returnRitual_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Return with blur'**
+  String get settingsCognitive_returnRitual_title;
+
+  /// No description provided for @settingsCognitive_monumentNudge_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Landmark nudge'**
+  String get settingsCognitive_monumentNudge_title;
+
+  /// No description provided for @settingsCognitive_advancedShow.
+  ///
+  /// In en, this message translates to:
+  /// **'Show advanced assistance'**
+  String get settingsCognitive_advancedShow;
+
+  /// No description provided for @settingsCognitive_advancedHide.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide advanced assistance'**
+  String get settingsCognitive_advancedHide;
+
+  /// No description provided for @settingsAccount_changeEmail_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Change email'**
+  String get settingsAccount_changeEmail_title;
+
+  /// No description provided for @settingsAccount_changeEmail_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update the address linked to the account'**
+  String get settingsAccount_changeEmail_subtitle;
+
+  /// No description provided for @settingsAccount_changePassword_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Change password'**
+  String get settingsAccount_changePassword_title;
+
+  /// No description provided for @settingsAccount_changePassword_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Set a new password'**
+  String get settingsAccount_changePassword_subtitle;
+
+  /// No description provided for @settingsAccount_logout_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get settingsAccount_logout_title;
+
+  /// No description provided for @settingsAccount_logout_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your canvases stay saved locally'**
+  String get settingsAccount_logout_subtitle;
+
+  /// No description provided for @settingsAccount_deleteRequest_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Request account deletion'**
+  String get settingsAccount_deleteRequest_title;
+
+  /// No description provided for @settingsAccount_deleteRequest_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Write us at feedback@fluera.dev'**
+  String get settingsAccount_deleteRequest_subtitle;
+
+  /// No description provided for @settingsAccount_sessionHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Session'**
+  String get settingsAccount_sessionHeader;
+
+  /// No description provided for @settingsAccount_accountHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get settingsAccount_accountHeader;
+
+  /// No description provided for @settingsAbout_license_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Licenses'**
+  String get settingsAbout_license_title;
+
+  /// No description provided for @settingsAbout_license_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Open source licenses'**
+  String get settingsAbout_license_subtitle;
+
+  /// No description provided for @settingsAbout_feedback_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Send Feedback'**
+  String get settingsAbout_feedback_title;
+
+  /// No description provided for @settingsAbout_feedback_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Report bugs or suggest features'**
+  String get settingsAbout_feedback_subtitle;
+
+  /// No description provided for @settingsAbout_rate_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Rate Fluera'**
+  String get settingsAbout_rate_title;
+
+  /// No description provided for @settingsAbout_rate_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Love the app? Leave a review!'**
+  String get settingsAbout_rate_subtitle;
+
+  /// No description provided for @settingsSubscription_currentPlan.
+  ///
+  /// In en, this message translates to:
+  /// **'Current plan'**
+  String get settingsSubscription_currentPlan;
+
+  /// No description provided for @settingsSubscription_comparePlans.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare plans'**
+  String get settingsSubscription_comparePlans;
+
+  /// No description provided for @settingsSubscription_creditsHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'AI Credits'**
+  String get settingsSubscription_creditsHeader;
+
+  /// No description provided for @settingsSubscription_buyCredits_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Buy extra credits'**
+  String get settingsSubscription_buyCredits_title;
+
+  /// No description provided for @settingsSubscription_buyCredits_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Spark Pack — one-time packs'**
+  String get settingsSubscription_buyCredits_subtitle;
+
+  /// No description provided for @settingsSubscription_managePlan_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage subscription'**
+  String get settingsSubscription_managePlan_title;
+
+  /// No description provided for @settingsSubscription_managePlan_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Change plan, billing, auto-renewal'**
+  String get settingsSubscription_managePlan_subtitle;
+
+  /// No description provided for @settingsData_cloudSyncHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Cloud sync'**
+  String get settingsData_cloudSyncHeader;
+
+  /// No description provided for @settingsData_backupHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup & restore'**
+  String get settingsData_backupHeader;
+
+  /// No description provided for @settingsData_cacheHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Cache & storage'**
+  String get settingsData_cacheHeader;
+
+  /// No description provided for @settingsDocuments_documentsHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Documents'**
+  String get settingsDocuments_documentsHeader;
+
+  /// No description provided for @settingsDocuments_galleryHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'Gallery'**
+  String get settingsDocuments_galleryHeader;
+
+  /// No description provided for @canvasSettings_actionsSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Actions'**
+  String get canvasSettings_actionsSection;
+
+  /// No description provided for @canvasSettings_appearanceSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Canvas appearance'**
+  String get canvasSettings_appearanceSection;
+
+  /// No description provided for @canvasSettings_analysisSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Analysis'**
+  String get canvasSettings_analysisSection;
+
+  /// No description provided for @canvasSettings_languagesSection.
+  ///
+  /// In en, this message translates to:
+  /// **'Languages'**
+  String get canvasSettings_languagesSection;
+
+  /// No description provided for @canvasSettings_languages_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Languages'**
+  String get canvasSettings_languages_title;
+
+  /// No description provided for @canvasSettings_languages_subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing, app, AI'**
+  String get canvasSettings_languages_subtitle;
+
+  /// No description provided for @canvasSettings_languages_dialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Languages'**
+  String get canvasSettings_languages_dialogTitle;
+
+  /// No description provided for @canvasSettings_languages_tabHandwriting.
+  ///
+  /// In en, this message translates to:
+  /// **'Writing'**
+  String get canvasSettings_languages_tabHandwriting;
+
+  /// No description provided for @canvasSettings_languages_tabApp.
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get canvasSettings_languages_tabApp;
+
+  /// No description provided for @canvasSettings_languages_tabAi.
+  ///
+  /// In en, this message translates to:
+  /// **'AI'**
+  String get canvasSettings_languages_tabAi;
+
+  /// No description provided for @canvasSettings_readingLevel_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading Level'**
+  String get canvasSettings_readingLevel_title;
+
+  /// No description provided for @canvasSettings_handwritingLanguages_title.
+  ///
+  /// In en, this message translates to:
+  /// **'Handwriting languages'**
+  String get canvasSettings_handwritingLanguages_title;
+
+  /// No description provided for @canvasSettings_appLanguage_title.
+  ///
+  /// In en, this message translates to:
+  /// **'App language'**
+  String get canvasSettings_appLanguage_title;
+
+  /// No description provided for @canvasSettings_aiOutputLanguage_title.
+  ///
+  /// In en, this message translates to:
+  /// **'AI output language'**
+  String get canvasSettings_aiOutputLanguage_title;
+
+  /// No description provided for @canvasSettings_languages_resetAutoButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-detect all'**
+  String get canvasSettings_languages_resetAutoButton;
+
+  /// No description provided for @canvasSettings_languages_resetAutoSnack.
+  ///
+  /// In en, this message translates to:
+  /// **'All languages reset to Auto'**
+  String get canvasSettings_languages_resetAutoSnack;
+
+  /// No description provided for @canvasSettings_filtersActiveCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} active'**
+  String canvasSettings_filtersActiveCount(int count);
 }
 
 class _FlueraLocalizationsDelegate
@@ -5792,8 +12318,24 @@ class _FlueraLocalizationsDelegate
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['en', 'it'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+    'ar',
+    'da',
+    'de',
+    'en',
+    'es',
+    'fi',
+    'fr',
+    'hi',
+    'it',
+    'ja',
+    'ko',
+    'nl',
+    'no',
+    'pl',
+    'pt',
+    'sv',
+  ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_FlueraLocalizationsDelegate old) => false;
@@ -5802,10 +12344,38 @@ class _FlueraLocalizationsDelegate
 FlueraLocalizations lookupFlueraLocalizations(Locale locale) {
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return FlueraLocalizationsAr();
+    case 'da':
+      return FlueraLocalizationsDa();
+    case 'de':
+      return FlueraLocalizationsDe();
     case 'en':
       return FlueraLocalizationsEn();
+    case 'es':
+      return FlueraLocalizationsEs();
+    case 'fi':
+      return FlueraLocalizationsFi();
+    case 'fr':
+      return FlueraLocalizationsFr();
+    case 'hi':
+      return FlueraLocalizationsHi();
     case 'it':
       return FlueraLocalizationsIt();
+    case 'ja':
+      return FlueraLocalizationsJa();
+    case 'ko':
+      return FlueraLocalizationsKo();
+    case 'nl':
+      return FlueraLocalizationsNl();
+    case 'no':
+      return FlueraLocalizationsNo();
+    case 'pl':
+      return FlueraLocalizationsPl();
+    case 'pt':
+      return FlueraLocalizationsPt();
+    case 'sv':
+      return FlueraLocalizationsSv();
   }
 
   throw FlutterError(

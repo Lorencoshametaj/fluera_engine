@@ -23,7 +23,6 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
     private var audioRecorderPlugin: AudioRecorderPlugin? = null
     private var audioPlayerPlugin: AudioPlayerPlugin? = null
     private var pdfRendererPlugin: PdfRendererPlugin? = null
-    private var latexRecognizerPlugin: LatexRecognizerPlugin? = null
     private var sharePlugin: SharePlugin? = null
     private var printPlugin: PrintPlugin? = null
     private var vulkanStrokePlugin: VulkanStrokeOverlayPlugin? = null
@@ -57,10 +56,6 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
         // Register PDF renderer plugin
         pdfRendererPlugin = PdfRendererPlugin()
         pdfRendererPlugin?.onAttachedToEngine(binding)
-
-        // Register LaTeX recognizer plugin (PyTorch Mobile)
-        latexRecognizerPlugin = LatexRecognizerPlugin()
-        latexRecognizerPlugin?.onAttachedToEngine(binding)
 
         // Register share plugin
         sharePlugin = SharePlugin()
@@ -100,9 +95,6 @@ class FlueraEnginePlugin : FlutterPlugin, ActivityAware {
 
         pdfRendererPlugin?.onDetachedFromEngine(binding)
         pdfRendererPlugin = null
-
-        latexRecognizerPlugin?.onDetachedFromEngine(binding)
-        latexRecognizerPlugin = null
 
         sharePlugin?.onDetachedFromEngine(binding)
         sharePlugin = null

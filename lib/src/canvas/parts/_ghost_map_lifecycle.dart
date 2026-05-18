@@ -385,7 +385,7 @@ extension FlueraGhostMapLifecycleExtension on _FlueraCanvasScreenState {
             icon: const Icon(Icons.info_outline, size: 18),
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             onPressed: () => GhostMapInfoScreen.show(context),
-            tooltip: 'Info Ghost Map',
+            tooltip: FlueraLocalizations.of(context)!.ghostMap_info,
           ),
 
           // Close button

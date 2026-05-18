@@ -13,6 +13,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../core/nodes/symbol_system.dart';
 import '../../systems/component_set.dart';
 
@@ -91,7 +92,7 @@ class _ComponentSetBrowserState extends State<ComponentSetBrowser> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.auto_awesome, size: 16),
-                  tooltip: 'Auto-group by name',
+                  tooltip: FlueraLocalizations.of(context)!.componentSet_autoGroupByName,
                   onPressed: () {
                     widget.setRegistry.autoGroup(widget.symbolRegistry);
                     setState(() {});
@@ -235,7 +236,7 @@ class _DefinitionTile extends StatelessWidget {
       title: Text(definition.name, style: const TextStyle(fontSize: 12)),
       trailing: IconButton(
         icon: const Icon(Icons.add_circle_outline, size: 16),
-        tooltip: 'Insert instance',
+        tooltip: FlueraLocalizations.of(context)!.componentSet_insertInstance,
         onPressed: onTap,
       ),
       onTap: onTap,

@@ -12,6 +12,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../export/svg_importer.dart';
 import '../../core/nodes/group_node.dart';
 
@@ -124,11 +125,11 @@ class _SvgImportDialogState extends State<_SvgImportDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.upload_file, size: 20),
-          SizedBox(width: 8),
-          Text('Import SVG'),
+          const Icon(Icons.upload_file, size: 20),
+          const SizedBox(width: 8),
+          Text(FlueraLocalizations.of(context)!.svgImport_title),
         ],
       ),
       content: SizedBox(
@@ -141,7 +142,7 @@ class _SvgImportDialogState extends State<_SvgImportDialog> {
               controller: _controller,
               maxLines: 8,
               decoration: InputDecoration(
-                hintText: 'Paste SVG content here...',
+                hintText: FlueraLocalizations.of(context)!.toolsArea_pasteSvgHint,
                 border: const OutlineInputBorder(),
                 errorText: _errorText,
               ),
@@ -151,7 +152,8 @@ class _SvgImportDialogState extends State<_SvgImportDialog> {
             OutlinedButton.icon(
               onPressed: _pasteFromClipboard,
               icon: const Icon(Icons.content_paste, size: 16),
-              label: const Text('Paste from clipboard'),
+              label: Text(FlueraLocalizations.of(context)!
+                  .svgImport_pasteFromClipboard),
             ),
           ],
         ),
@@ -159,9 +161,11 @@ class _SvgImportDialogState extends State<_SvgImportDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(FlueraLocalizations.of(context)!.svgImport_cancel),
         ),
-        FilledButton(onPressed: _import, child: const Text('Import')),
+        FilledButton(
+            onPressed: _import,
+            child: Text(FlueraLocalizations.of(context)!.svgImport_import)),
       ],
     );
   }

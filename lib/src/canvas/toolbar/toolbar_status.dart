@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../../storage/fluera_cloud_adapter.dart';
 
 // ============================================================================
@@ -40,106 +39,50 @@ class ToolbarCompactActionButton extends StatelessWidget {
   }
 }
 
-/// Time Travel button with scale-bounce + rotation animation
-class ToolbarTimeTravelButton extends StatefulWidget {
-  final VoidCallback onPressed;
-  final bool isDark;
+/// ToolbarTimeTravelButton removed 2026-05-16: chip consolidated
+/// into the CognitiveFeaturesSheet. Callback `onTimeTravelPressed`
+/// is invoked via the sheet's actions map (see _ui_toolbar.dart).
 
-  const ToolbarTimeTravelButton({
-    super.key,
-    required this.onPressed,
-    required this.isDark,
-  });
-
-  @override
-  State<ToolbarTimeTravelButton> createState() =>
-      _ToolbarTimeTravelButtonState();
-}
-
-class _ToolbarTimeTravelButtonState extends State<ToolbarTimeTravelButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _handleTap() {
-    HapticFeedback.lightImpact();
-    _controller.forward(from: 0).then((_) {
-      if (mounted) widget.onPressed();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final t = _controller.value;
-        final scale = 1.0 - 0.2 * (t < 0.4 ? t / 0.4 : (1.0 - t) / 0.6);
-        final rotation =
-            t < 0.5 ? -0.125 * (t / 0.5) : -0.125 * ((1.0 - t) / 0.5);
-
-        return Transform.scale(
-          scale: scale,
-          child: Transform.rotate(angle: rotation * 2 * 3.14159, child: child),
-        );
-      },
-      child: Tooltip(
-        message: 'Time Travel',
-        waitDuration: const Duration(milliseconds: 400),
-        child: IconButton(
-          icon: const Icon(Icons.history_rounded, size: 18),
-          onPressed: _handleTap,
-          padding: const EdgeInsets.all(6),
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          color: cs.onSurface,
-          splashColor: cs.primary.withValues(alpha: 0.2),
-          highlightColor: cs.primary.withValues(alpha: 0.1),
-        ),
-      ),
-    );
-  }
-}
-
-/// Tool section wrapper — passes through child with no chrome.
+/// Section wrapper used across the tools-area toolbar. Originally
+/// rendered an uppercase title + icon header above the payload, but
+/// the labels (PEN / COLOR / THICKNESS / OPACITY) added ~16dp of
+/// vertical clutter while the icons inside each section already
+/// communicate purpose. Now it's a transparent passthrough.
+///
+/// The `title` / `icon` / `isDark` fields are kept on the constructor
+/// so existing call sites don't need touching; they're accepted and
+/// ignored. Tooltip discovery happens on the inner widgets themselves.
 class ToolbarToolSection extends StatelessWidget {
+  // ignore: unused_element
   final String title;
+  // ignore: unused_element
   final IconData icon;
-  final Widget child;
+  // ignore: unused_element
   final bool isDark;
+  final Widget child;
 
   const ToolbarToolSection({
     super.key,
     required this.title,
     required this.icon,
-    required this.child,
     required this.isDark,
+    required this.child,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return child;
-  }
+  Widget build(BuildContext context) => child;
 }
 
-/// Compact cloud sync status indicator with animated icon + progress ring
-class ToolbarCloudSyncIndicator extends StatefulWidget {
+/// Compact icon-only indicator for the cloud-sync state. Pinned next to
+/// the branch chip on the top row so users see "saving…" / "error"
+/// without having to open a settings sheet. The host controls
+/// visibility (typically hidden on idle).
+class ToolbarCloudSyncIndicator extends StatelessWidget {
   final FlueraSyncState state;
+  /// Optional 0..1 progress hint for the syncing state. Reserved for
+  /// future use; ignored when state != syncing.
   final double progress;
+
   const ToolbarCloudSyncIndicator({
     super.key,
     required this.state,
@@ -147,82 +90,32 @@ class ToolbarCloudSyncIndicator extends StatefulWidget {
   });
 
   @override
-  State<ToolbarCloudSyncIndicator> createState() =>
-      _ToolbarCloudSyncIndicatorState();
-}
-
-class _ToolbarCloudSyncIndicatorState extends State<ToolbarCloudSyncIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _pulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-    if (widget.state != FlueraSyncState.error) {
-      _pulseController.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant ToolbarCloudSyncIndicator oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.state == FlueraSyncState.error) {
-      _pulseController.stop();
-      _pulseController.value = 1.0;
-    } else if (!_pulseController.isAnimating) {
-      _pulseController.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final iconData = switch (widget.state) {
-      FlueraSyncState.syncing => Icons.cloud_upload_rounded,
-      FlueraSyncState.error => Icons.cloud_off_rounded,
-      FlueraSyncState.idle => Icons.cloud_done_rounded,
+    final (icon, color, tooltip) = switch (state) {
+      FlueraSyncState.idle => (
+        Icons.cloud_done_rounded,
+        cs.onSurfaceVariant,
+        'Synced',
+      ),
+      FlueraSyncState.syncing => (
+        Icons.cloud_sync_rounded,
+        cs.primary,
+        'Syncing…',
+      ),
+      FlueraSyncState.error => (
+        Icons.cloud_off_rounded,
+        cs.error,
+        'Sync error',
+      ),
     };
-
-    final color =
-        widget.state == FlueraSyncState.error ? Colors.amber : cs.primary;
-
-    final isActive = widget.state == FlueraSyncState.syncing;
-
-    return SizedBox(
-      width: 20,
-      height: 20,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          if (isActive && widget.progress > 0)
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                value: widget.progress,
-                strokeWidth: 1.5,
-                color: color.withValues(alpha: 0.6),
-              ),
-            ),
-          FadeTransition(
-            opacity: _pulseAnimation,
-            child: Icon(iconData, size: 12, color: color),
-          ),
-        ],
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 400),
+      child: SizedBox(
+        width: 22,
+        height: 22,
+        child: Icon(icon, size: 16, color: color),
       ),
     );
   }

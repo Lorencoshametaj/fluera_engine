@@ -40,7 +40,6 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
           ToolbarTab.pdf => _PdfToolsPanel(state: this),
           ToolbarTab.scientific => _ScientificToolsPanel(state: this),
           ToolbarTab.excel => _ExcelToolsPanel(state: this),
-          ToolbarTab.media => _MediaToolsPanel(state: this),
           ToolbarTab.design => _DesignToolsPanel(state: this),
         },
       ),
@@ -96,6 +95,113 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     },
                     isDark: isDark,
                   ),
+                ),
+              ],
+
+              // ── Merged from Media tab (2026-05-16) ──
+              // The Media tab was removed; its 4 buttons live inline next
+              // to Digital Text so users don't have to switch context for
+              // basic insert / capture operations.
+
+              // 🖼️ Image Picker
+              if (!widget.isImageEditingMode) ...[
+                const SizedBox(width: 8),
+                ToolbarImagePickerButton(
+                  isActive: widget.isImagePickerActive,
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onImagePickerPressed();
+                  },
+                  isDark: isDark,
+                ),
+              ],
+
+              // 📥 Note Import — import handwritten notes from other apps
+              if (!widget.isImageEditingMode &&
+                  widget.onNoteImportPressed != null) ...[
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Import Notes',
+                  waitDuration: const Duration(milliseconds: 500),
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      widget.onNoteImportPressed!();
+                    },
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: (isDark ? Colors.white : Colors.black)
+                            .withValues(alpha: 0.06),
+                      ),
+                      child: Icon(
+                        Icons.upload_file_rounded,
+                        size: 22,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+
+              // 🎤 Recording (audio capture). ValueListenableBuilder pair
+              // lets the button update live without rebuilding the canvas.
+              if (!widget.isImageEditingMode &&
+                  (!widget.hideRecordingControlWhenActive ||
+                      !widget.isRecordingActive)) ...[
+                const SizedBox(width: 8),
+                Builder(
+                  builder: (_) {
+                    final durNotifier = widget.recordingDurationNotifier;
+                    final ampNotifier = widget.recordingAmplitudeNotifier;
+                    if (durNotifier != null && ampNotifier != null) {
+                      return ValueListenableBuilder<Duration>(
+                        valueListenable: durNotifier,
+                        builder: (_, duration, __) {
+                          return ValueListenableBuilder<double>(
+                            valueListenable: ampNotifier,
+                            builder: (_, amplitude, __) {
+                              return ToolbarRecordingButton(
+                                isActive: widget.isRecordingActive,
+                                duration: duration,
+                                amplitudeLevel: amplitude,
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  widget.onRecordingPressed();
+                                },
+                                isDark: isDark,
+                              );
+                            },
+                          );
+                        },
+                      );
+                    }
+                    return ToolbarRecordingButton(
+                      isActive: widget.isRecordingActive,
+                      duration: widget.recordingDuration,
+                      amplitudeLevel: widget.recordingAmplitude,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        widget.onRecordingPressed();
+                      },
+                      isDark: isDark,
+                    );
+                  },
+                ),
+              ],
+
+              // 🎧 View Recordings
+              if (!widget.isImageEditingMode) ...[
+                const SizedBox(width: 8),
+                ToolbarViewRecordingsButton(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    widget.onViewRecordingsPressed();
+                  },
+                  isDark: isDark,
                 ),
               ],
 
@@ -381,7 +487,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               children: [
                 _PdfToolbarButton(
                   icon: Icons.file_copy_rounded,
-                  tooltip: 'Pages',
+                  tooltip: FlueraLocalizations.of(context)!.toolsArea_pages,
                   badge: '${widget.pdfDocument!.documentModel.totalPages}',
                   isDark: isDark,
                   onTap: (anchor) {
@@ -406,7 +512,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.pdfSearchController != null)
                   _PdfToolbarButton(
                     icon: Icons.search_rounded,
-                    tooltip: 'Search PDF',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_searchPdf,
                     badge:
                         widget.pdfSearchController!.hasMatches
                             ? '${widget.pdfSearchController!.matchCount}'
@@ -424,7 +530,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   ),
                 _PdfToolbarButton(
                   icon: Icons.grid_view_rounded,
-                  tooltip: 'Layout',
+                  tooltip: FlueraLocalizations.of(context)!.toolsArea_layout,
                   isDark: isDark,
                   onTap: (anchor) {
                     showPdfLayoutPopup(
@@ -447,7 +553,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   _PdfToggleButton(
                     icon: Icons.dark_mode_rounded,
                     activeIcon: Icons.dark_mode,
-                    tooltip: 'Night Mode',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_nightMode,
                     isActive: widget.pdfDocument!.documentModel.nightMode,
                     isDark: isDark,
                     onTap: () {
@@ -484,7 +590,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onPdfZoomToFit != null)
                   _PdfToolbarButton(
                     icon: Icons.fit_screen_rounded,
-                    tooltip: 'Zoom to Fit',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_zoomToFit,
                     isDark: isDark,
                     onTap: (_) {
                       HapticFeedback.selectionClick();
@@ -502,7 +608,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 children: [
                   _PdfToolbarButton(
                     icon: Icons.edit_note_rounded,
-                    tooltip: 'Annotate',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_annotate,
                     badge:
                         widget
                                 .pdfAnnotationController!
@@ -532,7 +638,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onPdfExport != null)
                   _PdfToolbarButton(
                     icon: Icons.ios_share_rounded,
-                    tooltip: 'Export',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_export,
                     isDark: isDark,
                     onTap: (_) {
                       widget.onPdfExport!();
@@ -541,7 +647,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onPdfPrint != null)
                   _PdfToolbarButton(
                     icon: Icons.print_rounded,
-                    tooltip: 'Print',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_print,
                     isDark: isDark,
                     onTap: (_) {
                       widget.onPdfPrint!();
@@ -550,7 +656,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 if (widget.onPdfPresentation != null)
                   _PdfToolbarButton(
                     icon: Icons.slideshow_rounded,
-                    tooltip: 'Present',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_present,
                     isDark: isDark,
                     onTap: (_) {
                       widget.onPdfPresentation!();
@@ -579,7 +685,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               if (widget.onPdfCreateBlankPressed != null)
                 _PdfToolbarButton(
                   icon: Icons.note_add_rounded,
-                  tooltip: 'New blank document',
+                  tooltip: FlueraLocalizations.of(context)!.toolsArea_newBlankDocument,
                   isDark: isDark,
                   accentColor:
                       isDark
@@ -640,132 +746,9 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
   }
 
   // --------------------------------------------------------------------------
-  // 🎬 MEDIA TOOLBAR — Digital Text, Image Picker, Recording
+  // 🎬 MEDIA TOOLBAR removed (2026-05-16) — its 4 buttons are now inline
+  // in `_buildMainTools` next to Digital Text. No standalone tab.
   // --------------------------------------------------------------------------
-
-  Widget _buildMediaTools(BuildContext context, bool isDark) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        children: [
-          if (!widget.isImageEditingMode) ...[
-            // ✏️ Digital Text
-            ToolbarDigitalTextButton(
-              isActive: widget.isDigitalTextActive,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                widget.onDigitalTextToggle();
-              },
-              isDark: isDark,
-            ),
-            const SizedBox(width: 12),
-
-            // 🖼️ Image Picker
-            ToolbarImagePickerButton(
-              isActive: widget.isImagePickerActive,
-              onTap: () {
-                HapticFeedback.selectionClick();
-                widget.onImagePickerPressed();
-              },
-              isDark: isDark,
-            ),
-            const SizedBox(width: 12),
-
-            // 📥 Note Import — import handwritten notes from other apps
-            if (widget.onNoteImportPressed != null)
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: Tooltip(
-                  message: 'Import Notes',
-                  waitDuration: const Duration(milliseconds: 500),
-                  child: InkWell(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.onNoteImportPressed!();
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        color: (isDark ? Colors.white : Colors.black)
-                            .withValues(alpha: 0.06),
-                      ),
-                      child: Icon(
-                        Icons.upload_file_rounded,
-                        size: 22,
-                        color: isDark ? Colors.white70 : Colors.black87,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-            // 🎤 Recording
-            // 🚀 P99 FIX: Wrap in ValueListenableBuilder so the recording
-            // button updates independently without rebuilding the canvas.
-            if (!widget.hideRecordingControlWhenActive ||
-                !widget.isRecordingActive)
-              Builder(
-                builder: (_) {
-                  final durNotifier = widget.recordingDurationNotifier;
-                  final ampNotifier = widget.recordingAmplitudeNotifier;
-
-                  // If notifiers are provided, use them for live updates
-                  if (durNotifier != null && ampNotifier != null) {
-                    return ValueListenableBuilder<Duration>(
-                      valueListenable: durNotifier,
-                      builder: (_, duration, __) {
-                        return ValueListenableBuilder<double>(
-                          valueListenable: ampNotifier,
-                          builder: (_, amplitude, __) {
-                            return ToolbarRecordingButton(
-                              isActive: widget.isRecordingActive,
-                              duration: duration,
-                              amplitudeLevel: amplitude,
-                              onTap: () {
-                                HapticFeedback.selectionClick();
-                                widget.onRecordingPressed();
-                              },
-                              isDark: isDark,
-                            );
-                          },
-                        );
-                      },
-                    );
-                  }
-
-                  // Fallback: use plain fields
-                  return ToolbarRecordingButton(
-                    isActive: widget.isRecordingActive,
-                    duration: widget.recordingDuration,
-                    amplitudeLevel: widget.recordingAmplitude,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      widget.onRecordingPressed();
-                    },
-                    isDark: isDark,
-                  );
-                },
-              ),
-            const SizedBox(width: 12),
-
-            // 🎧 View Recordings
-            ToolbarViewRecordingsButton(
-              onTap: () {
-                HapticFeedback.selectionClick();
-                widget.onViewRecordingsPressed();
-              },
-              isDark: isDark,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
   // --------------------------------------------------------------------------
   // 📊 EXCEL TOOLBAR — Create spreadsheet tables with presets
@@ -797,7 +780,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 children: [
                   _ExcelBtn(
                     icon: Icons.add_rounded,
-                    tooltip: 'New Table',
+                    tooltip: FlueraLocalizations.of(context)!.toolsArea_newTable,
                     isDark: isDark,
                     onPressed: () {
                       HapticFeedback.selectionClick();
@@ -807,7 +790,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   if (widget.hasTabularSelection)
                     _ExcelBtn(
                       icon: Icons.delete_outline_rounded,
-                      tooltip: 'Delete Table',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_deleteTable,
                       isDark: isDark,
                       isDestructive: true,
                       onPressed: () {
@@ -826,20 +809,20 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   children: [
                     _ExcelBtn(
                       icon: Icons.format_bold_rounded,
-                      tooltip: 'Bold',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_bold,
                       isDark: isDark,
                       isActive: isBold,
                       onPressed: () => widget.onToggleBold?.call(),
                     ),
                     _ExcelBtn(
                       icon: Icons.format_italic_rounded,
-                      tooltip: 'Italic',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_italic,
                       isDark: isDark,
                       isActive: isItalic,
                       onPressed: () => widget.onToggleItalic?.call(),
                     ),
                     PopupMenuButton<String>(
-                      tooltip: 'Borders',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_borders,
                       onSelected: (v) => widget.onBorderPreset?.call(v),
                       icon: Icon(
                         Icons.border_all_rounded,
@@ -852,62 +835,65 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                         minHeight: 28,
                       ),
                       itemBuilder:
-                          (_) => const [
-                            PopupMenuItem(
-                              value: 'all',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.border_all, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('All Borders'),
-                                ],
+                          (_) {
+                            final l10n = FlueraLocalizations.of(context)!;
+                            return [
+                              PopupMenuItem(
+                                value: 'all',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.border_all, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(l10n.toolbarTools_allBorders),
+                                  ],
+                                ),
                               ),
-                            ),
-                            PopupMenuItem(
-                              value: 'outline',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.border_outer, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Outside'),
-                                ],
+                              PopupMenuItem(
+                                value: 'outline',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.border_outer, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(l10n.toolbarTools_outsideBorders),
+                                  ],
+                                ),
                               ),
-                            ),
-                            PopupMenuItem(
-                              value: 'inside',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.border_inner, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Inside'),
-                                ],
+                              PopupMenuItem(
+                                value: 'inside',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.border_inner, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(l10n.toolbarTools_insideBorders),
+                                  ],
+                                ),
                               ),
-                            ),
-                            PopupMenuItem(
-                              value: 'bottom',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.border_bottom, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('Bottom'),
-                                ],
+                              PopupMenuItem(
+                                value: 'bottom',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.border_bottom, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(l10n.toolbarTools_bottomBorder),
+                                  ],
+                                ),
                               ),
-                            ),
-                            PopupMenuItem(
-                              value: 'none',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.border_clear, size: 18),
-                                  SizedBox(width: 8),
-                                  Text('No Borders'),
-                                ],
+                              PopupMenuItem(
+                                value: 'none',
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.border_clear, size: 18),
+                                    const SizedBox(width: 8),
+                                    Text(l10n.toolbarTools_noBorders),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ];
+                          },
                     ),
                     _ExcelBtn(
                       icon: Icons.format_clear_rounded,
-                      tooltip: 'Clear',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_clear,
                       isDark: isDark,
                       onPressed: () => widget.onClearFormatting?.call(),
                     ),
@@ -921,7 +907,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   children: [
                     _ExcelBtn(
                       icon: Icons.format_align_left_rounded,
-                      tooltip: 'Left',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_alignLeft,
                       isDark: isDark,
                       isActive: hAlign == CellAlignment.left,
                       onPressed:
@@ -929,7 +915,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     _ExcelBtn(
                       icon: Icons.format_align_center_rounded,
-                      tooltip: 'Center',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_alignCenter,
                       isDark: isDark,
                       isActive: hAlign == CellAlignment.center,
                       onPressed:
@@ -938,7 +924,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     _ExcelBtn(
                       icon: Icons.format_align_right_rounded,
-                      tooltip: 'Right',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_alignRight,
                       isDark: isDark,
                       isActive: hAlign == CellAlignment.right,
                       onPressed:
@@ -955,13 +941,13 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   children: [
                     _ColorPickerBtn(
                       icon: Icons.format_color_text_rounded,
-                      tooltip: 'Text Color',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_textColor,
                       currentColor: fmt?.textColor ?? cs.onSurface,
                       onColorSelected: (c) => widget.onSetTextColor?.call(c),
                     ),
                     _ColorPickerBtn(
                       icon: Icons.format_color_fill_rounded,
-                      tooltip: 'Fill Color',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_fillColor,
                       currentColor: fmt?.backgroundColor,
                       onColorSelected:
                           (c) => widget.onSetBackgroundColor?.call(c),
@@ -978,7 +964,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                   children: [
                     _ExcelBtn(
                       icon: Icons.table_rows_outlined,
-                      tooltip: 'Insert Row',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_insertRow,
                       isDark: isDark,
                       onPressed: () {
                         HapticFeedback.selectionClick();
@@ -987,7 +973,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     _ExcelBtn(
                       icon: Icons.remove_circle_outline_rounded,
-                      tooltip: 'Delete Row',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_deleteRow,
                       isDark: isDark,
                       isDestructive: true,
                       onPressed:
@@ -1000,7 +986,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     _ExcelBtn(
                       icon: Icons.view_column_outlined,
-                      tooltip: 'Insert Col',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_insertCol,
                       isDark: isDark,
                       onPressed: () {
                         HapticFeedback.selectionClick();
@@ -1009,7 +995,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     ),
                     _ExcelBtn(
                       icon: Icons.remove_circle_outline_rounded,
-                      tooltip: 'Delete Col',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_deleteCol,
                       isDark: isDark,
                       isDestructive: true,
                       onPressed:
@@ -1038,7 +1024,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                           size: 22,
                           color: isDark ? Colors.white70 : Colors.black54,
                         ),
-                        tooltip: 'More Actions',
+                        tooltip: FlueraLocalizations.of(context)!.toolsArea_moreActions,
                         padding: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1228,7 +1214,7 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     height: 32,
                     child: IconButton(
                       padding: EdgeInsets.zero,
-                      tooltip: 'Formula Reference',
+                      tooltip: FlueraLocalizations.of(context)!.toolsArea_formulaReference,
                       onPressed: () {
                         FormulaReferenceSheet.show(
                           context,
@@ -1335,7 +1321,8 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                 color: cs.primary,
                 size: 28,
               ),
-              title: const Text('New Spreadsheet'),
+              title: Text(FlueraLocalizations.of(context)!
+                  .toolbarTools_newSpreadsheet),
               content: SizedBox(
                 width: 320,
                 child: Column(
@@ -1383,7 +1370,8 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx2).pop(),
-                  child: const Text('Cancel'),
+                  child: Text(
+                      FlueraLocalizations.of(context)!.toolbarTools_cancel),
                 ),
                 FilledButton.icon(
                   onPressed: () {
@@ -1392,7 +1380,8 @@ extension _ToolsAreaBuilder on _ProfessionalCanvasToolbarState {
                     widget.onTabularCreate?.call(cols, rows);
                   },
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('Create'),
+                  label: Text(
+                      FlueraLocalizations.of(context)!.toolbarTools_create),
                 ),
               ],
             );
@@ -1848,15 +1837,7 @@ class _ExcelToolsPanel extends StatelessWidget {
   }
 }
 
-class _MediaToolsPanel extends StatelessWidget {
-  final _ProfessionalCanvasToolbarState state;
-  const _MediaToolsPanel({required this.state});
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return _ScrollFadeOverlay(child: state._buildMediaTools(context, isDark));
-  }
-}
+// _MediaToolsPanel removed 2026-05-16 — buttons merged into _MainToolsPanel.
 
 class _DesignToolsPanel extends StatelessWidget {
   final _ProfessionalCanvasToolbarState state;

@@ -286,9 +286,10 @@ extension _PdfSearchMethods on _PdfReaderScreenState {
                       fontSize: 14,
                       fontWeight: FontWeight.w400,
                     ),
-                    decoration: const InputDecoration(
-                      hintText: 'Search in PDF...',
-                      hintStyle: TextStyle(
+                    decoration: InputDecoration(
+                      hintText:
+                          FlueraLocalizations.of(context)!.pdfReader_searchHint,
+                      hintStyle: const TextStyle(
                         color: Color(0x66FFFFFF),
                         fontSize: 14,
                       ),

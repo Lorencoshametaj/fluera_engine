@@ -135,6 +135,53 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get proCanvas_show => 'Show';
 
   @override
+  String get proCanvas_unlockBrushes => 'Unlock more brushes';
+
+  @override
+  String get proCanvas_hideLockedBrushes => 'Hide locked brushes';
+
+  @override
+  String get proCanvas_brushPreviewTagline => 'Premium brush · preview';
+
+  @override
+  String get proCanvas_brushPreviewUnlock => 'Unlock with Plus';
+
+  @override
+  String get proCanvas_brushPreviewMaybeLater => 'Maybe later';
+
+  @override
+  String get proCanvas_brushPreviewYourCurrent => 'Your current brush';
+
+  @override
+  String get proCanvas_brushPreviewThisOne => 'This one';
+
+  @override
+  String get canvasSettings_wheelModeSubtitle =>
+      'Radial brush wheel instead of the flat strip';
+
+  @override
+  String get wheelModeIntro_title => 'Wheel mode';
+
+  @override
+  String get wheelModeIntro_lead =>
+      'The toolbar disappears and your brushes live on a radial wheel that opens under your finger.';
+
+  @override
+  String get wheelModeIntro_step1 =>
+      'Long-press anywhere on the canvas to summon the wheel.';
+
+  @override
+  String get wheelModeIntro_step2 =>
+      'Drag toward a brush to select it, release to commit.';
+
+  @override
+  String get wheelModeIntro_step3 =>
+      'Tap the wheel icon in the toolbar again to switch back.';
+
+  @override
+  String get wheelModeIntro_cta => 'Got it';
+
+  @override
   String get proCanvas_advancedEditor => 'Advanced Editor';
 
   @override
@@ -1191,7 +1238,7 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
 
   @override
   String get flueraMethodInfo_demoAnswer =>
-      'During REM sleep, neural activity is wake-like: vivid dreams and emotional consolidation. During NREM (especially SWS), the hippocampus "replays" episodic memories to the cortex for declarative consolidation. Both types are essential.';
+      'During REM sleep, neural activity is wake-like: vivid dreams and emotional consolidation. During NREM (especially SWS), the hippocampus \"replays\" episodic memories to the cortex for declarative consolidation. Both types are essential.';
 
   @override
   String get flueraMethodInfo_demoCitation => 'Walker, 2017 — Why We Sleep';
@@ -1227,11 +1274,11 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get flueraMethodInfo_demoCtaTryAgain => 'Try again';
 
   @override
-  String get flueraMethodInfo_teaseStepTitle => 'How Fluera works';
+  String get flueraMethodInfo_teaseStepTitle => 'How it works';
 
   @override
   String get flueraMethodInfo_teaseStepBody =>
-      '4 phases, 12 steps, lasting science. Turn notes into permanent learning.';
+      '4 phases, 12 steps, backed by proven science. Turn notes into learning that sticks.\nExample: write a chapter → Fluera asks you to explain it in your own words → your rephrasing stays.';
 
   @override
   String get flueraMethodInfo_teaseStepCta => 'Go to canvas';
@@ -2596,6 +2643,48 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get auth_socialApple => 'Continue with Apple';
 
   @override
+  String get auth_taglineCreativeCanvasEngine => 'Creative Canvas Engine';
+
+  @override
+  String get auth_dividerOr => 'or';
+
+  @override
+  String get auth_errorPasswordMismatch => 'Passwords don\'t match';
+
+  @override
+  String get auth_errorConnection => 'Connection error. Try again.';
+
+  @override
+  String get auth_errorGoogleSignIn => 'Google Sign-In error';
+
+  @override
+  String get auth_errorAppleSignIn => 'Apple Sign-In error';
+
+  @override
+  String get auth_errorInvalidEmail => 'Enter a valid email first';
+
+  @override
+  String get auth_errorResetLink => 'Error sending link';
+
+  @override
+  String get auth_errorEmailSend => 'Error sending email';
+
+  @override
+  String get auth_errorGenericSend => 'Error sending';
+
+  @override
+  String get auth_termsPrefix => 'By continuing, you accept the ';
+
+  @override
+  String get auth_termsLinkTos => 'Terms of Service';
+
+  @override
+  String get auth_termsConjunction => ' and the ';
+
+  @override
+  String get auth_termsLinkPrivacy => 'Privacy Policy';
+
+  @override
   String get auth_forgotPasswordHeader => 'Reset Password';
 
   @override
@@ -2731,10 +2820,2909 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   String get auth_restoreAction => 'Restore';
 
   @override
+  String get onboarding_heroHeadline =>
+      'The first canvas that learns how you think';
+
+  @override
+  String get onboarding_heroSubtitle =>
+      'Write, draw, and remember — together.\nWrite before you read · Fail to remember better · Repeat at the right moment.';
+
+  @override
+  String get onboarding_heroCtaPrimary => 'Get started';
+
+  @override
+  String get onboarding_heroSkip => 'Skip tour';
+
+  @override
+  String get onboarding_audienceTitle => 'How will you use Fluera?';
+
+  @override
+  String get onboarding_audienceSubtitle =>
+      'We tailor Fluera around what you do.';
+
+  @override
+  String get onboarding_audienceStudyTitle => 'For studying';
+
+  @override
+  String get onboarding_audienceStudyBody =>
+      'Med, STEM, law, humanities — anything you need to remember.';
+
+  @override
+  String get onboarding_audienceWorkTitle => 'For work';
+
+  @override
+  String get onboarding_audienceWorkBody =>
+      'Research, consulting, writing, design — your second brain.';
+
+  @override
+  String get onboarding_audienceTeamTitle => 'With my team';
+
+  @override
+  String get onboarding_audienceTeamBody =>
+      'Studio, agency, lab — think and build together.';
+
+  @override
+  String get onboarding_ghostMapHeadline =>
+      'A guess before reading = stronger memory';
+
+  @override
+  String get onboarding_ghostMapHint =>
+      'Watch as the map reveals fragments to integrate in your notes…';
+
+  @override
+  String get onboarding_ghostMapTryIt =>
+      'Tap a missing node — try answering before Fluera reveals it (hypercorrection effect)';
+
+  @override
+  String get onboarding_ghostMapTapToast =>
+      '💡 You just used the testing effect';
+
+  @override
+  String get onboarding_replayHeadline => 'Never lose a thought';
+
+  @override
+  String get onboarding_replaySubtitle =>
+      'Every stroke is preserved. Time travel through your past notes.';
+
+  @override
+  String get onboarding_replayDemoPhrase => 'Remember every idea';
+
+  @override
+  String get onboarding_setupTitle => 'A few quick details';
+
+  @override
+  String get onboarding_setupNameLabel => 'What should we call you?';
+
+  @override
+  String get onboarding_setupNamePlaceholder => 'Your first name (optional)';
+
+  @override
+  String get onboarding_setupSubjectLabel => 'What\'s your main subject?';
+
+  @override
+  String get onboarding_setupWorkRoleLabel => 'What do you do?';
+
+  @override
+  String get onboarding_setupTeamSizeLabel => 'How big is your team?';
+
+  @override
+  String get onboarding_setupSkip => 'Skip — set this up later';
+
+  @override
+  String get onboarding_planHeadline => 'Pick what fits you today';
+
+  @override
+  String get onboarding_planFreeTitle => 'Free';
+
+  @override
+  String get onboarding_planFreeBullets =>
+      'Core canvas · 3 brushes · 3 layers · 1 device · Local-only';
+
+  @override
+  String get onboarding_planProTitle => 'Pro — €11.99/mo';
+
+  @override
+  String get onboarding_planProBulletsStudy =>
+      'Unlimited Ghost Map · Socratic AI on YOUR notes · Time travel · All brushes';
+
+  @override
+  String get onboarding_planProBulletsWork =>
+      'Multiview · Socratic AI on YOUR notes · Cross-device sync · Time travel';
+
+  @override
+  String get onboarding_planProBulletsTeam =>
+      'Everything in Pro · Early access to Team workspaces';
+
+  @override
+  String get onboarding_planTrialCta => 'Try Pro free for 7 days';
+
+  @override
+  String get onboarding_planTrialCtaA => 'Try Pro free for 7 days';
+
+  @override
+  String get onboarding_planTrialCtaB =>
+      'Start 7-day free trial · then €11.99/mo';
+
+  @override
+  String get onboarding_planTrialCtaC => 'Unlock everything · 7 days free';
+
+  @override
+  String get onboarding_planTrialBadge => 'Try Pro 7 days free';
+
+  @override
+  String get onboarding_planTrialContextMessage =>
+      'Try Pro 7 days free — keep Fluera if you love it.';
+
+  @override
+  String get onboarding_planContinueFree => 'Continue with Free';
+
+  @override
+  String onboarding_planGreeting(String name) {
+    return 'Ready, $name?';
+  }
+
+  @override
+  String get onboarding_planPriceFootnote =>
+      'Cancel anytime in Settings · No charge during the trial';
+
+  @override
+  String get onboarding_skipConfirmTitle => 'Skip the tour?';
+
+  @override
+  String get onboarding_skipConfirmBody =>
+      'You can always replay the tour from Settings → About.';
+
+  @override
+  String get onboarding_skipConfirmStay => 'Keep going';
+
+  @override
+  String get onboarding_skipConfirmLeave => 'Skip';
+
+  @override
+  String get onboarding_commonContinue => 'Continue';
+
+  @override
+  String get onboarding_commonNext => 'Next';
+
+  @override
+  String get onboarding_commonSkip => 'Skip';
+
+  @override
+  String get onboarding_commonBack => 'Back';
+
+  @override
+  String get gallery_cancel => 'Cancel';
+
+  @override
+  String get gallery_save => 'Save';
+
+  @override
+  String get gallery_delete => 'Delete';
+
+  @override
+  String get gallery_deleteAll => 'Delete all';
+
+  @override
+  String get gallery_rename => 'Rename';
+
+  @override
+  String get gallery_renameFolder => 'Rename folder';
+
+  @override
+  String get gallery_duplicate => 'Duplicate';
+
+  @override
+  String get gallery_multiSelect => 'Multiple selection';
+
+  @override
+  String get gallery_moveToFolder => 'Move to folder';
+
+  @override
+  String get gallery_titleLabel => 'Title';
+
+  @override
+  String get gallery_folderNameLabel => 'Folder name';
+
+  @override
+  String get gallery_newFolderTitle => 'New folder';
+
+  @override
+  String get gallery_newFolderTooltip => 'New Folder';
+
+  @override
+  String get gallery_newCanvas => 'New Canvas';
+
+  @override
+  String get gallery_untitled => 'Untitled';
+
+  @override
+  String get gallery_titleMyCanvases => 'My Canvases';
+
+  @override
+  String get gallery_tooltipSelectAll => 'Select all';
+
+  @override
+  String get gallery_tooltipDelete => 'Delete';
+
+  @override
+  String get gallery_tooltipListView => 'List view';
+
+  @override
+  String get gallery_tooltipGridView => 'Grid view';
+
+  @override
+  String get gallery_tooltipCloseSearch => 'Close search';
+
+  @override
+  String get gallery_tooltipSearch => 'Search';
+
+  @override
+  String get gallery_sortModifiedNewest => 'Modified — newest first';
+
+  @override
+  String get gallery_sortModifiedOldest => 'Modified — oldest first';
+
+  @override
+  String get gallery_deleteConfirmSingle => 'Delete 1 canvas?';
+
+  @override
+  String gallery_deleteConfirmMulti(int count) {
+    return 'Delete $count canvases?';
+  }
+
+  @override
+  String get gallery_deleteConfirmBody => 'This action cannot be undone.';
+
+  @override
+  String get gallery_deleteConfirmCanvasTitle => 'Delete canvas?';
+
+  @override
+  String gallery_deleteConfirmCanvasBody(String title) {
+    return '\"$title\" will be permanently deleted.\nThis action cannot be undone.';
+  }
+
+  @override
+  String gallery_deletedCanvasToast(String title) {
+    return '\"$title\" deleted';
+  }
+
+  @override
+  String get gallery_deletedSingle => '1 canvas deleted';
+
+  @override
+  String gallery_deletedMulti(int count) {
+    return '$count canvases deleted';
+  }
+
+  @override
+  String get gallery_folderEmptyMoveNote =>
+      'Contents are moved to the parent folder';
+
+  @override
+  String gallery_moveDialogTitle(String title) {
+    return 'Move \"$title\"';
+  }
+
+  @override
+  String get gallery_emptyFolderTitle => 'This Folder is Empty';
+
+  @override
+  String get gallery_emptyGalleryTitle => 'No Canvases Yet';
+
+  @override
+  String get gallery_emptyAddCanvasHere => 'Add Canvas Here';
+
+  @override
+  String get gallery_emptyCreateFirstCanvas => 'Create Your First Canvas';
+
+  @override
+  String get gallery_create => 'Create';
+
+  @override
+  String get gallery_folderNameHint => 'e.g. Math Notes';
+
+  @override
+  String get gallery_duplicateSuffix => '(copy)';
+
+  @override
+  String gallery_selectedCount(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String gallery_canvasCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count canvases',
+      one: '1 canvas',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get gallery_tooltipBack => 'Back';
+
+  @override
+  String get gallery_tooltipSort => 'Sort';
+
+  @override
+  String get gallery_tooltipMoveToFolderShort => 'Move to folder';
+
+  @override
+  String get gallery_homeBreadcrumb => 'Home';
+
+  @override
+  String get gallery_sortNameAsc => 'Name A–Z';
+
+  @override
+  String get gallery_sortNameDesc => 'Name Z–A';
+
+  @override
+  String get gallery_searchHint => 'Search canvases…';
+
+  @override
+  String gallery_searchNoResults(String query) {
+    return 'No canvases match \"$query\"';
+  }
+
+  @override
+  String get gallery_rootFolder => 'Root (no folder)';
+
+  @override
+  String gallery_moveDialogTitleMulti(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count canvases',
+      one: '1 canvas',
+    );
+    return 'Move $_temp0';
+  }
+
+  @override
+  String get gallery_emptyFolderBody => 'Add a canvas or move one here.';
+
+  @override
+  String get gallery_emptyGalleryBody =>
+      'Create your first canvas to start drawing.\nYour creations will appear here.';
+
+  @override
+  String get gallery_paperGrid => 'Grid';
+
+  @override
+  String get gallery_paperDots => 'Dots';
+
+  @override
+  String get gallery_share => 'Share';
+
+  @override
+  String get createSheet_title => 'New canvas';
+
+  @override
+  String get createSheet_subtitle => 'Pick a template to get started';
+
+  @override
+  String get createSheet_titleLabel => 'Canvas title';
+
+  @override
+  String get createSheet_titleHint => 'e.g. Physics — Waves and Oscillations';
+
+  @override
+  String get createSheet_preview => 'Preview';
+
+  @override
+  String get createSheet_background => 'Background';
+
+  @override
+  String get createSheet_paperType => 'Paper type';
+
+  @override
+  String get createSheet_create => 'Create canvas';
+
+  @override
+  String get createSheet_templateLabel => 'Template';
+
+  @override
+  String get createSheet_untitledCanvas => 'Untitled canvas';
+
+  @override
+  String get createSheet_customColor => 'Custom color';
+
+  @override
+  String get createSheet_courseStructure => 'Course structure';
+
+  @override
+  String get createSheet_addSection => 'Add section';
+
+  @override
+  String get createSheet_maxSections => 'Max 12';
+
+  @override
+  String get createSheet_infiniteCanvasOption =>
+      'Infinite canvas · no structure';
+
+  @override
+  String get createSheet_courseStructureHint =>
+      'Use only if you already know the course syllabus';
+
+  @override
+  String get createSheet_memoryPalaceHint =>
+      'These are empty containers only. The Memory Palace is built by what you write inside — not by the labels.';
+
+  @override
+  String get createSheet_a4Description =>
+      'A4 Portrait · 595 × 842px · blank · generate content yourself';
+
+  @override
+  String createSheet_chapterHint(int index) {
+    return 'e.g. Chapter $index';
+  }
+
+  @override
+  String createSheet_defaultTitle(int day, String month) {
+    return 'Notes — $day $month';
+  }
+
+  @override
+  String get imageEditor_ocrInProgress => 'Recognizing text...';
+
+  @override
+  String get imageEditor_ocrNoText => 'No text found in image';
+
+  @override
+  String get imageEditor_textCopiedToClipboard => 'Text copied to clipboard';
+
+  @override
+  String get imageEditor_textCopied => 'Text copied';
+
+  @override
+  String get imageEditor_copyAll => 'Copy all';
+
+  @override
+  String get imageEditor_copy => 'Copy';
+
+  @override
+  String get imageEditor_addOverlay => 'Add overlay';
+
+  @override
+  String get imageEditor_autoEnhance => 'Auto-Enhance';
+
+  @override
+  String get imageEditor_resetCurve => 'Reset Curve';
+
+  @override
+  String get imageEditor_reset => 'Reset';
+
+  @override
+  String get imageEditor_addText => 'Add Text';
+
+  @override
+  String imageEditor_export(String format) {
+    return 'Export $format';
+  }
+
+  @override
+  String get imageEditor_textInputHint => 'Enter text...';
+
+  @override
+  String get imageEditor_fontSans => 'Sans';
+
+  @override
+  String get imageEditor_fontSerif => 'Serif';
+
+  @override
+  String get imageEditor_fontMono => 'Mono';
+
+  @override
+  String get imageEditor_cancel => 'Cancel';
+
+  @override
+  String get imageEditor_add => 'Add';
+
+  @override
+  String get imageEditor_color => 'Color';
+
+  @override
+  String get imageEditor_size => 'Size';
+
+  @override
+  String get examOverlay_setupHeader => 'What do you want to be tested on?';
+
+  @override
+  String get examOverlay_chipAllTopics => '🗂 All';
+
+  @override
+  String get examOverlay_languageLabel => 'Language';
+
+  @override
+  String get examOverlay_questionsLabel => 'Questions';
+
+  @override
+  String examOverlay_timerPerQuestion(int seconds) {
+    return 'Timer per question (${seconds}s)';
+  }
+
+  @override
+  String get examOverlay_closeExam => 'Close exam';
+
+  @override
+  String get examOverlay_back => 'Back';
+
+  @override
+  String get examOverlay_next => 'Next →';
+
+  @override
+  String get examOverlay_seeResults => 'See results 🎓';
+
+  @override
+  String get examOverlay_submit => 'Submit';
+
+  @override
+  String get examOverlay_reveal => 'Reveal';
+
+  @override
+  String get examOverlay_understood => 'Got it';
+
+  @override
+  String get examOverlay_resumeNow => 'Resume now';
+
+  @override
+  String get examOverlay_correctAnswerLabel => 'Correct answer:';
+
+  @override
+  String examOverlay_chunkCompleted(int chunk, int total) {
+    return 'Block $chunk/$total completed';
+  }
+
+  @override
+  String get examOverlay_sessionHistory => 'Session history';
+
+  @override
+  String get examOverlay_confidenceTitle => 'How confident are you?';
+
+  @override
+  String get examOverlay_confidenceHint =>
+      'Be honest: mistakes made at high confidence are remembered 3× more';
+
+  @override
+  String get examOverlay_confidence1 => 'Guessing';
+
+  @override
+  String get examOverlay_confidence2 => 'Not sure';
+
+  @override
+  String get examOverlay_confidence3 => 'More or less';
+
+  @override
+  String get examOverlay_confidence4 => 'Quite certain';
+
+  @override
+  String get examOverlay_confidence5 => 'Absolutely sure';
+
+  @override
+  String examOverlay_confidenceA11y(int level, String label) {
+    return 'Confidence $level of 5: $label';
+  }
+
+  @override
+  String get examOverlay_whyConfidenceMatters => 'Why your confidence matters';
+
+  @override
+  String get examOverlay_whyConfidenceBody =>
+      'Before answering we ask how confident you are on a 1-5 scale.';
+
+  @override
+  String get examOverlay_whyConfidenceWarning =>
+      'Don\'t cheat. Faking low confidence to \"save face\" cancels the benefit.';
+
+  @override
+  String get examOverlay_bookmarkRemove => 'Remove from bookmarks';
+
+  @override
+  String get examOverlay_bookmarkAdd => 'Bookmark for later review';
+
+  @override
+  String get examOverlay_typeOpenEnded => 'OPEN ANSWER';
+
+  @override
+  String get examOverlay_typeMultipleChoice => 'MULTIPLE CHOICE';
+
+  @override
+  String get examOverlay_typeTrueFalse => 'TRUE / FALSE';
+
+  @override
+  String get examOverlay_typeFormulaRecall => 'FORMULA';
+
+  @override
+  String get examOverlay_true => 'True';
+
+  @override
+  String get examOverlay_false => 'False';
+
+  @override
+  String get examOverlay_writeToRememberHint =>
+      'Write here to memorize better...';
+
+  @override
+  String get examOverlay_outcomeCorrectMsg => 'Your effort worked!';
+
+  @override
+  String get examOverlay_outcomePartialMsg => 'Almost there — keep going';
+
+  @override
+  String get examOverlay_outcomeIncorrectMsg =>
+      'Every mistake makes a stronger connection';
+
+  @override
+  String get examOverlay_outcomeSkippedMsg =>
+      'You\'ll come back to it better prepared';
+
+  @override
+  String get examOverlay_outcomeEvaluating => 'Evaluating...';
+
+  @override
+  String get chatOverlay_header => 'Chat';
+
+  @override
+  String get chatOverlay_tooltipBackToChat => 'Back to chat';
+
+  @override
+  String get chatOverlay_tooltipHistory => 'History';
+
+  @override
+  String get chatOverlay_tooltipNewChat => 'New chat';
+
+  @override
+  String get chatOverlay_unavailableAction =>
+      'This action is not available in this context.';
+
+  @override
+  String get chatOverlay_retry => 'Retry';
+
+  @override
+  String get chatOverlay_historyLoadError => 'Could not load history';
+
+  @override
+  String get chatOverlay_historyEmpty => 'No saved conversations';
+
+  @override
+  String get chatOverlay_timeNow => 'Just now';
+
+  @override
+  String get branchExplorer_emptyTitle => 'No alternatives yet';
+
+  @override
+  String get branchExplorer_emptyBody =>
+      'During Time Travel, pick a past moment and tap \"Explore an alternative\" to try a different approach without losing your work.';
+
+  @override
+  String get branchExplorer_primaryBranch => 'Original';
+
+  @override
+  String get branchExplorer_main => 'Original';
+
+  @override
+  String get branchExplorer_parent => 'Born from';
+
+  @override
+  String get branchExplorer_active => 'You are here';
+
+  @override
+  String get branchExplorer_new => 'New alternative';
+
+  @override
+  String get branchExplorer_rename => 'Rename';
+
+  @override
+  String get branchExplorer_renameBranch => 'Rename alternative';
+
+  @override
+  String get branchExplorer_editDescription => 'Edit description';
+
+  @override
+  String get branchExplorer_branchDescription => 'Alternative description';
+
+  @override
+  String get branchExplorer_duplicate => 'Copy to new alternative';
+
+  @override
+  String get branchExplorer_delete => 'Archive';
+
+  @override
+  String get branchExplorer_deleteForever => 'Archive permanently';
+
+  @override
+  String get branchExplorer_merge => 'Replace Original';
+
+  @override
+  String get branchExplorer_deleteAfterMerge =>
+      'Archive this alternative after replacing';
+
+  @override
+  String get branchExplorer_cancel => 'Cancel';
+
+  @override
+  String get branchExplorer_save => 'Save';
+
+  @override
+  String get branchExplorer_branchNameHint => 'Alternative name';
+
+  @override
+  String get branchExplorer_warningStrokes => 'All drawings and strokes';
+
+  @override
+  String get branchExplorer_warningSnapshots => 'Canvas snapshots';
+
+  @override
+  String get branchExplorer_title => 'Explored alternatives';
+
+  @override
+  String get branchExplorer_mainCanvasLabel => 'Original';
+
+  @override
+  String get branchExplorer_replaceConfirmTitle =>
+      'Replace Original with this alternative?';
+
+  @override
+  String branchExplorer_replaceConfirmBody(String name) {
+    return 'The Original will be replaced with the contents of \"$name\". This action cannot be undone.';
+  }
+
+  @override
+  String branchExplorer_archiveConfirmTitle(String name) {
+    return 'Archive \"$name\"?';
+  }
+
+  @override
+  String get branchExplorer_archiveConfirmBody =>
+      'This alternative will be removed from the list. Your Original is not affected.';
+
+  @override
+  String get branchExplorer_archiveWithChildren =>
+      'Sub-alternatives will be archived too.';
+
+  @override
+  String get branchExplorer_descriptionHint =>
+      'Why are you exploring this alternative?';
+
+  @override
+  String get branchExplorer_youAreOnActiveWarning =>
+      'You are currently on this alternative. You will be switched back to the Original.';
+
+  @override
+  String get branchExplorer_timeTravelHistory => 'Time Travel history';
+
+  @override
+  String get branchExplorer_subBranchesCascade => 'Sub-alternatives (cascade)';
+
+  @override
+  String get checkpoint_title => 'My checkpoints';
+
+  @override
+  String get checkpoint_emptyTitle => 'No checkpoints yet';
+
+  @override
+  String get checkpoint_emptyBody =>
+      'Save a checkpoint to bookmark this moment. You can come back to it anytime.';
+
+  @override
+  String get checkpoint_saveTitle => 'Save checkpoint';
+
+  @override
+  String checkpoint_savedAt(String date) {
+    return 'Saved $date';
+  }
+
+  @override
+  String get checkpoint_restore => 'Restore';
+
+  @override
+  String get checkpoint_archive => 'Archive';
+
+  @override
+  String get checkpoint_nameHint => 'Checkpoint name…';
+
+  @override
+  String checkpoint_counterFree(int used, int max) {
+    return 'Checkpoints used: $used/$max on this canvas';
+  }
+
+  @override
+  String get checkpoint_limitReachedTitle => 'You\'ve reached the Free limit';
+
+  @override
+  String get checkpoint_limitReachedBody =>
+      'Free includes 3 checkpoints per canvas. Plus unlocks them all for €5.99/month — or archive an existing checkpoint to free a slot.';
+
+  @override
+  String get checkpoint_upgradeToPlus => 'Go Plus';
+
+  @override
+  String get checkpoint_archiveExisting => 'Archive an existing checkpoint';
+
+  @override
+  String get timeTravelMenu_title => 'History';
+
+  @override
+  String get timeTravelMenu_saveCheckpoint => 'Save checkpoint here';
+
+  @override
+  String get timeTravelMenu_viewCheckpoints => 'View my checkpoints';
+
+  @override
+  String get timeTravelMenu_exploreAlternative =>
+      'Explore an alternative from here';
+
+  @override
+  String get timeTravelMenu_viewAlternatives => 'View explored alternatives';
+
+  @override
+  String get advancedMode_mergeToggleTitle => 'Show advanced merge options';
+
+  @override
+  String get advancedMode_mergeToggleSubtitle =>
+      'Adds the classic merge UI to alternatives. For power users familiar with git-style branching.';
+
+  @override
+  String get featuresSheet_chipLabel => 'Features';
+
+  @override
+  String get featuresSheet_title => 'What Fluera can do';
+
+  @override
+  String get featuresSheet_subtitle =>
+      'The cognitive features available on the canvas. Tap a card to try it.';
+
+  @override
+  String get featuresSheet_proBadge => 'Pro';
+
+  @override
+  String get featuresSheet_ghostMapName => 'Ghost Map';
+
+  @override
+  String get featuresSheet_ghostMapDesc =>
+      'See the gaps in your knowledge before reading.';
+
+  @override
+  String get featuresSheet_socraticName => 'Socratic Mode';
+
+  @override
+  String get featuresSheet_socraticDesc =>
+      'Fluera quizzes you on your notes — no scoring.';
+
+  @override
+  String get featuresSheet_examName => 'Exam Session';
+
+  @override
+  String get featuresSheet_examDesc =>
+      'Simulate a closed-book oral exam on your canvas.';
+
+  @override
+  String get featuresSheet_fogName => 'Fog of War';
+
+  @override
+  String get featuresSheet_fogDesc =>
+      'Covers the doc during exam to force active recall.';
+
+  @override
+  String get featuresSheet_bridgesName => 'Cross-Zone Bridges';
+
+  @override
+  String get featuresSheet_bridgesDesc =>
+      'Connect concepts across different clusters of the canvas.';
+
+  @override
+  String get featuresSheet_timeTravelName => 'Time Travel';
+
+  @override
+  String get featuresSheet_timeTravelDesc =>
+      'Replay your study in playback, stroke by stroke.';
+
+  @override
+  String get radialMode_settingsTitle => 'Radial mode';
+
+  @override
+  String get radialMode_settingsSubtitle =>
+      'Replace the toolbar with a radial menu summoned by long-press. Best with stylus.';
+
+  @override
+  String get radialMode_coachmarkTitle => 'Radial mode';
+
+  @override
+  String get radialMode_coachmarkBody =>
+      'If you use a stylus, try radial mode: Settings → Advanced studio.';
+
+  @override
+  String pdfBookmark_pageBookmarked(int page) {
+    return 'Page $page bookmarked';
+  }
+
+  @override
+  String pdfBookmark_pageRemoved(int page) {
+    return 'Page $page bookmark removed';
+  }
+
+  @override
+  String get pdfBookmark_undo => 'Undo';
+
+  @override
+  String pdfBookmark_noteDialogTitle(int page) {
+    return 'Note - Page $page';
+  }
+
+  @override
+  String get pdfBookmark_noteHint => 'Add a note...';
+
+  @override
+  String get pdfBookmark_cancel => 'Cancel';
+
+  @override
+  String get pdfBookmark_save => 'Save';
+
+  @override
+  String get pdfBookmark_tooltipPrev => 'Previous bookmark';
+
+  @override
+  String get pdfBookmark_tooltipNext => 'Next bookmark';
+
+  @override
+  String pdfBookmark_summaryShareText(int count) {
+    return 'Bookmark summary ($count pages)';
+  }
+
+  @override
+  String get pdfReader_searchHint => 'Search in PDF...';
+
+  @override
+  String get pdfReader_pinchToExit => 'Pinch to exit';
+
+  @override
+  String get pdfReader_releaseToGoBack => 'Release to go back';
+
+  @override
+  String get settings_searchHint => 'Search settings...';
+
+  @override
+  String get settings_themeSystem => 'System';
+
+  @override
+  String get settings_themeDark => 'Dark';
+
+  @override
+  String get settings_themeLight => 'Light';
+
+  @override
+  String get settings_signOutTitle => 'Sign out?';
+
+  @override
+  String get settings_signOutTooltip => 'Sign out';
+
+  @override
+  String get settings_signOutConfirm => 'Sign out';
+
+  @override
+  String get settings_cancel => 'Cancel';
+
+  @override
+  String get settings_resetTitle => 'Restore all settings?';
+
+  @override
+  String get settings_resetTypeRESET => 'Type RESET to confirm';
+
+  @override
+  String get settings_resetConfirm => 'Restore all';
+
+  @override
+  String get settings_resetDone => 'All settings restored to defaults';
+
+  @override
+  String get settings_onboardingNextLaunch =>
+      'Onboarding will appear on next launch';
+
+  @override
+  String get settings_cacheClearMemory => 'Clear memory';
+
+  @override
+  String get settings_cacheClearDisk => 'Clear disk';
+
+  @override
+  String get settings_cacheClearDictionary => 'Clear dictionary';
+
+  @override
+  String get settings_cacheClearAll => 'Clear all';
+
+  @override
+  String get settings_cacheMemoryCleared => 'Memory cache cleared';
+
+  @override
+  String get settings_cacheDiskCleared => 'Disk cache cleared';
+
+  @override
+  String get settings_cacheDictionaryCleared => 'Dictionary cache cleared';
+
+  @override
+  String get settings_addWordHint => 'Add a word...';
+
+  @override
+  String get settings_handednessRight => 'Right';
+
+  @override
+  String get settings_handednessLeft => 'Left';
+
+  @override
+  String get settings_difficultyEasy => 'Easy';
+
+  @override
+  String get settings_difficultyNormal => 'Norm';
+
+  @override
+  String get settings_difficultyHard => 'Hard';
+
+  @override
+  String get settings_storeComingSoon => 'Store page coming soon!';
+
+  @override
+  String get settings_emptyNotes => 'Notes are empty';
+
+  @override
+  String settings_invalidJson(String error) {
+    return 'Invalid JSON: $error';
+  }
+
+  @override
+  String get settings_feedbackHint => 'Your feedback...';
+
+  @override
+  String get settings_feedbackThanks => 'Thank you for your feedback! 💜';
+
+  @override
+  String get settings_feedbackSend => 'Send Feedback';
+
+  @override
+  String get settings_chartCurrent => 'Current';
+
+  @override
+  String get settings_chartMin => 'Min';
+
+  @override
+  String get settings_chartMax => 'Max';
+
+  @override
+  String get settings_chartClear => 'Clear';
+
+  @override
+  String settings_imagesUnit(int count) {
+    return '$count images';
+  }
+
+  @override
+  String settings_filesUnit(int count) {
+    return '$count files';
+  }
+
+  @override
+  String get canvasSettings_surfaceTexture => 'Surface Texture';
+
+  @override
+  String get canvasSettings_gpuShaderEngine => 'GPU Shader Engine';
+
+  @override
+  String get canvasSettings_gpuShaderActive =>
+      'Active — per-pixel texture rendering';
+
+  @override
+  String get brushEditor_saveAsPreset => 'Save as Preset';
+
+  @override
+  String get brushEditor_savePresetTitle => 'Save Preset';
+
+  @override
+  String get brushEditor_presetNameHint => 'Preset name';
+
+  @override
+  String get brushEditor_cancel => 'Cancel';
+
+  @override
+  String get brushEditor_save => 'Save';
+
+  @override
+  String get brushEditor_delete => 'Delete';
+
+  @override
+  String brushEditor_deletePresetTitle(String name) {
+    return 'Delete \"$name\"?';
+  }
+
+  @override
+  String get brushEditor_deletePresetBody =>
+      'This preset will be permanently removed.';
+
+  @override
+  String get brushEditor_brushBallpoint => 'Ballpoint';
+
+  @override
+  String get brushEditor_brushFountain => 'Fountain Pen';
+
+  @override
+  String get brushEditor_brushPencil => 'Pencil';
+
+  @override
+  String get brushEditor_brushHighlighter => 'Highlighter';
+
+  @override
+  String get brushEditor_brushWatercolor => 'Watercolor';
+
+  @override
+  String get brushEditor_brushMarker => 'Marker';
+
+  @override
+  String get brushEditor_brushCharcoal => 'Charcoal';
+
+  @override
+  String get brushEditor_brushOilPaint => 'Oil Paint';
+
+  @override
+  String get brushEditor_brushSprayPaint => 'Spray Paint';
+
+  @override
+  String get brushEditor_brushNeonGlow => 'Neon Glow';
+
+  @override
+  String get brushEditor_brushInkWash => 'Ink Wash';
+
+  @override
+  String get brushEditor_brushTechnicalPen => 'Technical Pen';
+
+  @override
+  String get paperPicker_title => 'Paper Type';
+
+  @override
+  String get handwritingConfirm_title => 'Handwriting Recognized';
+
+  @override
+  String get handwritingConfirm_subtitle => 'Edit the text if needed';
+
+  @override
+  String get handwritingConfirm_hint => 'Recognized text...';
+
+  @override
+  String get handwritingConfirm_replaceStrokes => 'Replace strokes with text';
+
+  @override
+  String get handwritingConfirm_keepStrokes => 'Keep strokes, add text';
+
+  @override
+  String get handwritingConfirm_cancel => 'Cancel';
+
+  @override
+  String get handwritingConfirm_convert => 'Convert';
+
+  @override
+  String get handwritingConfirm_selectLanguage => 'Select Language';
+
+  @override
+  String get shapeConfirm_title => 'Shape Recognized';
+
+  @override
+  String get shapeConfirm_shapeType => 'Shape Type';
+
+  @override
+  String get shapeConfirm_filled => 'Filled';
+
+  @override
+  String get shapeConfirm_outlineOnly => 'Outline only';
+
+  @override
+  String get shapeConfirm_replaceStrokes => 'Replace strokes with shape';
+
+  @override
+  String get shapeConfirm_keepStrokes => 'Keep strokes, add shape';
+
+  @override
+  String get shapeConfirm_cancel => 'Cancel';
+
+  @override
+  String get shapeConfirm_convert => 'Convert';
+
+  @override
+  String get shape_freehand => 'Freehand';
+
+  @override
+  String get shape_line => 'Line';
+
+  @override
+  String get shape_arrow => 'Arrow';
+
+  @override
+  String get shape_circle => 'Circle';
+
+  @override
+  String get shape_rectangle => 'Rectangle';
+
+  @override
+  String get shape_triangle => 'Triangle';
+
+  @override
+  String get shape_diamond => 'Diamond';
+
+  @override
+  String get shape_pentagon => 'Pentagon';
+
+  @override
+  String get shape_hexagon => 'Hexagon';
+
+  @override
+  String get shape_star => 'Star';
+
+  @override
+  String get shape_heart => 'Heart';
+
+  @override
+  String get ocrScan_noTextFound => 'No text found in image';
+
+  @override
+  String get ocrScan_tryAnotherImage => 'Try another image';
+
+  @override
+  String get ocrScan_anotherImage => 'Another image';
+
+  @override
+  String get ocrScan_separatedBlocks => 'Separated blocks';
+
+  @override
+  String get ocrScan_mergedText => 'Merged text';
+
+  @override
+  String get ocrScan_showBlocks => 'Show detected blocks';
+
+  @override
+  String get ocrScan_deselectAll => 'Deselect all';
+
+  @override
+  String get ocrScan_selectAll => 'Select all';
+
+  @override
+  String get handwritingPicker_title => 'Handwriting Languages';
+
+  @override
+  String get handwritingPicker_subtitle =>
+      'Download models for offline recognition (~15 MB each)';
+
+  @override
+  String get handwritingPicker_active => 'Active';
+
+  @override
+  String get handwritingPicker_use => 'Use';
+
+  @override
+  String get handwritingPicker_modelSize => '~15 MB';
+
+  @override
+  String get share_invalidEmail => 'Enter a valid email';
+
+  @override
+  String share_inviteSent(String email) {
+    return 'Invite sent to $email — they\'ll get access on signup';
+  }
+
+  @override
+  String get share_userNotFound => 'No user found with this email';
+
+  @override
+  String get share_title => 'Share canvas';
+
+  @override
+  String get share_emailLabel => 'Email address';
+
+  @override
+  String get share_roleViewer => 'View';
+
+  @override
+  String get share_roleEditor => 'Edit';
+
+  @override
+  String get share_canEdit => 'Can edit';
+
+  @override
+  String get share_canView => 'View only';
+
+  @override
+  String get share_revokeAccess => 'Revoke access';
+
+  @override
+  String get share_shareButton => 'Share';
+
+  @override
+  String get galleryComp_sortNewest => 'Newest first';
+
+  @override
+  String get galleryComp_sortOldest => 'Oldest first';
+
+  @override
+  String get galleryComp_newest => 'Newest';
+
+  @override
+  String get galleryComp_oldest => 'Oldest';
+
+  @override
+  String get workspace_resume => 'Resume';
+
+  @override
+  String get workspace_open => 'Open';
+
+  @override
+  String get workspace_origin => 'Origin';
+
+  @override
+  String get workspace_continue => 'Continue';
+
+  @override
+  String get workspace_recentBookmarks => 'Recent bookmarks';
+
+  @override
+  String get workspace_showAllCanvases => 'Show all canvases';
+
+  @override
+  String get workspace_justNow => 'just now';
+
+  @override
+  String get hub_bookmarks => 'Bookmarks';
+
+  @override
+  String get hub_tapToJump => 'Tap to jump';
+
+  @override
+  String get hub_now => 'Now';
+
+  @override
+  String get examDash_sectionScoreTrend => 'Score trend (30 days)';
+
+  @override
+  String get examDash_sectionTopicsToReinforce => 'Topics to reinforce';
+
+  @override
+  String get examDash_sectionBloomDistribution =>
+      'Bloom distribution of training';
+
+  @override
+  String get examDash_sectionRecentSessions => 'Recent sessions';
+
+  @override
+  String get examDash_sectionRecentSocratic => 'Recent Socratic sessions';
+
+  @override
+  String get examDash_noExamsYet => 'No exams completed yet';
+
+  @override
+  String get examDash_totalSessionsKpi => 'total sessions';
+
+  @override
+  String get examDash_streakKpi => 'daily streak';
+
+  @override
+  String get examDash_avg30Kpi => '30-day average';
+
+  @override
+  String get examDash_noDataLast30 => 'No data in the last 30 days';
+
+  @override
+  String get examDash_needTwoSessions =>
+      'Need at least 2 sessions for the chart';
+
+  @override
+  String get examDash_allTopicsAbove60 => 'No topics below 60%. Keep it up!';
+
+  @override
+  String get examDash_socraticReviewSoon =>
+      'Detailed Socratic review coming in V1.6';
+
+  @override
+  String get examDash_session => 'Session';
+
+  @override
+  String get examDash_yesterday => 'yesterday';
+
+  @override
+  String get bloom_remember => 'Remember';
+
+  @override
+  String get bloom_understand => 'Understand';
+
+  @override
+  String get bloom_apply => 'Apply';
+
+  @override
+  String get bloom_analyze => 'Analyze';
+
+  @override
+  String get bloom_evaluate => 'Evaluate';
+
+  @override
+  String get bloom_create => 'Create';
+
+  @override
+  String get authExc_invalidCredentials => 'Invalid email or password';
+
+  @override
+  String get authExc_emailInUse => 'This email is already registered';
+
+  @override
+  String get authExc_weakPassword => 'Password too weak (min. 6 characters)';
+
+  @override
+  String get authExc_invalidEmail => 'Invalid email format';
+
+  @override
+  String get authExc_emailNotConfirmed =>
+      'Confirm your email before signing in';
+
+  @override
+  String get authExc_banned => 'This account has been suspended';
+
+  @override
+  String get authExc_userNotFound => 'User not found';
+
+  @override
+  String get authExc_signupDisabled => 'Signups are temporarily disabled';
+
+  @override
+  String authExc_providerLinked(String provider) {
+    return 'This $provider account is already linked to another profile';
+  }
+
+  @override
+  String get authExc_sessionExpired => 'Session expired — sign in again';
+
+  @override
+  String get authExc_accountDeleted => 'Your account has been deleted';
+
+  @override
+  String get authExc_offline => 'You\'re offline — sign-in requires connection';
+
+  @override
+  String get authExc_rateLimited => 'Too many attempts. Try again shortly.';
+
+  @override
+  String get examReview_emptyTitle => 'Nothing to review';
+
+  @override
+  String get examReview_emptyBody =>
+      'For exams completed before V1.5 we only save handwritten strokes, not the questions. New exams will show question + answer + strokes here.';
+
+  @override
+  String get examReview_resultCorrect => '✓ correct';
+
+  @override
+  String get examReview_resultIncorrect => '✗ wrong';
+
+  @override
+  String get examReview_resultSkipped => '➜ skipped';
+
+  @override
+  String get examReview_resultPartial => '◐ partial';
+
+  @override
+  String examReview_questionLabel(int n) {
+    return 'Question $n';
+  }
+
+  @override
+  String get examReview_reworked => 'reworked';
+
+  @override
+  String get examReview_yourAnswer => 'Your answer';
+
+  @override
+  String get examReview_correctAnswer => 'Correct answer';
+
+  @override
+  String get storage_title => 'Cloud storage';
+
+  @override
+  String get storage_refresh => 'Refresh';
+
+  @override
+  String get storage_detailTitle => 'Storage detail';
+
+  @override
+  String get storage_images => 'Images';
+
+  @override
+  String get storage_pdfs => 'PDFs';
+
+  @override
+  String get storage_recordings => 'Recordings';
+
+  @override
+  String get storage_largestCanvases => 'Largest canvases';
+
+  @override
+  String get storage_usedLabel => 'used';
+
+  @override
+  String get storage_quotaTotal => 'Total quota';
+
+  @override
+  String get storage_usedAmount => 'Used';
+
+  @override
+  String get storage_remaining => 'Remaining';
+
+  @override
+  String get brushStamp_spacing => 'Spacing';
+
+  @override
+  String get brushStamp_scatter => 'Scatter';
+
+  @override
+  String get brushStamp_symmetry => 'Symmetry';
+
+  @override
+  String get brushStamp_textureNone => 'None';
+
+  @override
+  String get brushStamp_texturePencil => 'Pencil Grain';
+
+  @override
+  String get brushStamp_textureCharcoal => 'Charcoal';
+
+  @override
+  String get brushStamp_textureWatercolor => 'Watercolor';
+
+  @override
+  String get brushStamp_textureCanvas => 'Canvas';
+
+  @override
+  String get brushStamp_textureKraft => 'Kraft';
+
+  @override
+  String get brushStamp_shapeCircle => 'Circle';
+
+  @override
+  String get brushStamp_shapeSquare => 'Square';
+
+  @override
+  String get brushStamp_shapeDiamond => 'Diamond';
+
+  @override
+  String get brushStamp_presetWatercolor => 'Watercolor';
+
+  @override
+  String get brushStamp_presetCharcoal => 'Charcoal';
+
+  @override
+  String get brushStamp_presetAirbrush => 'Airbrush';
+
+  @override
+  String get ruler_annotationLabel => 'Annotation';
+
+  @override
+  String get ruler_copyCoordinate => 'Copy coordinate';
+
+  @override
+  String ruler_copied(String coord) {
+    return 'Copied: $coord';
+  }
+
+  @override
+  String get ruler_cancel => 'Cancel';
+
+  @override
+  String get ruler_ok => 'OK';
+
+  @override
+  String get ruler_apply => 'Apply';
+
+  @override
+  String get ruler_save => 'Save';
+
+  @override
+  String get ruler_customGridTitle => 'Custom Grid';
+
+  @override
+  String get ruler_numberOfGuides => 'Number of guides';
+
+  @override
+  String get ruler_distribute => 'Distribute';
+
+  @override
+  String get ruler_presetNameLabel => 'Preset name';
+
+  @override
+  String get latex_undo => 'Undo';
+
+  @override
+  String get latex_redo => 'Redo';
+
+  @override
+  String get latex_history => 'History';
+
+  @override
+  String get latex_templates => 'Templates';
+
+  @override
+  String get latex_graph => 'Graph';
+
+  @override
+  String get latex_commands => 'Commands';
+
+  @override
+  String get latex_preview => 'Preview';
+
+  @override
+  String get latex_reset => 'Reset';
+
+  @override
+  String get latex_noRecentExpressions => 'No recent expressions';
+
+  @override
+  String get latex_enterExpressionFirst =>
+      'Enter an expression before viewing the graph';
+
+  @override
+  String get versionHistory_saveVersion => 'Save checkpoint';
+
+  @override
+  String get versionHistory_saveVersionTitle => 'Save checkpoint';
+
+  @override
+  String get versionHistory_noVersions => 'No checkpoints yet';
+
+  @override
+  String get versionHistory_cancel => 'Cancel';
+
+  @override
+  String get versionHistory_save => 'Save';
+
+  @override
+  String get versionHistory_restore => 'Restore';
+
+  @override
+  String get versionHistory_delete => 'Archive';
+
+  @override
+  String get varManager_close => 'Close';
+
+  @override
+  String get varManager_remove => 'Remove';
+
+  @override
+  String get varManager_cancel => 'Cancel';
+
+  @override
+  String get varManager_create => 'Create';
+
+  @override
+  String get varManager_import => 'Import';
+
+  @override
+  String get varManager_apply => 'Apply';
+
+  @override
+  String get varManager_noVariables => 'No variables yet';
+
+  @override
+  String get varManager_noResults => 'No results';
+
+  @override
+  String get varManager_noCollections => 'No variable collections';
+
+  @override
+  String get varManager_variableName => 'Variable name';
+
+  @override
+  String get varManager_typeLabel => 'Type';
+
+  @override
+  String get varManager_valueLabel => 'Value';
+
+  @override
+  String get warp_undoLastMove => 'Undo last move';
+
+  @override
+  String get warp_resetMesh => 'Reset mesh';
+
+  @override
+  String get warp_cancel => 'Cancel';
+
+  @override
+  String get warp_apply => 'Apply';
+
+  @override
+  String get warp_gridLabel => 'Grid: ';
+
+  @override
+  String get smudge_label => 'Smudge';
+
+  @override
+  String get smudge_description =>
+      'Drag and blend colors like a finger on wet paint';
+
+  @override
+  String get smudge_fingerPainting => 'Finger Painting';
+
+  @override
+  String get transformWarp_description =>
+      'Deform with a control-point mesh grid';
+
+  @override
+  String get titleBar_minimize => 'Minimize';
+
+  @override
+  String get titleBar_restore => 'Restore';
+
+  @override
+  String get titleBar_maximize => 'Maximize';
+
+  @override
+  String get titleBar_close => 'Close';
+
+  @override
+  String get cmdPalette_hint => 'Type a command...';
+
+  @override
+  String get cmdPalette_noCommands => 'No commands found';
+
+  @override
+  String get cmdPalette_navigate => 'navigate';
+
+  @override
+  String get cmdPalette_select => 'select';
+
+  @override
+  String get cmdPalette_toggleFullscreen => 'Toggle Fullscreen';
+
+  @override
+  String get cmdPalette_toggleAlwaysOnTop => 'Toggle Always on Top';
+
+  @override
+  String get cmdPalette_minimize => 'Minimize Window';
+
+  @override
+  String get cmdPalette_maximize => 'Maximize / Restore Window';
+
+  @override
+  String get cmdPalette_center => 'Center Window';
+
+  @override
+  String get cmdPalette_themeDark => 'Theme: Dark Mode';
+
+  @override
+  String get cmdPalette_themeLight => 'Theme: Light Mode';
+
+  @override
+  String get cmdPalette_themeSystem => 'Theme: System Default';
+
+  @override
+  String get cmdPalette_newCanvas => 'New Canvas';
+
+  @override
+  String get cmdPalette_openSettings => 'Open Settings';
+
+  @override
+  String get cmdPalette_closeFluera => 'Close Fluera';
+
+  @override
+  String get pdfExport_print => 'Print';
+
+  @override
+  String get pdfExport_archive => 'Archive';
+
+  @override
+  String get atlasCard_answer => 'Answer';
+
+  @override
+  String get atlasCard_oneMoment => 'One moment…';
+
+  @override
+  String atlasCard_nextConcept(String concept) {
+    return 'Next → $concept';
+  }
+
+  @override
+  String get atlasCard_swipeForHistory => 'swipe for history';
+
+  @override
+  String get atlasCard_canExplain => 'I can explain it';
+
+  @override
+  String get atlasCard_hesitant => 'I have doubts';
+
+  @override
+  String get atlasCard_cantRemember => 'I don\'t remember';
+
+  @override
+  String get pdfExport_quickShare => 'Quick Share';
+
+  @override
+  String pdfExport_pageOfPages(int current, int total) {
+    return 'Page $current of $total';
+  }
+
+  @override
+  String get pdfExport_exportComplete => 'Export Complete';
+
+  @override
+  String get pdfExport_proPlanBadge => 'Pro';
+
+  @override
+  String get pdfExport_freePlanLimit =>
+      'The Free plan exports only to PNG. With Pro, export to PDF, SVG, and all formats.';
+
+  @override
+  String get pdfExport_position => 'Position';
+
+  @override
+  String get pdfExport_positionDiagonal => 'Diagonal';
+
+  @override
+  String get pdfExport_positionCenter => 'Center';
+
+  @override
+  String get pdfExport_positionTiled => 'Tiled';
+
+  @override
+  String pdfExport_opacity(int percent) {
+    return 'Opacity $percent%';
+  }
+
+  @override
+  String get brushCtrl_angleSnap => 'Angle Snap';
+
+  @override
+  String get brushCtrl_snapAngle => 'Snap Angle';
+
+  @override
+  String get brushCtrl_closeShapes => 'Close Shapes';
+
+  @override
+  String get brushCtrl_cornerSharpness => 'Corner Sharpness';
+
+  @override
+  String get brushCtrl_gridSnap => 'Grid Snap';
+
+  @override
+  String get brushCtrl_gridSize => 'Grid Size';
+
+  @override
+  String get brushCtrl_straightAssist => 'Straight Assist';
+
+  @override
+  String get brushCtrl_showGuides => 'Show Guides';
+
+  @override
+  String get brushCtrl_parallelSnap => 'Parallel Snap';
+
+  @override
+  String get brushCtrl_perpendicularSnap => 'Perpendicular Snap';
+
+  @override
+  String get brushCtrl_sensitivity => 'Sensitivity';
+
+  @override
+  String get brushCtrl_thinning => 'Thinning';
+
+  @override
+  String get brushCtrl_velocity => 'Velocity';
+
+  @override
+  String get brushCtrl_tilt => 'Tilt';
+
+  @override
+  String get brushCtrl_nibAngle => 'Nib Angle';
+
+  @override
+  String get brushCtrl_nibStrength => 'Nib Strength';
+
+  @override
+  String get brushCtrl_taperStart => 'Taper Start';
+
+  @override
+  String get brushCtrl_taperEnd => 'Taper End';
+
+  @override
+  String get brushCtrl_opacity => 'Opacity';
+
+  @override
+  String get brushCtrl_softness => 'Softness';
+
+  @override
+  String get brushCtrl_pressure => 'Pressure';
+
+  @override
+  String get brushCtrl_width => 'Width';
+
+  @override
+  String get brushCtrl_autoStraighten => 'Auto-Straighten';
+
+  @override
+  String get brushCtrl_stabilizer => 'Stabilizer';
+
+  @override
+  String get voice_qualitySettings => 'Quality Settings';
+
+  @override
+  String get voice_withStrokes => 'With Strokes';
+
+  @override
+  String get voice_withoutStrokes => 'Without Strokes';
+
+  @override
+  String get voice_cancel => 'Cancel';
+
+  @override
+  String get voice_save => 'Save';
+
+  @override
+  String get voice_delete => 'Delete';
+
+  @override
+  String get voice_deleteAll => 'Delete All';
+
+  @override
+  String get voice_download => 'Download';
+
+  @override
+  String get voice_retry => 'Retry';
+
+  @override
+  String get voice_play => 'Play';
+
+  @override
+  String get voice_unpin => 'Unpin';
+
+  @override
+  String get voice_recordingComplete => 'Recording Complete';
+
+  @override
+  String get voice_recordingDeleted => 'Recording deleted';
+
+  @override
+  String get voice_noRecordingsSaved => 'No recordings saved for this canvas';
+
+  @override
+  String voice_errorStarting(String error) {
+    return 'Error starting recording: $error';
+  }
+
+  @override
+  String voice_errorStopping(String error) {
+    return 'Error stopping recording: $error';
+  }
+
+  @override
+  String get voice_deleteRecording => 'Delete recording?';
+
+  @override
+  String get voice_downloadSpeechModel => 'Download Speech Model';
+
+  @override
+  String get voice_transcriptionLanguage => 'Transcription Language';
+
+  @override
+  String get voice_autoDetect => 'Auto-detect';
+
+  @override
+  String get voice_autoDetectSubtitle => 'Let the model detect the language';
+
+  @override
+  String get brushWidget_texture => 'Texture';
+
+  @override
+  String get brushWidget_textureHint =>
+      'Applies a texture overlay to strokes for a more natural feel.';
+
+  @override
+  String get brushWidget_intensity => 'Intensity';
+
+  @override
+  String get brushWidget_intensityHint =>
+      'How strongly the texture shows through the stroke.';
+
+  @override
+  String get brushWidget_pressureCurve => 'Pressure Curve';
+
+  @override
+  String get brushWidget_pressureCurveHint =>
+      'Maps raw stylus pressure to output. Soft = light touch produces more, Firm = needs harder press.';
+
+  @override
+  String get brushWidget_curveLinear => 'Linear';
+
+  @override
+  String get brushWidget_curveSoft => 'Soft';
+
+  @override
+  String get brushWidget_curveFirm => 'Firm';
+
+  @override
+  String get brushWidget_curveSCurve => 'S-Curve';
+
+  @override
+  String get brushWidget_curveHeavy => 'Heavy';
+
+  @override
+  String get canvasParts_mustKeepOnePage => 'Must keep at least one page';
+
+  @override
+  String get canvasParts_noContentToFrame => 'No content to frame';
+
+  @override
+  String get canvasParts_exportNotConfigured =>
+      'Export not configured in this app';
+
+  @override
+  String get canvasParts_handwritingUnavailable =>
+      'Handwriting recognition is not available on this platform';
+
+  @override
+  String get canvasParts_handwritingModelLoadFailed =>
+      'Could not load handwriting model';
+
+  @override
+  String get canvasParts_thisDocument => 'this document';
+
+  @override
+  String get canvasParts_cancel => 'Cancel';
+
+  @override
+  String get canvasParts_delete => 'Delete';
+
+  @override
+  String get toolbarTools_allBorders => 'All Borders';
+
+  @override
+  String get toolbarTools_outsideBorders => 'Outside';
+
+  @override
+  String get toolbarTools_insideBorders => 'Inside';
+
+  @override
+  String get toolbarTools_bottomBorder => 'Bottom';
+
+  @override
+  String get toolbarTools_noBorders => 'No Borders';
+
+  @override
+  String get toolbarTools_newSpreadsheet => 'New Spreadsheet';
+
+  @override
+  String get toolbarTools_cancel => 'Cancel';
+
+  @override
+  String get toolbarTools_create => 'Create';
+
+  @override
+  String get collabShare_inviteCanvas => 'Invite to canvas';
+
+  @override
+  String get collabShare_copyLink => 'Copy link';
+
+  @override
+  String get collabShare_generateNew => 'Generate new';
+
+  @override
+  String get collabShare_close => 'Close';
+
+  @override
+  String get collabShare_linkCopied => 'Link copied';
+
+  @override
+  String get collabShare_retry => 'Retry';
+
+  @override
+  String get imageFeatures_errorLoading => 'Error loading image';
+
+  @override
+  String get imageFeatures_errorDecoding => 'Error decoding image';
+
+  @override
+  String get imageFeatures_beingEdited =>
+      'Image is being edited by another collaborator';
+
+  @override
+  String get imageFeatures_cancel => 'Cancel';
+
+  @override
+  String get imageFeatures_delete => 'Delete';
+
+  @override
+  String get uiOverlays_cancel => 'Cancel';
+
+  @override
+  String get uiOverlays_cluster => 'Cluster';
+
+  @override
+  String get uiOverlays_ok => 'OK';
+
+  @override
+  String get uiOverlays_quizMe => 'Quiz me';
+
+  @override
+  String get uiOverlays_quizMeSubtitle => 'Interactive exam on your notes';
+
+  @override
+  String get uiOverlays_trendsSubtitle => 'Progress + topics to reinforce';
+
+  @override
+  String get uiOverlays_lasso => 'Lasso';
+
+  @override
+  String get uiOverlays_rect => 'Rect';
+
+  @override
+  String get uiOverlays_ellipse => 'Ellipse';
+
+  @override
+  String get svgImport_title => 'Import SVG';
+
+  @override
+  String get svgImport_pasteFromClipboard => 'Paste from clipboard';
+
+  @override
+  String get svgImport_cancel => 'Cancel';
+
+  @override
+  String get svgImport_import => 'Import';
+
+  @override
+  String get noteImport_importingNotes => 'Importing Notes';
+
+  @override
+  String get noteImport_noHandwrittenContent =>
+      'No handwritten content found in the file.';
+
+  @override
+  String noteImport_importedSuccess(int count) {
+    return 'Imported $count strokes successfully.';
+  }
+
+  @override
+  String noteImport_importFailed(String error) {
+    return 'Import failed: $error';
+  }
+
+  @override
+  String get branching_branchName => 'Branch name';
+
+  @override
+  String get branching_cancel => 'Cancel';
+
+  @override
+  String get branching_create => 'Create';
+
+  @override
+  String get branching_newBranch => 'New Branch';
+
+  @override
+  String branching_forkFromEvent(int current, int total) {
+    return 'Fork from event $current of $total';
+  }
+
+  @override
+  String branching_forkFromBranch(String branchName) {
+    return 'Fork from \"$branchName\"';
+  }
+
+  @override
+  String branching_defaultBranchName(String time) {
+    return 'Branch $time';
+  }
+
+  @override
+  String get branching_untitledBranch => 'Untitled Branch';
+
+  @override
+  String get audioSync_recordingStoppedOnBranchSwitch =>
+      'Recording stopped — switching branch';
+
+  @override
+  String get audioSync_quotaReachedAutoStop =>
+      'Voice minutes quota reached — recording stopped';
+
+  @override
+  String get audioSync_downloadFailedOffline =>
+      'Couldn\'t download the recording — check your connection';
+
+  @override
+  String get toolbarTool_panMode => 'Pan Mode';
+
+  @override
+  String get toolbarTool_stylusOnlyMode => 'Stylus Only Mode';
+
+  @override
+  String get toolbarTool_lassoSelection => 'Lasso Selection';
+
+  @override
+  String get toolbarTool_ruler => 'Ruler';
+
+  @override
+  String get toolbarTool_minimap => 'Minimap';
+
+  @override
+  String get toolbarTool_worldView => 'Mappamondo view';
+
+  @override
+  String get toolbarTool_worldViewTooltip =>
+      'Zoom out to see the entire canvas';
+
+  @override
+  String monumentNudge_messageWithLabel(String label) {
+    return '🏛️ \"$label\" has become a landmark of your Palace. Consider making it bigger or a distinctive color — landmarks anchor memory.';
+  }
+
+  @override
+  String get monumentNudge_dismissCta => 'Got it';
+
+  @override
+  String get toolbarTool_vectorPen => 'Vector Pen Tool';
+
+  @override
+  String get toolbarTool_digitalText => 'Digital Text';
+
+  @override
+  String get toolbarTool_insertImage => 'Insert Image';
+
+  @override
+  String get toolbarTool_latexMath => 'LaTeX / Math Editor';
+
+  @override
+  String get toolbarTool_spreadsheet => 'Spreadsheet';
+
+  @override
+  String get toolbarTool_sectionArtboard => 'Section / Artboard';
+
+  @override
+  String get toolbarTool_searchHandwriting => 'Search Handwriting';
+
+  @override
+  String get hwSearch_allPagesTitle => 'All pages';
+
+  @override
+  String get hwSearch_allPagesBody =>
+      'Search in ALL your gallery canvases, not just this one. When off, you only search here.';
+
+  @override
+  String get hwSearch_caseSensitiveTitle => 'Case sensitive';
+
+  @override
+  String get hwSearch_caseSensitiveBody =>
+      'Distinguishes uppercase and lowercase. \"Rome\" doesn\'t match \"rome\" when on.';
+
+  @override
+  String get hwSearch_wholeWordTitle => 'Whole word';
+
+  @override
+  String get hwSearch_wholeWordBody =>
+      'Finds only whole words. \"art\" doesn\'t match \"smart\" or \"artist\" when on.';
+
+  @override
+  String get hwSearch_fuzzyTitle => 'Typo-tolerant search';
+
+  @override
+  String get hwSearch_fuzzyBody =>
+      'Finds words with up to 2 typing errors. Useful for fast handwriting or quick notes.';
+
+  @override
+  String get hwSearch_regexTitle => 'Regex';
+
+  @override
+  String get hwSearch_regexBody =>
+      'For advanced users: use regular expression patterns (e.g. \"ca[sr]a\" for cara or casa).';
+
+  @override
+  String get hwSearch_visibleAreaTitle => 'Visible area only';
+
+  @override
+  String get hwSearch_visibleAreaBody =>
+      'Search only the area visible on screen. Useful to narrow down to a specific zone.';
+
+  @override
+  String get hwSearch_gotIt => 'Got it';
+
+  @override
+  String get hwSearch_caseSensitiveTooltip => 'Case sensitive matching';
+
+  @override
+  String get hwSearch_wholeWordTooltip => 'Whole words only';
+
+  @override
+  String get hwSearch_fuzzyTooltip => 'Typo-tolerant (≤2 errors)';
+
+  @override
+  String get hwSearch_regexTooltip => 'Regex patterns (advanced users)';
+
+  @override
+  String get hwSearch_visibleLabel => 'Visible';
+
+  @override
+  String get hwSearch_visibleTooltip => 'Only the area you see on screen';
+
+  @override
+  String get hwSearch_searchHint => 'Search handwriting...';
+
+  @override
+  String get hwSearch_filtersHelpTooltip => 'What do the filters do?';
+
+  @override
+  String hwSearch_copiedResults(int count) {
+    return 'Copied $count results';
+  }
+
+  @override
+  String get hwSearch_replaceHint => 'Replace with...';
+
+  @override
+  String get hwSearch_wordLabel => 'Word';
+
+  @override
+  String get hwSearch_fuzzyLabel => 'Fuzzy';
+
+  @override
+  String get hwSearch_regexLabel => 'Regex';
+
+  @override
+  String get hwSearch_filtersTitle => 'Search filters';
+
+  @override
+  String get buildUi_tapToReveal => 'Tap to reveal';
+
+  @override
+  String get buildUi_clusterPrev => 'Previous Cluster';
+
+  @override
+  String get buildUi_clusterNext => 'Next Cluster';
+
+  @override
+  String get buildUi_addPage => 'Add Page';
+
+  @override
+  String get buildUi_removePage => 'Remove Page';
+
+  @override
+  String get buildUi_gridFreeFormatTooltip => 'Tap: Grid/Free • Long: Format';
+
+  @override
+  String get buildUi_backgroundTooltip => 'Background (Transparent/Template)';
+
+  @override
+  String get buildUi_autoFrameContent => 'Auto-Frame Content';
+
+  @override
+  String get buildUi_cancel => 'Cancel';
+
+  @override
+  String get tabularLatex_generated => 'LaTeX Table Generated';
+
+  @override
+  String get tabularLatex_mergedCellsTitle => 'Merged Cells Detected';
+
+  @override
+  String get tabularLatex_mergedCellsBody =>
+      'The selected range contains merged cells.\n\nMerged cells will use the master cell value only — slave cells will be skipped to avoid duplicate zeros.';
+
+  @override
+  String get tabularLatex_cancel => 'Cancel';
+
+  @override
+  String get tabularLatex_continue => 'Continue';
+
+  @override
+  String get tabularLatex_importTitle => 'Import LaTeX Table';
+
+  @override
+  String get tabularLatex_importHint => 'Paste LaTeX tabular environment here';
+
+  @override
+  String get tabularLatex_import => 'Import';
+
+  @override
+  String get tabularLatex_noValidTable => 'No valid LaTeX table found';
+
+  @override
+  String tabularLatex_imported(String env, int cols, int rows) {
+    return 'Imported $env → $cols×$rows table';
+  }
+
+  @override
+  String get tabularLatex_documentCopied => '.tex document copied to clipboard';
+
+  @override
+  String get componentSet_autoGroupByName => 'Auto-group by name';
+
+  @override
+  String get componentSet_insertInstance => 'Insert instance';
+
+  @override
+  String get socraticScratchpad_clear => 'Clear';
+
+  @override
+  String get socraticScratchpad_cancel => 'Cancel';
+
+  @override
+  String get socraticBubble_reflectMentally => 'Reflect mentally, no sketch';
+
+  @override
+  String get socraticBubble_sketchAndContinue =>
+      'Sketch a thought, AI continues';
+
+  @override
+  String get socraticBubble_thinkOnly => 'Think only';
+
+  @override
+  String get socraticBubble_sketch => 'Sketch';
+
+  @override
+  String get toolsArea_pages => 'Pages';
+
+  @override
+  String get toolsArea_searchPdf => 'Search PDF';
+
+  @override
+  String get toolsArea_layout => 'Layout';
+
+  @override
+  String get toolsArea_nightMode => 'Night Mode';
+
+  @override
+  String get toolsArea_zoomToFit => 'Zoom to Fit';
+
+  @override
+  String get toolsArea_annotate => 'Annotate';
+
+  @override
+  String get toolsArea_export => 'Export';
+
+  @override
+  String get toolsArea_print => 'Print';
+
+  @override
+  String get toolsArea_present => 'Present';
+
+  @override
+  String get toolsArea_newBlankDocument => 'New blank document';
+
+  @override
+  String get toolsArea_newTable => 'New Table';
+
+  @override
+  String get toolsArea_deleteTable => 'Delete Table';
+
+  @override
+  String get toolsArea_bold => 'Bold';
+
+  @override
+  String get toolsArea_italic => 'Italic';
+
+  @override
+  String get toolsArea_borders => 'Borders';
+
+  @override
+  String get toolsArea_clear => 'Clear';
+
+  @override
+  String get toolsArea_alignLeft => 'Left';
+
+  @override
+  String get toolsArea_alignCenter => 'Center';
+
+  @override
+  String get toolsArea_alignRight => 'Right';
+
+  @override
+  String get toolsArea_textColor => 'Text Color';
+
+  @override
+  String get toolsArea_fillColor => 'Fill Color';
+
+  @override
+  String get toolsArea_insertRow => 'Insert Row';
+
+  @override
+  String get toolsArea_deleteRow => 'Delete Row';
+
+  @override
+  String get toolsArea_insertCol => 'Insert Col';
+
+  @override
+  String get toolsArea_deleteCol => 'Delete Col';
+
+  @override
+  String get toolsArea_moreActions => 'More Actions';
+
+  @override
+  String get toolsArea_formulaReference => 'Formula Reference';
+
+  @override
+  String get toolsArea_switchPdf => 'Switch PDF';
+
+  @override
+  String get toolsArea_wheelMode => 'Wheel mode';
+
+  @override
+  String get toolsArea_pasteSvgHint => 'Paste SVG content here...';
+
+  @override
+  String get latexEditor_info => 'Info';
+
+  @override
+  String get latexEditor_searchCommands => 'Search commands...';
+
+  @override
+  String get latexEditor_color => 'Color';
+
+  @override
+  String get latexEditor_commands => 'Commands';
+
+  @override
+  String get latexEditor_latexCommands => 'LaTeX Commands';
+
+  @override
+  String latexEditor_fontSize(int size) {
+    return 'Size: $size';
+  }
+
+  @override
+  String get latexSymbol_searchSymbol => 'Search symbol...';
+
+  @override
+  String get socraticScope_searchHint => 'Search topic (title or note)';
+
+  @override
+  String get timeTravel_previousSession => 'Previous session';
+
+  @override
+  String get timeTravel_nextSession => 'Next session';
+
+  @override
+  String get timeTravel_recoverInPresent => 'Recover in the present';
+
+  @override
+  String get timeTravel_exportTimelapse => 'Export timelapse';
+
+  @override
+  String get voiceRecording_options => 'Options';
+
+  @override
+  String get voiceRecording_copyText => 'Copy text';
+
+  @override
+  String get voiceRecording_reTranscribe => 'Re-transcribe';
+
+  @override
+  String get ghostMap_info => 'Ghost Map info';
+
+  @override
+  String get animTimeline_loop => 'Loop';
+
+  @override
+  String varProp_searchVariables(String type) {
+    return 'Search $type variables…';
+  }
+
+  @override
+  String get connLabel_addLabelHint => 'Add label...';
+
+  @override
+  String get varManager_importW3CTokens => 'Import W3C Tokens';
+
+  @override
+  String get varManager_exportW3CTokens => 'Export W3C Tokens';
+
+  @override
+  String get varManager_newCollection => 'New Collection';
+
+  @override
+  String get varManager_searchVariables => 'Search variables…';
+
+  @override
+  String get varManager_groupHint => 'Group (e.g. colors/primary)';
+
+  @override
+  String get varManager_pasteW3CHint => 'Paste W3C DTCG JSON here…';
+
+  @override
+  String get tokenExport_copy => 'Copy';
+
+  @override
+  String get tabularHandler_enterValueOrFormula => 'Enter value or formula';
+
+  @override
+  String get syncPlayback_restart => 'Restart';
+
+  @override
+  String get syncPlayback_stop => 'Stop';
+
+  @override
+  String get echoSearch_typeQuery => 'Type query...';
+
+  @override
+  String get imageViewer_grid => 'Grid';
+
+  @override
+  String get imageViewer_histogram => 'Histogram';
+
+  @override
+  String get imageViewer_background => 'Background';
+
+  @override
+  String get imageViewer_edit => 'Edit';
+
+  @override
+  String get imageViewer_share => 'Share';
+
+  @override
+  String get voiceRecording_recordingName => 'Recording name';
+
+  @override
+  String get voiceRecording_enterName => 'Enter name';
+
+  @override
+  String get voiceRecording_searchRecordings => 'Search recordings...';
+
+  @override
+  String get voiceRecording_name => 'Name';
+
+  @override
+  String get tabular_mergeCells => 'Merge cells';
+
+  @override
+  String get tabular_unmergeCells => 'Unmerge cells';
+
+  @override
+  String get tabular_numberFormat => 'Number format';
+
+  @override
+  String get tabular_validationRule => 'Validation rule';
+
+  @override
+  String get tabular_conditionalFormat => 'Conditional format';
+
+  @override
+  String get tabular_generateLatex => 'Generate LaTeX Table from Selection';
+
+  @override
+  String get tabular_copyAsLatex => 'Copy Selection as LaTeX';
+
+  @override
+  String get tabular_generateTikz => 'Generate TikZ Chart from Selection';
+
+  @override
+  String get tabular_importLatex => 'Import LaTeX → Spreadsheet';
+
+  @override
+  String get tabular_exportTex => 'Export .tex File';
+
+  @override
+  String get tabular_freezePanes => 'Freeze panes';
+
+  @override
+  String get tabular_importCsv => 'Import CSV';
+
+  @override
+  String get tabular_exportCsv => 'Export CSV';
+
+  @override
+  String get tabular_importXlsx => 'Import XLSX';
+
+  @override
+  String get tabular_exportXlsx => 'Export XLSX';
+
+  @override
+  String get formulaRef_searchFunctions => 'Search functions…';
+
+  @override
+  String get pdfFeatures_documentTitle => 'Document title';
+
+  @override
+  String get pdfToolbar_previousShiftEnter => 'Previous (Shift+Enter)';
+
+  @override
+  String get knowledgeMap_searchClusters => 'Search clusters...';
+
+  @override
+  String get multiview_pen => 'Pen';
+
+  @override
+  String get multiview_eraser => 'Eraser';
+
+  @override
+  String get multiview_pan => 'Pan';
+
+  @override
+  String get multiview_brushType => 'Brush type';
+
+  @override
+  String get multiview_undo => 'Undo';
+
+  @override
+  String get multiview_redo => 'Redo';
+
+  @override
+  String get multiview_exit => 'Exit Multiview';
+
+  @override
+  String get multiview_changeLayout => 'Change layout';
+
+  @override
+  String get bookmarks_addNote => 'Add a note...';
+
+  @override
+  String get ruler_spacing => 'Spacing (px)';
+
+  @override
+  String get ruler_start => 'Start (px)';
+
+  @override
+  String get ruler_end => 'End (px)';
+
+  @override
+  String get dictionary_explainOneLine => 'Explain it in one line…';
+
+  @override
+  String get dictionary_rewriteWithoutCopying =>
+      'Rewrite without copying from the definition…';
+
+  @override
+  String get proColor_colorBlindnessPreview => 'Color blindness preview';
+
+  @override
+  String get proColor_eyedropper => 'Eyedropper';
+
+  @override
+  String get proColor_copyHex => 'Copy hex';
+
+  @override
+  String get proColor_pasteHex => 'Paste hex';
+
+  @override
+  String get drawing_sectionName => 'Section name...';
+
+  @override
+  String get drawing_chartTitle => 'Chart title…';
+
+  @override
+  String get uiOverlay_min => 'Min';
+
+  @override
+  String get uiOverlay_max => 'Max';
+
+  @override
+  String get liquify_undoLastBrush => 'Undo last brush';
+
+  @override
+  String get legal_openWebVersion => 'Open web version';
+
+  @override
+  String get settings_addWord => 'Add a word...';
+
+  @override
+  String get settings_yourFeedback => 'Your feedback...';
+
+  @override
+  String get latexRec_noFormula => 'No formula recognized';
+
+  @override
+  String get latexRec_formulaRecognized => 'Formula recognized';
+
+  @override
+  String get latexRec_cancel => 'Cancel';
+
+  @override
+  String get latexRec_confirm => 'Confirm';
+
+  @override
+  String get tabular_compareCategories => 'Compare values by category';
+
+  @override
+  String get tabular_showTrends => 'Show trends over time';
+
+  @override
+  String get tabular_dataDistribution => 'Show data distribution';
+
+  @override
+  String get tabular_proportions => 'Show proportions';
+
+  @override
+  String get tabular_filledTrends => 'Filled trends over time';
+
+  @override
+  String get tabular_composition => 'Compare composition';
+
+  @override
+  String get tabular_horizontalCompare => 'Horizontal value comparison';
+
+  @override
+  String get tabular_waterfall => 'Waterfall';
+
+  @override
+  String get tabular_cancel => 'Cancel';
+
+  @override
+  String get tabular_continue => 'Continue';
+
+  @override
+  String get tabular_import => 'Import';
+
+  @override
+  String get tabular_borderAll => 'All';
+
+  @override
+  String get tabular_borderOutside => 'Outside';
+
+  @override
+  String get tabular_borderInside => 'Inside';
+
+  @override
+  String get tabular_borderBottom => 'Bottom';
+
+  @override
+  String get tabular_borderNone => 'None';
+
+  @override
+  String get pdfReaderExport_title => 'Export Annotated PDF';
+
+  @override
+  String get pdfReaderExport_quality => 'Quality: ';
+
+  @override
+  String get pdfReaderExport_bookmarkSummary => 'Bookmark Summary';
+
+  @override
+  String get pdfReaderExport_exporting => 'Exporting...';
+
+  @override
+  String pdfReaderExport_failed(String error) {
+    return 'Export failed: $error';
+  }
+
+  @override
   String get consent_acceptAll => 'Accept all';
 
   @override
   String get consent_continueWithChoices => 'Continue with these choices';
+
+  @override
+  String get consent_title => 'Your privacy, your choices';
+
+  @override
+  String get consent_subtitle =>
+      'Fluera respects GDPR. Choose what you want to share — you can change your mind anytime from Settings.';
+
+  @override
+  String get consent_privacyLink => 'Privacy Policy';
+
+  @override
+  String get consent_termsLink => 'Terms of use';
+
+  @override
+  String get consent_analyticsTitle => 'Product analytics';
+
+  @override
+  String get consent_analyticsBody =>
+      'Helps us understand which features you use most so we can improve Fluera. Only aggregated events — never the content of your notes.';
+
+  @override
+  String get consent_aiTitle => 'AI features';
+
+  @override
+  String get consent_aiBody =>
+      'Required for Ghost Map, Socratic Mode, LaTeX OCR and Exam Session. Some text from your notes is sent to Google Gemini. Without this option, AI features are disabled.';
+
+  @override
+  String get consent_cloudTitle => 'Cloud Sync';
+
+  @override
+  String get consent_cloudBody =>
+      'Encrypted backup of your canvases on our servers so you can use them on other devices. Without this option, all data stays on this device only.';
+
+  @override
+  String get consent_crashTitle => 'Crash reports';
+
+  @override
+  String get consent_crashBody =>
+      'Sends technical info when Fluera crashes (no content, no personal data) to help us fix bugs faster.';
 
   @override
   String get exam_headerLabel => 'Exam';
@@ -3368,4 +6356,370 @@ class FlueraLocalizationsEn extends FlueraLocalizations {
   @override
   String get atlasPrompt_emptySelectionHint =>
       'Select nodes with the lasso to see available commands.';
+
+  @override
+  String get selAction_selectedBadge => 'Selected';
+
+  @override
+  String get selAction_copy => 'Copy';
+
+  @override
+  String get selAction_duplicate => 'Duplicate';
+
+  @override
+  String get selAction_paste => 'Paste';
+
+  @override
+  String get selAction_more => 'More';
+
+  @override
+  String get selAction_transform => 'Transform';
+
+  @override
+  String get selAction_arrange => 'Arrange';
+
+  @override
+  String get selAction_advanced => 'Advanced';
+
+  @override
+  String get selAction_rotate90 => 'Rotate 90°';
+
+  @override
+  String get selAction_bringToFront => 'Bring to Front';
+
+  @override
+  String get selAction_sendToBack => 'Send to Back';
+
+  @override
+  String get selAction_alignLeft => 'Align Left';
+
+  @override
+  String get selAction_alignCenter => 'Align Center';
+
+  @override
+  String get selAction_alignRight => 'Align Right';
+
+  @override
+  String get selAction_alignTop => 'Align Top';
+
+  @override
+  String get selAction_alignMiddle => 'Align Middle';
+
+  @override
+  String get selAction_alignBottom => 'Align Bottom';
+
+  @override
+  String get selAction_distributeH => 'Distribute H';
+
+  @override
+  String get selAction_distributeV => 'Distribute V';
+
+  @override
+  String get selAction_selectAll => 'Select All';
+
+  @override
+  String get selAction_undo => 'Undo';
+
+  @override
+  String get selAction_group => 'Group';
+
+  @override
+  String get selAction_ungroup => 'Ungroup';
+
+  @override
+  String get selAction_lock => 'Lock';
+
+  @override
+  String get selAction_unlock => 'Unlock';
+
+  @override
+  String get selAction_snapOn => 'Snap: ON';
+
+  @override
+  String get selAction_snapOff => 'Snap: OFF';
+
+  @override
+  String get selAction_multiLayerOn => 'Multi-Layer: ON';
+
+  @override
+  String get selAction_multiLayerOff => 'Multi-Layer: OFF';
+
+  @override
+  String get selAction_inverseSelection => 'Inverse Selection';
+
+  @override
+  String get selAction_pasteInPlace => 'Paste in Place';
+
+  @override
+  String get settingsL1_subscription_title => 'Subscription and AI credits';
+
+  @override
+  String get settingsL1_subscription_subtitle =>
+      'Plan, remaining credits, Spark Pack';
+
+  @override
+  String get settingsL1_canvas_title => 'Canvas and pen';
+
+  @override
+  String get settingsL1_canvas_subtitle =>
+      'Hand, grip, palm rejection, pressure test';
+
+  @override
+  String get settingsL1_appearance_title => 'Appearance and accessibility';
+
+  @override
+  String get settingsL1_appearance_subtitle =>
+      'Theme, reduce haptics, large text';
+
+  @override
+  String get settingsL1_cognitive_title => 'Cognitive features';
+
+  @override
+  String get settingsL1_cognitive_subtitle =>
+      'Exam, dictionary, spellcheck, advanced AI';
+
+  @override
+  String get settingsL1_documents_title => 'Documents and gallery';
+
+  @override
+  String get settingsL1_documents_subtitle =>
+      'Default paper, export, view, sort';
+
+  @override
+  String get settingsL1_data_title => 'Data and sync';
+
+  @override
+  String get settingsL1_data_subtitle => 'Cloud sync, backup, cache, reset';
+
+  @override
+  String get settingsL1_privacy_title => 'Privacy and telemetry';
+
+  @override
+  String get settingsL1_privacy_subtitle =>
+      'GDPR consents, analytics, AI, crash reports';
+
+  @override
+  String get settingsL1_about_title => 'Info and support';
+
+  @override
+  String get settingsL1_about_subtitle =>
+      'Method, licenses, feedback, advanced studio';
+
+  @override
+  String get settingsScreen_account_title => 'Profile and account';
+
+  @override
+  String get settingsScreen_subscription_title => 'Subscription and AI credits';
+
+  @override
+  String get settingsScreen_appearance_title => 'Appearance and accessibility';
+
+  @override
+  String get settingsScreen_canvas_title => 'Canvas and pen';
+
+  @override
+  String get settingsScreen_documents_title => 'Documents and gallery';
+
+  @override
+  String get settingsScreen_cognitive_title => 'Cognitive features';
+
+  @override
+  String get settingsScreen_data_title => 'Data and sync';
+
+  @override
+  String get settingsScreen_privacy_title => 'Privacy and telemetry';
+
+  @override
+  String get settingsScreen_about_title => 'Info and support';
+
+  @override
+  String get settingsCognitive_examHeader => 'Exam (Interrogami)';
+
+  @override
+  String get settingsCognitive_accessibilityHeader => 'Exam accessibility';
+
+  @override
+  String get settingsCognitive_returnLandmarkHeader => 'Return & landmark';
+
+  @override
+  String get settingsCognitive_dictHeader => 'Dictionary & spellcheck';
+
+  @override
+  String get settingsCognitive_questionCount_title => 'Question count';
+
+  @override
+  String get settingsCognitive_difficulty_title => 'Default difficulty';
+
+  @override
+  String get settingsCognitive_hypercorrection_title =>
+      'Hypercorrection effect';
+
+  @override
+  String get settingsCognitive_reduceMotion_title => 'Reduce motion (exam)';
+
+  @override
+  String get settingsCognitive_colorBlind_title => 'Colorblind-safe palette';
+
+  @override
+  String get settingsCognitive_sound_title => 'Sound feedback';
+
+  @override
+  String get settingsCognitive_reminders_title => 'Study reminders (FSRS)';
+
+  @override
+  String get settingsCognitive_returnRitual_title => 'Return with blur';
+
+  @override
+  String get settingsCognitive_monumentNudge_title => 'Landmark nudge';
+
+  @override
+  String get settingsCognitive_advancedShow => 'Show advanced assistance';
+
+  @override
+  String get settingsCognitive_advancedHide => 'Hide advanced assistance';
+
+  @override
+  String get settingsAccount_changeEmail_title => 'Change email';
+
+  @override
+  String get settingsAccount_changeEmail_subtitle =>
+      'Update the address linked to the account';
+
+  @override
+  String get settingsAccount_changePassword_title => 'Change password';
+
+  @override
+  String get settingsAccount_changePassword_subtitle => 'Set a new password';
+
+  @override
+  String get settingsAccount_logout_title => 'Sign out';
+
+  @override
+  String get settingsAccount_logout_subtitle =>
+      'Your canvases stay saved locally';
+
+  @override
+  String get settingsAccount_deleteRequest_title => 'Request account deletion';
+
+  @override
+  String get settingsAccount_deleteRequest_subtitle =>
+      'Write us at feedback@fluera.dev';
+
+  @override
+  String get settingsAccount_sessionHeader => 'Session';
+
+  @override
+  String get settingsAccount_accountHeader => 'Account';
+
+  @override
+  String get settingsAbout_license_title => 'Licenses';
+
+  @override
+  String get settingsAbout_license_subtitle => 'Open source licenses';
+
+  @override
+  String get settingsAbout_feedback_title => 'Send Feedback';
+
+  @override
+  String get settingsAbout_feedback_subtitle =>
+      'Report bugs or suggest features';
+
+  @override
+  String get settingsAbout_rate_title => 'Rate Fluera';
+
+  @override
+  String get settingsAbout_rate_subtitle => 'Love the app? Leave a review!';
+
+  @override
+  String get settingsSubscription_currentPlan => 'Current plan';
+
+  @override
+  String get settingsSubscription_comparePlans => 'Compare plans';
+
+  @override
+  String get settingsSubscription_creditsHeader => 'AI Credits';
+
+  @override
+  String get settingsSubscription_buyCredits_title => 'Buy extra credits';
+
+  @override
+  String get settingsSubscription_buyCredits_subtitle =>
+      'Spark Pack — one-time packs';
+
+  @override
+  String get settingsSubscription_managePlan_title => 'Manage subscription';
+
+  @override
+  String get settingsSubscription_managePlan_subtitle =>
+      'Change plan, billing, auto-renewal';
+
+  @override
+  String get settingsData_cloudSyncHeader => 'Cloud sync';
+
+  @override
+  String get settingsData_backupHeader => 'Backup & restore';
+
+  @override
+  String get settingsData_cacheHeader => 'Cache & storage';
+
+  @override
+  String get settingsDocuments_documentsHeader => 'Documents';
+
+  @override
+  String get settingsDocuments_galleryHeader => 'Gallery';
+
+  @override
+  String get canvasSettings_actionsSection => 'Actions';
+
+  @override
+  String get canvasSettings_appearanceSection => 'Canvas appearance';
+
+  @override
+  String get canvasSettings_analysisSection => 'Analysis';
+
+  @override
+  String get canvasSettings_languagesSection => 'Languages';
+
+  @override
+  String get canvasSettings_languages_title => 'Languages';
+
+  @override
+  String get canvasSettings_languages_subtitle => 'Writing, app, AI';
+
+  @override
+  String get canvasSettings_languages_dialogTitle => 'Languages';
+
+  @override
+  String get canvasSettings_languages_tabHandwriting => 'Writing';
+
+  @override
+  String get canvasSettings_languages_tabApp => 'App';
+
+  @override
+  String get canvasSettings_languages_tabAi => 'AI';
+
+  @override
+  String get canvasSettings_readingLevel_title => 'Reading Level';
+
+  @override
+  String get canvasSettings_handwritingLanguages_title =>
+      'Handwriting languages';
+
+  @override
+  String get canvasSettings_appLanguage_title => 'App language';
+
+  @override
+  String get canvasSettings_aiOutputLanguage_title => 'AI output language';
+
+  @override
+  String get canvasSettings_languages_resetAutoButton => 'Auto-detect all';
+
+  @override
+  String get canvasSettings_languages_resetAutoSnack =>
+      'All languages reset to Auto';
+
+  @override
+  String canvasSettings_filtersActiveCount(int count) {
+    return '$count active';
+  }
 }

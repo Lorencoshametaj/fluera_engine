@@ -660,7 +660,7 @@ void main() {
 
     test('createUniversalLink format', () {
       final link = CollabInviteService.createUniversalLink('abc12345');
-      expect(link, 'https://fluera.app/collab/abc12345');
+      expect(link, 'https://fluera.dev/collab/abc12345');
     });
 
     test('parseDeepLink extracts room ID', () {
@@ -670,7 +670,7 @@ void main() {
 
     test('parseDeepLink handles universal link', () {
       final id = CollabInviteService.parseDeepLink(
-          'https://fluera.app/collab/xyz789');
+          'https://fluera.dev/collab/xyz789');
       expect(id, 'xyz789');
     });
 

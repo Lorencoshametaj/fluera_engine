@@ -1604,11 +1604,16 @@ Rules: use the actual formulas/data from the content. Max 150 words. No markdown
       return true;
     }
 
-    // Blocked — show upgrade prompt.
-    if (mounted && result.upgradeMessage != null) {
-      if (_config.onUpgradePrompt != null) {
+    // Blocked — show upgrade prompt. Typed callback takes precedence over
+    // the message-only fallback so the host can render feature-specific
+    // cap dialogs (Socratic / Exam / Fog of War).
+    if (mounted) {
+      if (_config.onTierGateBlocked != null) {
+        _config.onTierGateBlocked!(context, result);
+      } else if (result.upgradeMessage != null &&
+          _config.onUpgradePrompt != null) {
         _config.onUpgradePrompt!(context, result.upgradeMessage!);
-      } else {
+      } else if (result.upgradeMessage != null) {
         // Fallback: basic SnackBar.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

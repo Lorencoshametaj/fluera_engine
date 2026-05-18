@@ -252,7 +252,7 @@ extension _BrushDialogWidgets on _ProBrushSettingsDialogState {
             Icon(Icons.texture_rounded, size: 16, color: cs.onSurfaceVariant),
             const SizedBox(width: 6),
             Text(
-              'Texture',
+              FlueraLocalizations.of(context)!.brushWidget_texture,
               style: tt.labelMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: cs.onSurface,
@@ -260,7 +260,7 @@ extension _BrushDialogWidgets on _ProBrushSettingsDialogState {
             ),
             const Spacer(),
             infoIcon(
-              'Applies a texture overlay to strokes for a more natural feel.',
+              FlueraLocalizations.of(context)!.brushWidget_textureHint,
               cs,
             ),
           ],
@@ -304,8 +304,8 @@ extension _BrushDialogWidgets on _ProBrushSettingsDialogState {
           const SizedBox(height: 8),
           sliderRow(
             icon: Icons.grain_rounded,
-            label: 'Intensity',
-            tooltip: 'How strongly the texture shows through the stroke.',
+            label: FlueraLocalizations.of(context)!.brushWidget_intensity,
+            tooltip: FlueraLocalizations.of(context)!.brushWidget_intensityHint,
             value: _settings.textureIntensity,
             min: 0.05,
             max: 1.0,
@@ -322,12 +322,13 @@ extension _BrushDialogWidgets on _ProBrushSettingsDialogState {
   // ── Pressure Curve ──
   Widget buildPressureCurve(ColorScheme cs, TextTheme tt, Color accent) {
     final currentName = _settings.pressureCurve.presetName ?? 'custom';
+    final l10n = FlueraLocalizations.of(context)!;
     final curvePresets = {
-      'linear': ('Linear', Icons.linear_scale_rounded),
-      'soft': ('Soft', Icons.auto_awesome_rounded),
-      'firm': ('Firm', Icons.fitness_center_rounded),
-      'sCurve': ('S-Curve', Icons.ssid_chart_rounded),
-      'heavy': ('Heavy', Icons.monitor_weight_rounded),
+      'linear': (l10n.brushWidget_curveLinear, Icons.linear_scale_rounded),
+      'soft': (l10n.brushWidget_curveSoft, Icons.auto_awesome_rounded),
+      'firm': (l10n.brushWidget_curveFirm, Icons.fitness_center_rounded),
+      'sCurve': (l10n.brushWidget_curveSCurve, Icons.ssid_chart_rounded),
+      'heavy': (l10n.brushWidget_curveHeavy, Icons.monitor_weight_rounded),
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,7 +342,7 @@ extension _BrushDialogWidgets on _ProBrushSettingsDialogState {
             ),
             const SizedBox(width: 6),
             Text(
-              'Pressure Curve',
+              l10n.brushWidget_pressureCurve,
               style: tt.labelMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: cs.onSurface,
@@ -349,7 +350,7 @@ extension _BrushDialogWidgets on _ProBrushSettingsDialogState {
             ),
             const Spacer(),
             infoIcon(
-              'Maps raw stylus pressure to output. Soft = light touch produces more, Firm = needs harder press.',
+              l10n.brushWidget_pressureCurveHint,
               cs,
             ),
           ],

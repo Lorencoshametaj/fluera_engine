@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/fluera_localizations.dart';
 import 'toolbar_tokens.dart';
 
 // ============================================================================
@@ -101,7 +102,7 @@ class ToolbarPanModeButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.pan_tool_rounded,
       activeColor: ToolbarTokens.panActive,
-      tooltip: 'Pan Mode',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_panMode,
     );
   }
 }
@@ -128,7 +129,7 @@ class ToolbarStylusModeButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.edit_outlined,
       activeColor: primary,
-      tooltip: 'Stylus Only Mode',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_stylusOnlyMode,
     );
   }
 }
@@ -154,7 +155,7 @@ class ToolbarLassoButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.gesture_rounded,
       activeColor: ToolbarTokens.lassoActive,
-      tooltip: 'Lasso Selection',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_lassoSelection,
     );
   }
 }
@@ -180,7 +181,7 @@ class ToolbarRulerButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.straighten,
       activeColor: ToolbarTokens.rulerActive,
-      tooltip: 'Ruler',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_ruler,
     );
   }
 }
@@ -206,7 +207,7 @@ class ToolbarMinimapButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.map_outlined,
       activeColor: ToolbarTokens.minimapActive,
-      tooltip: 'Minimap',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_minimap,
     );
   }
 }
@@ -233,7 +234,7 @@ class ToolbarPenToolButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.timeline_rounded,
       activeColor: primary,
-      tooltip: 'Vector Pen Tool',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_vectorPen,
     );
   }
 }
@@ -259,7 +260,7 @@ class ToolbarDigitalTextButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.text_fields_rounded,
       activeColor: ToolbarTokens.textActive,
-      tooltip: 'Digital Text',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_digitalText,
     );
   }
 }
@@ -285,7 +286,7 @@ class ToolbarImagePickerButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.image_rounded,
       activeColor: ToolbarTokens.mediaActive,
-      tooltip: 'Insert Image',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_insertImage,
     );
   }
 }
@@ -311,7 +312,7 @@ class ToolbarLatexButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.functions_rounded,
       activeColor: ToolbarTokens.latexActive,
-      tooltip: 'LaTeX / Math Editor',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_latexMath,
     );
   }
 }
@@ -337,7 +338,7 @@ class ToolbarTabularButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.grid_on_rounded,
       activeColor: ToolbarTokens.lassoActive,
-      tooltip: 'Spreadsheet',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_spreadsheet,
     );
   }
 }
@@ -449,7 +450,7 @@ class ToolbarSectionButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.dashboard_outlined,
       activeColor: ToolbarTokens.sectionActive,
-      tooltip: 'Section / Artboard',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_sectionArtboard,
     );
   }
 }
@@ -475,7 +476,7 @@ class ToolbarSearchButton extends StatelessWidget {
       isDark: isDark,
       icon: Icons.search_rounded,
       activeColor: ToolbarTokens.searchActive,
-      tooltip: 'Search Handwriting',
+      tooltip: FlueraLocalizations.of(context)!.toolbarTool_searchHandwriting,
     );
   }
 }

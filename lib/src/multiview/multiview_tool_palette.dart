@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../l10n/fluera_localizations.dart';
 import '../tools/unified_tool_controller.dart';
 import '../drawing/models/pro_drawing_point.dart';
 
@@ -62,7 +63,7 @@ class MultiviewToolPalette extends StatelessWidget {
           // ── Tool Selector ─────────────────────────────────────────────
           _ToolButton(
             icon: Icons.edit_rounded,
-            tooltip: 'Pen',
+            tooltip: FlueraLocalizations.of(context)!.multiview_pen,
             isActive: toolController.isDrawingMode,
             onTap: () {
               HapticFeedback.selectionClick();
@@ -71,7 +72,7 @@ class MultiviewToolPalette extends StatelessWidget {
           ),
           _ToolButton(
             icon: Icons.auto_fix_high_rounded,
-            tooltip: 'Eraser',
+            tooltip: FlueraLocalizations.of(context)!.multiview_eraser,
             isActive: toolController.isEraserMode,
             onTap: () {
               HapticFeedback.selectionClick();
@@ -80,7 +81,7 @@ class MultiviewToolPalette extends StatelessWidget {
           ),
           _ToolButton(
             icon: Icons.pan_tool_rounded,
-            tooltip: 'Pan',
+            tooltip: FlueraLocalizations.of(context)!.multiview_pan,
             isActive: toolController.isPanMode,
             onTap: () {
               HapticFeedback.selectionClick();
@@ -101,7 +102,7 @@ class MultiviewToolPalette extends StatelessWidget {
           Expanded(child: _buildWidthSlider(cs)),
 
           // ── Brush Type ────────────────────────────────────────────────
-          _buildBrushDropdown(cs),
+          _buildBrushDropdown(context, cs),
         ],
       ),
     );
@@ -189,10 +190,10 @@ class MultiviewToolPalette extends StatelessWidget {
     );
   }
 
-  Widget _buildBrushDropdown(ColorScheme cs) {
+  Widget _buildBrushDropdown(BuildContext context, ColorScheme cs) {
     final currentType = toolController.penType;
     return PopupMenuButton<ProPenType>(
-      tooltip: 'Brush type',
+      tooltip: FlueraLocalizations.of(context)!.multiview_brushType,
       onSelected: (type) {
         HapticFeedback.selectionClick();
         toolController.setPenType(type);

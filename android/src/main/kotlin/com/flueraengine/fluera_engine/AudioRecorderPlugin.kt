@@ -2,7 +2,10 @@ package com.flueraengine.fluera_engine
 
 import android.app.Activity
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.NoiseSuppressor
@@ -58,6 +61,34 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
     private var echoCanceler: AcousticEchoCanceler? = null
     private var autoGainControl: AutomaticGainControl? = null
     private var captureThread: Thread? = null
+
+    // 🎤 V1.5 — AudioFocus + ForegroundService state.
+    // audioFocusRequest is the API 26+ object; on older platforms the
+    // legacy requestAudioFocus path is used and this stays null.
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var foregroundServiceStarted: Boolean = false
+
+    /** Pause/resume listener triggered by system-level audio focus changes
+     *  (incoming call, Google Assistant, alarm). On LOSS we pause the
+     *  recorder so the partial recording is preserved; on regain we stay
+     *  paused so the seek-stroke timeline remains deterministic — the
+     *  user resumes via the toolbar. Mirrors the iOS .began-only contract. */
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (isRecording && !isPaused) {
+                    isPaused = true
+                    pauseStartTime = System.currentTimeMillis()
+                    sendState("paused")
+                    Log.d("AudioRecorder", "🔕 AudioFocus lost (code=$focusChange) — paused")
+                }
+            }
+            else -> { /* no auto-resume */ }
+        }
+    }
     private var pcmTempFile: RandomAccessFile? = null
     private var pcmTempPath: String? = null
     private var pcmSampleCount: Long = 0
@@ -230,6 +261,14 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
                 }
             }
 
+            // 🎤 V1.5 — request audio focus + start foreground service so the
+            // OS keeps the mic alive when the app is minimized and pauses us
+            // on incoming calls. Both are fail-open: a missing/denied focus
+            // does not abort the recording (Phase 4 device test surfaces
+            // edge cases like Android-go without notification capability).
+            acquireAudioFocus()
+            startForegroundRecordingService()
+
             // Start recording
             recorder.startRecording()
             audioRecord = recorder
@@ -393,6 +432,12 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
             recordingStartTime = 0
             pausedDuration = 0
             pauseStartTime = 0
+
+            // 🎤 V1.5 — tear down the foreground service + audio focus so
+            // the persistent notification clears and the mic-focus stack is
+            // properly released back to the system.
+            stopForegroundRecordingService()
+            abandonAudioFocus()
 
             result.success(path)
         } catch (e: Exception) {
@@ -618,6 +663,12 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
         pcmTempPath = null
         releaseAudioEffects()
         stopUpdateTimer()
+        // 🎤 V1.5 — defensive cleanup. handleCancelRecording/handleStop
+        // call this on every exit path, so the foreground notification
+        // is guaranteed to clear even if the caller skipped the focused
+        // teardown above.
+        stopForegroundRecordingService()
+        abandonAudioFocus()
     }
 
     private fun releaseAudioEffects() {
@@ -627,6 +678,83 @@ class AudioRecorderPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Even
         noiseSuppressor = null
         echoCanceler = null
         autoGainControl = null
+    }
+
+    // =========================================================================
+    // 🎤 V1.5 — AudioFocus + ForegroundService helpers
+    // =========================================================================
+
+    /** Request audio focus so the OS notifies us (via [audioFocusListener])
+     *  when an incoming call / alarm / Assistant takes over. Fail-open: if
+     *  the request is denied we still start recording — focus is a courtesy
+     *  for interruption-aware pausing, not a precondition. */
+    private fun acquireAudioFocus() {
+        val ctx = context ?: return
+        val am = (audioManager
+            ?: ctx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager)
+            ?: return
+        audioManager = am
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener(audioFocusListener)
+                .setWillPauseWhenDucked(true)
+                .build()
+            audioFocusRequest = request
+            try { am.requestAudioFocus(request) } catch (_: Exception) { /* fail-open */ }
+        } else {
+            @Suppress("DEPRECATION")
+            try {
+                am.requestAudioFocus(
+                    audioFocusListener,
+                    AudioManager.STREAM_VOICE_CALL,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+                )
+            } catch (_: Exception) { /* fail-open */ }
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        val am = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest?.let {
+                try { am.abandonAudioFocusRequest(it) } catch (_: Exception) { }
+            }
+            audioFocusRequest = null
+        } else {
+            @Suppress("DEPRECATION")
+            try { am.abandonAudioFocus(audioFocusListener) } catch (_: Exception) { }
+        }
+    }
+
+    /** Start the foreground service so the OS keeps the mic alive when
+     *  the app moves to the background. Idempotent — repeated calls are
+     *  a no-op while [foregroundServiceStarted] is true. */
+    private fun startForegroundRecordingService() {
+        if (foregroundServiceStarted) return
+        val ctx = context ?: return
+        try {
+            AudioRecordingService.startServiceCompat(ctx)
+            foregroundServiceStarted = true
+        } catch (e: Exception) {
+            // Fail-open: missing permission or service mis-declared → log
+            // and continue. Recording works in foreground; background will
+            // get killed by Android 12+. Phase 4 device test surfaces this.
+            Log.w("AudioRecorder", "⚠️ Foreground service start failed: ${e.message}")
+        }
+    }
+
+    private fun stopForegroundRecordingService() {
+        if (!foregroundServiceStarted) return
+        val ctx = context ?: return
+        try {
+            AudioRecordingService.stopServiceCompat(ctx)
+        } catch (_: Exception) { }
+        foregroundServiceStarted = false
     }
 
     // =========================================================================

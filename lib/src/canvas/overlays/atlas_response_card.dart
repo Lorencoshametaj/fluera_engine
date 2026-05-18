@@ -846,7 +846,7 @@ class _AtlasResponseCardState extends State<AtlasResponseCard>
               child: Icon(Icons.auto_awesome_rounded, size: 10, color: ac.withValues(alpha: 0.85)),
             ),
             const SizedBox(width: 6),
-            Text('Risposta', style: TextStyle(
+            Text(FlueraLocalizations.of(context)!.atlasCard_answer, style: TextStyle(
               color: ac.withValues(alpha: 0.85), fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.2,
             )),
             const SizedBox(width: 4),

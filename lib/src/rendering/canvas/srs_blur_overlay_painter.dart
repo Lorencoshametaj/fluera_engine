@@ -105,7 +105,11 @@ class SrsBlurOverlayPainter extends CustomPainter {
     canvas.restore();
 
     // ── 2. Frosted tint overlay ──
-    final breathe = 0.85 + 0.15 * math.sin(animationTime * 2.0);
+    // Fix 6 (Fase 4): per-cluster phase shift so two due-for-review
+    // clusters in the same viewport don't breathe in sync. `% 628 / 100`
+    // → 0..6.28 rad ≈ 0..2π. Period stays at π (animationTime × 2.0).
+    final clusterPhase = (cluster.id.hashCode % 628) / 100.0;
+    final breathe = 0.85 + 0.15 * math.sin(animationTime * 2.0 + clusterPhase);
     final tintAlpha = (0.55 * breathe).clamp(0.0, 1.0);
 
     _p

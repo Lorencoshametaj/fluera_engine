@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/models/digital_text_element.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../reflow/knowledge_flow_controller.dart';
 import '../../services/handwriting_index_service.dart';
 
@@ -131,7 +132,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'Filtri di ricerca',
+                        FlueraLocalizations.of(ctx)!.hwSearch_filtersTitle,
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -143,44 +144,38 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                   const SizedBox(height: 12),
                   _FilterHelpRow(
                     icon: Icons.language_rounded,
-                    title: 'Tutte le pagine',
-                    body: 'Cerca in TUTTI i canvas del tuo gallery, non '
-                        'solo in questo. Quando è spento cerchi solo qui.',
+                    title: FlueraLocalizations.of(ctx)!.hwSearch_allPagesTitle,
+                    body: FlueraLocalizations.of(ctx)!.hwSearch_allPagesBody,
                     isDark: isDark,
                   ),
                   _FilterHelpRow(
                     label: 'Aa',
-                    title: 'Case sensitive',
-                    body: 'Distingue maiuscole e minuscole. "Roma" non '
-                        'corrisponde a "roma" quando è attivo.',
+                    title: FlueraLocalizations.of(ctx)!.hwSearch_caseSensitiveTitle,
+                    body: FlueraLocalizations.of(ctx)!.hwSearch_caseSensitiveBody,
                     isDark: isDark,
                   ),
                   _FilterHelpRow(
-                    label: 'Word',
-                    title: 'Parola intera',
-                    body: 'Trova solo parole intere. "art" non corrisponde '
-                        'a "carta" o "arte" quando è attivo.',
+                    label: FlueraLocalizations.of(ctx)!.hwSearch_wordLabel,
+                    title: FlueraLocalizations.of(ctx)!.hwSearch_wholeWordTitle,
+                    body: FlueraLocalizations.of(ctx)!.hwSearch_wholeWordBody,
                     isDark: isDark,
                   ),
                   _FilterHelpRow(
-                    label: 'Fuzzy',
-                    title: 'Ricerca tollerante ai typo',
-                    body: 'Trova parole anche con max 2 errori di battitura. '
-                        'Utile per la grafia veloce o presa di appunti.',
+                    label: FlueraLocalizations.of(ctx)!.hwSearch_fuzzyLabel,
+                    title: FlueraLocalizations.of(ctx)!.hwSearch_fuzzyTitle,
+                    body: FlueraLocalizations.of(ctx)!.hwSearch_fuzzyBody,
                     isDark: isDark,
                   ),
                   _FilterHelpRow(
                     label: '.*',
-                    title: 'Regex',
-                    body: 'Per utenti avanzati: usa pattern di espressioni '
-                        'regolari (es. "ca[sr]a" per casa o cara).',
+                    title: FlueraLocalizations.of(ctx)!.hwSearch_regexTitle,
+                    body: FlueraLocalizations.of(ctx)!.hwSearch_regexBody,
                     isDark: isDark,
                   ),
                   _FilterHelpRow(
                     icon: Icons.visibility_rounded,
-                    title: 'Solo area visibile',
-                    body: 'Cerca solo nell’area che vedi sullo schermo. '
-                        'Utile per restringere a una zona specifica.',
+                    title: FlueraLocalizations.of(ctx)!.hwSearch_visibleAreaTitle,
+                    body: FlueraLocalizations.of(ctx)!.hwSearch_visibleAreaBody,
                     isDark: isDark,
                   ),
                   const SizedBox(height: 8),
@@ -188,7 +183,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                     alignment: Alignment.centerRight,
                     child: TextButton(
                       onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Ho capito'),
+                      child: Text(FlueraLocalizations.of(ctx)!.hwSearch_gotIt),
                     ),
                   ),
                 ],
@@ -605,7 +600,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                   label: 'Aa',
                   isActive: _caseSensitive,
                   isDark: isDark,
-                  tooltip: 'Distingue maiuscole / minuscole',
+                  tooltip: FlueraLocalizations.of(context)!.hwSearch_caseSensitiveTooltip,
                   onTap: () {
                     setState(() => _caseSensitive = !_caseSensitive);
                     if (_controller.text.trim().isNotEmpty) _performSearch();
@@ -613,10 +608,10 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                 ),
                 const SizedBox(width: 4),
                 _buildToggleChip(
-                  label: 'Word',
+                  label: FlueraLocalizations.of(context)!.hwSearch_wordLabel,
                   isActive: _wholeWord,
                   isDark: isDark,
-                  tooltip: 'Solo parole intere',
+                  tooltip: FlueraLocalizations.of(context)!.hwSearch_wholeWordTooltip,
                   onTap: () {
                     setState(() => _wholeWord = !_wholeWord);
                     if (_controller.text.trim().isNotEmpty) _performSearch();
@@ -624,10 +619,10 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                 ),
                 const SizedBox(width: 4),
                 _buildToggleChip(
-                  label: 'Fuzzy',
+                  label: FlueraLocalizations.of(context)!.hwSearch_fuzzyLabel,
                   isActive: _fuzzy,
                   isDark: isDark,
-                  tooltip: 'Tollerante ai typo (≤2 errori)',
+                  tooltip: FlueraLocalizations.of(context)!.hwSearch_fuzzyTooltip,
                   onTap: () {
                     setState(() => _fuzzy = !_fuzzy);
                     if (_controller.text.trim().isNotEmpty) _performSearch();
@@ -635,10 +630,10 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                 ),
                 const SizedBox(width: 4),
                 _buildToggleChip(
-                  label: 'Regex',
+                  label: FlueraLocalizations.of(context)!.hwSearch_regexLabel,
                   isActive: _useRegex,
                   isDark: isDark,
-                  tooltip: 'Pattern regex (utenti avanzati)',
+                  tooltip: FlueraLocalizations.of(context)!.hwSearch_regexTooltip,
                   onTap: () {
                     setState(() => _useRegex = !_useRegex);
                     if (_controller.text.trim().isNotEmpty) _performSearch();
@@ -647,11 +642,11 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                 if (widget.getViewportRect != null) ...[
                   const SizedBox(width: 4),
                   _buildToggleChip(
-                    label: 'Visibile',
+                    label: FlueraLocalizations.of(context)!.hwSearch_visibleLabel,
                     icon: Icons.visibility_rounded,
                     isActive: _visibleAreaOnly,
                     isDark: isDark,
-                    tooltip: 'Solo l’area che vedi sullo schermo',
+                    tooltip: FlueraLocalizations.of(context)!.hwSearch_visibleTooltip,
                     onTap: () {
                       setState(() => _visibleAreaOnly = !_visibleAreaOnly);
                       if (_controller.text.trim().isNotEmpty) _performSearch();
@@ -716,7 +711,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                   ),
                   decoration: InputDecoration(
                     border: InputBorder.none,
-                    hintText: 'Search handwriting...',
+                    hintText: FlueraLocalizations.of(context)!.hwSearch_searchHint,
                     hintStyle: TextStyle(
                       color: isDark ? Colors.white30 : Colors.black26,
                       fontSize: 15,
@@ -793,7 +788,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
               // plain language (Italian).
               _NavButton(
                 icon: Icons.info_outline_rounded,
-                tooltip: 'Cosa fanno i filtri?',
+                tooltip: FlueraLocalizations.of(context)!.hwSearch_filtersHelpTooltip,
                 onTap: () => _showFiltersHelp(context, isDark),
                 isDark: isDark,
               ),
@@ -930,7 +925,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                         Clipboard.setData(ClipboardData(text: allText));
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Copied ${_results.length} results'),
+                            content: Text(FlueraLocalizations.of(context)!.hwSearch_copiedResults(_results.length)),
                             duration: const Duration(seconds: 2),
                             behavior: SnackBarBehavior.floating,
                           ),
@@ -1368,7 +1363,7 @@ class _HandwritingSearchOverlayState extends State<HandwritingSearchOverlay>
                   ),
                   decoration: InputDecoration(
                     border: InputBorder.none,
-                    hintText: 'Replace with...',
+                    hintText: FlueraLocalizations.of(context)!.hwSearch_replaceHint,
                     hintStyle: TextStyle(
                       color: isDark ? Colors.white24 : Colors.black26,
                       fontSize: 14,

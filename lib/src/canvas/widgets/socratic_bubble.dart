@@ -918,8 +918,8 @@ class _SocraticBubbleState extends State<SocraticBubble>
         Expanded(
           child: _modeButton(
             emoji: '💭',
-            label: 'Penso solo',
-            tooltip: 'Rifletto mentalmente, niente schizzo',
+            label: FlueraLocalizations.of(context)!.socraticBubble_thinkOnly,
+            tooltip: FlueraLocalizations.of(context)!.socraticBubble_reflectMentally,
             onTap: () {
               HapticFeedback.selectionClick();
               widget.onChooseTurnMode?.call(false);
@@ -930,8 +930,8 @@ class _SocraticBubbleState extends State<SocraticBubble>
         Expanded(
           child: _modeButton(
             emoji: '✏️',
-            label: 'Schizzo',
-            tooltip: 'Disegno un pensiero, AI continua',
+            label: FlueraLocalizations.of(context)!.socraticBubble_sketch,
+            tooltip: FlueraLocalizations.of(context)!.socraticBubble_sketchAndContinue,
             highlight: true,
             onTap: () {
               HapticFeedback.mediumImpact();

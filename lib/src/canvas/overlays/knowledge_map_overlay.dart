@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../reflow/content_cluster.dart';
 import '../../reflow/knowledge_connection.dart';
 import '../../reflow/knowledge_flow_controller.dart';
@@ -758,7 +759,7 @@ class _KnowledgeMapOverlayState extends State<KnowledgeMapOverlay>
                       onChanged: (v) => setState(() => _searchQuery = v),
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: InputDecoration(
-                        hintText: 'Search clusters...',
+                        hintText: FlueraLocalizations.of(context)!.knowledgeMap_searchClusters,
                         hintStyle: TextStyle(
                           color: Colors.white.withValues(alpha: 0.4),
                         ),

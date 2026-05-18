@@ -229,7 +229,8 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                     // 🧬 Surface Material
                     const SizedBox(height: 24),
                     _buildSectionHeader(
-                      'Surface Texture',
+                      FlueraLocalizations.of(context)!
+                          .canvasSettings_surfaceTexture,
                       Icons.texture_rounded,
                       colorScheme,
                       isDark,
@@ -246,7 +247,7 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                                 .isAvailable ??
                             false)) ...[
                       const SizedBox(height: 24),
-                      _buildProShaderToggle(isDark, colorScheme),
+                      _buildProShaderToggle(context, isDark, colorScheme),
                     ],
                     const SizedBox(height: 8),
                   ],
@@ -580,7 +581,8 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
   // PRO SHADER TOGGLE
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  Widget _buildProShaderToggle(bool isDark, ColorScheme colorScheme) {
+  Widget _buildProShaderToggle(
+      BuildContext context, bool isDark, ColorScheme colorScheme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -607,7 +609,8 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'GPU Shader Engine',
+                  FlueraLocalizations.of(context)!
+                      .canvasSettings_gpuShaderEngine,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -615,7 +618,8 @@ class _CanvasSettingsDialogState extends State<CanvasSettingsDialog> {
                   ),
                 ),
                 Text(
-                  'Active — per-pixel texture rendering',
+                  FlueraLocalizations.of(context)!
+                      .canvasSettings_gpuShaderActive,
                   style: TextStyle(
                     fontSize: 11,
                     color: isDark ? Colors.white38 : Colors.black38,

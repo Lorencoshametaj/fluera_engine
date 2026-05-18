@@ -52,6 +52,56 @@ import '../optimization/snapshot_cache_manager.dart';
 import '../optimization/optimization.dart';
 import '../shaders/adjustment_shader_service.dart';
 
+/// 🧊 B.2 decimation cache entry — pairs the decimated point list with
+/// the `points.length` it was built from, so we can detect when a live
+/// stroke has grown more samples and rebuild the list.
+class _DecimationEntry {
+  _DecimationEntry(this.length, this.points);
+  final int length;
+  final List<ProDrawingPoint> points;
+}
+
+/// 🧊 B.2: per-stroke memoization of decimated point lists, keyed by step
+/// (2..8). Lives in an Expando so entries are GC'd automatically when the
+/// owning ProStroke is dropped — no manual eviction or LRU bound needed.
+/// Step has only 7 discrete values, and zoom is usually stable between
+/// frames, so this gives a near-100% hit rate during static viewing of
+/// the same scene at the same scale.
+final Expando<Map<int, _DecimationEntry>> _strokeDecimationCache =
+    Expando<Map<int, _DecimationEntry>>('strokeDecimation');
+
+/// Returns the decimated copy of `stroke.points` for `step`, building it
+/// once and caching it per stroke. The result must be treated as
+/// read-only by the caller.
+List<ProDrawingPoint> _decimatedPointsCached(ProStroke stroke, int step) {
+  var byStep = _strokeDecimationCache[stroke];
+  if (byStep != null) {
+    final entry = byStep[step];
+    if (entry != null && entry.length == stroke.points.length) {
+      return entry.points;
+    }
+  } else {
+    byStep = <int, _DecimationEntry>{};
+    _strokeDecimationCache[stroke] = byStep;
+  }
+  final source = stroke.points;
+  final decimated = <ProDrawingPoint>[];
+  for (int i = 0; i < source.length; i += step) {
+    decimated.add(source[i]);
+  }
+  if (decimated.isEmpty || decimated.last != source.last) {
+    decimated.add(source.last);
+  }
+  byStep[step] = _DecimationEntry(source.length, decimated);
+  return decimated;
+}
+
+/// Test-only entry point for the B.2 decimation cache. The cached
+/// list is shared with the renderer, so callers must NOT mutate it.
+@visibleForTesting
+List<ProDrawingPoint> debugDecimatedPointsCached(ProStroke stroke, int step) =>
+    _decimatedPointsCached(stroke, step);
+
 /// Renders a [SceneGraph] by recursively traversing the node tree.
 ///
 /// Each node's `localTransform`, `opacity`, and `blendMode` are
@@ -494,18 +544,17 @@ class SceneGraphRenderer {
 
     // 🚀 RASTER LOD: decimate points at low zoom to reduce GPU path
     // complexity. Missing points are sub-pixel on screen → invisible.
+    //
+    // 🧊 B.2: decimated list memoized per (stroke identity, points length,
+    // step) via Expando. Step depends only on _currentScale (clamped to
+    // 7 discrete values), so at every paint we hit the cache for already-
+    // committed strokes — building the list is O(N) and was previously
+    // paid per paint per stroke. See plan: quando-si-muove-tra-structured-puzzle.md.
     var points = stroke.points;
     final isDecimated = _currentScale < 0.5 && points.length > 10;
     if (isDecimated) {
       final step = (1.0 / _currentScale).ceil().clamp(2, 8);
-      final decimated = <ProDrawingPoint>[];
-      for (int i = 0; i < points.length; i += step) {
-        decimated.add(points[i]);
-      }
-      if (decimated.last != points.last) {
-        decimated.add(points.last);
-      }
-      points = decimated;
+      points = _decimatedPointsCached(stroke, step);
     }
     BrushEngine.renderStroke(
       canvas,

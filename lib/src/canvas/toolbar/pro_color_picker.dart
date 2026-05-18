@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../config/color_manager.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../core/color/color_blindness_simulator.dart';
 import '../../core/color/color_palette_store.dart';
 import '../../utils/key_value_store.dart';
@@ -325,7 +326,7 @@ class _ProColorPickerState extends State<ProColorPicker>
             icon: Icons.visibility_rounded,
             isActive: _showCvdPreview,
             activeColor: cs.primary,
-            tooltip: 'Color blindness preview',
+            tooltip: FlueraLocalizations.of(context)!.proColor_colorBlindnessPreview,
             onTap: () => setState(() => _showCvdPreview = !_showCvdPreview),
           ),
 
@@ -333,7 +334,7 @@ class _ProColorPickerState extends State<ProColorPicker>
           if (widget.onEyedropperRequested != null)
             _TopBarAction(
               icon: Icons.colorize_rounded,
-              tooltip: 'Eyedropper',
+              tooltip: FlueraLocalizations.of(context)!.proColor_eyedropper,
               onTap: widget.onEyedropperRequested!,
             ),
         ],
@@ -912,7 +913,7 @@ class _ProColorPickerState extends State<ProColorPicker>
                         // Copy
                         IconButton(
                           icon: const Icon(Icons.copy_rounded, size: 16),
-                          tooltip: 'Copy hex',
+                          tooltip: FlueraLocalizations.of(context)!.proColor_copyHex,
                           onPressed: () {
                             Clipboard.setData(
                               ClipboardData(text: '#${_hexController.text}'),
@@ -931,7 +932,7 @@ class _ProColorPickerState extends State<ProColorPicker>
                             Icons.content_paste_rounded,
                             size: 16,
                           ),
-                          tooltip: 'Paste hex',
+                          tooltip: FlueraLocalizations.of(context)!.proColor_pasteHex,
                           onPressed: _pasteHex,
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(

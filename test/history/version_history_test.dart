@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fluera_engine/src/canvas/fluera_canvas_config.dart'
+    show FlueraSubscriptionTier;
 import 'package:fluera_engine/src/history/version_history.dart';
 
 void main() {
@@ -92,6 +94,104 @@ void main() {
       expect(restored.length, 1);
       expect(restored.entries.first.title, 'v1');
       expect(restored.entries.first.tags, contains('autosave'));
+    });
+  });
+
+  group('CheckpointLimits — tier policy', () {
+    test('Free tier is capped at 3', () {
+      expect(
+        CheckpointLimits.limitFor(FlueraSubscriptionTier.free),
+        equals(3),
+      );
+    });
+
+    test('Plus / Pro / Essential are unlimited (null)', () {
+      expect(
+        CheckpointLimits.limitFor(FlueraSubscriptionTier.plus),
+        isNull,
+      );
+      expect(
+        CheckpointLimits.limitFor(FlueraSubscriptionTier.pro),
+        isNull,
+      );
+      expect(
+        CheckpointLimits.limitFor(FlueraSubscriptionTier.essential),
+        isNull,
+      );
+    });
+  });
+
+  group('VersionHistory.createEntryGated — Free cap enforcement', () {
+    late VersionHistory history;
+
+    setUp(() => history = VersionHistory());
+
+    String addOne(FlueraSubscriptionTier tier, [String title = 'cp']) {
+      return history.createEntryGated(
+        tier: tier,
+        title: title,
+        authorId: 'tester',
+        data: {'snapshot': title},
+      );
+    }
+
+    test('Free user can create 3 checkpoints', () {
+      addOne(FlueraSubscriptionTier.free, 'a');
+      addOne(FlueraSubscriptionTier.free, 'b');
+      addOne(FlueraSubscriptionTier.free, 'c');
+      expect(history.length, 3);
+    });
+
+    test('Free user 4th save throws CheckpointLimitError', () {
+      addOne(FlueraSubscriptionTier.free, 'a');
+      addOne(FlueraSubscriptionTier.free, 'b');
+      addOne(FlueraSubscriptionTier.free, 'c');
+      expect(
+        () => addOne(FlueraSubscriptionTier.free, 'd'),
+        throwsA(isA<CheckpointLimitError>()),
+      );
+      expect(history.length, 3, reason: 'Failed save must not bump count');
+    });
+
+    test('CheckpointLimitError carries diagnostic data', () {
+      addOne(FlueraSubscriptionTier.free, 'a');
+      addOne(FlueraSubscriptionTier.free, 'b');
+      addOne(FlueraSubscriptionTier.free, 'c');
+      try {
+        addOne(FlueraSubscriptionTier.free, 'd');
+        fail('Expected CheckpointLimitError');
+      } on CheckpointLimitError catch (e) {
+        expect(e.tier, FlueraSubscriptionTier.free);
+        expect(e.currentCount, 3);
+        expect(e.limit, 3);
+      }
+    });
+
+    test('Plus user is unlimited', () {
+      for (var i = 0; i < 10; i++) {
+        addOne(FlueraSubscriptionTier.plus, 'cp$i');
+      }
+      expect(history.length, 10);
+    });
+
+    test('Pro user is unlimited', () {
+      for (var i = 0; i < 10; i++) {
+        addOne(FlueraSubscriptionTier.pro, 'cp$i');
+      }
+      expect(history.length, 10);
+    });
+
+    test('Archiving frees a slot for Free user', () {
+      final firstId =
+          addOne(FlueraSubscriptionTier.free, 'a');
+      addOne(FlueraSubscriptionTier.free, 'b');
+      addOne(FlueraSubscriptionTier.free, 'c');
+      // Free archive ≡ deleteEntry — frees a slot.
+      history.deleteEntry(firstId);
+      expect(history.length, 2);
+      // 4th save now succeeds.
+      addOne(FlueraSubscriptionTier.free, 'd');
+      expect(history.length, 3);
     });
   });
 }

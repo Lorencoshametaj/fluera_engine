@@ -128,6 +128,42 @@ class AiLanguagePreference {
   /// language (vs. falling back to device locale).
   static bool hasExplicitOverride() => _cached != null;
 
+  /// 🌍 Native-language instruction string for the given ISO code, written
+  /// IN the target language itself (e.g. for `'it'`: "RISPONDI ESCLUSIVAMENTE
+  /// IN ITALIANO. Non usare l'inglese."). Far more effective than an English
+  /// "REPLY ONLY IN Italian" because the model reads it in the target
+  /// language's own context — measurably reduces IT→EN drift on titles
+  /// (memory: `feedback_atlas_title_drift_pattern`).
+  ///
+  /// Returns an empty string for `'en'` (no enforcement needed when the
+  /// target is English) and for any unsupported code.
+  ///
+  /// Mirrors the local map in [`_atlas_ai.dart::_nativeLangInstruction`]
+  /// but exposed as a single-source-of-truth here so cleanOcr / title /
+  /// super-node-theme prompts can all share it. Add new languages here
+  /// once — every caller picks them up.
+  static String nativeLangInstruction(String code) {
+    const map = {
+      'it': "RISPONDI ESCLUSIVAMENTE IN ITALIANO. Non usare l'inglese.",
+      'es': 'RESPONDE EXCLUSIVAMENTE EN ESPAÑOL. No uses el inglés.',
+      'fr': "RÉPONDS EXCLUSIVEMENT EN FRANÇAIS. N'utilise pas l'anglais.",
+      'de': 'ANTWORTE AUSSCHLIESSLICH AUF DEUTSCH. Verwende kein Englisch.',
+      'pt': 'RESPONDA EXCLUSIVAMENTE EM PORTUGUÊS. Não use o inglês.',
+      'ja': '必ず日本語で回答してください。英語を使用しないでください。',
+      'ko': '반드시 한국어로만 답변하세요. 영어를 사용하지 마세요.',
+      'zh': '请仅用中文回答。不要使用英语。',
+      'hi': 'केवल हिन्दी में उत्तर दें। अंग्रेज़ी का प्रयोग न करें।',
+      'nl': 'ANTWOORD UITSLUITEND IN HET NEDERLANDS. Gebruik geen Engels.',
+      'ar': 'أجب باللغة العربية فقط. لا تستخدم الإنجليزية.',
+      'ru': 'ОТВЕЧАЙ ИСКЛЮЧИТЕЛЬНО НА РУССКОМ. Не используй английский.',
+      'pl': 'ODPOWIADAJ WYŁĄCZNIE PO POLSKU. Nie używaj angielskiego.',
+      'tr': 'YALNIZCA TÜRKÇE YANIT VER. İngilizce kullanma.',
+      'sv': 'SVARA UTESLUTANDE PÅ SVENSKA. Använd inte engelska.',
+      'en': '', // English device — no enforcement needed
+    };
+    return map[code] ?? '';
+  }
+
   /// Sets the user's preferred AI language. Pass `null` to clear the
   /// override (fall back to device locale). Persists to KeyValueStore.
   static Future<void> setPreferred(String? isoCode) async {

@@ -2444,6 +2444,33 @@ class SocraticController extends ChangeNotifier {
       // Session complete — no more questions.
     }
 
+    // 📊 Stage rotation telemetry — emitted on every successful advance
+    // so the beta dashboard can see the actual stage shape per session
+    // (counterfactual / elaboration / anchor / application) and how often
+    // adaptive skip-ahead fires.
+    if (justResolved != null &&
+        _session!.activeIndex < _session!.queue.length) {
+      final upcoming = _session!.queue[_session!.activeIndex];
+      _telemetry.logEvent('step_3_socratic_stage_rotation', properties: {
+        'from_stage': justResolved.stage?.name ?? 'null',
+        'to_stage': upcoming.stage?.name ?? 'null',
+        'cluster_id': upcoming.clusterId,
+        'adaptive_skip_used': _adaptiveSkipsUsed > 0,
+      });
+      // 🧠 Misconception encounter — distinct event so the misconception
+      // injection rate is queryable independent of session count.
+      if (upcoming.misconceptionId != null) {
+        _telemetry.logEvent(
+          'step_3_socratic_misconception_encountered',
+          properties: {
+            'misconception_id': upcoming.misconceptionId!,
+            'stage': upcoming.stage?.name ?? 'null',
+            'cluster_id': upcoming.clusterId,
+          },
+        );
+      }
+    }
+
     _bump();
     unawaited(_persistCheckpoint());
   }

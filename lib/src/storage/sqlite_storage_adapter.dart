@@ -44,7 +44,14 @@ import '../export/binary_canvas_format.dart';
 import 'save_isolate_service.dart';
 
 /// Schema version — increment when adding migrations.
-const int _kSchemaVersion = 18;
+/// v19 (2026-05-15): add `branch_id` TEXT column on `recordings` so audio
+///                   sessions can be filtered per branch (Audio↔Stroke Sync
+///                   V1.5). NULL on existing rows = "main branch" semantically.
+/// v20 (2026-05-15): add `audio_storage_url` + `strokes_storage_url` TEXT
+///                   columns on `recordings` so Phase 2 cloud audio sync can
+///                   persist the Supabase Storage path after upload. NULL =
+///                   recording is local-only (never uploaded or still pending).
+const int _kSchemaVersion = 20;
 
 /// Default viewport size used to compute a bookmark zoom that inscribes
 /// the former [SectionSummary] rectangle (v15 → v16 migration heuristic).
@@ -425,6 +432,38 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       // 🔄 v18: CRDT persistence tables for offline-first collaboration.
       await _createCrdtTables(db);
     }
+    if (oldVersion < 19) {
+      // 🎤 v19: branch-aware recordings. Existing rows have NULL branch_id
+      // which is interpreted as "main branch" by the loader. The composite
+      // index covers per-branch listing without forcing a full table scan.
+      try {
+        await db.execute('ALTER TABLE recordings ADD COLUMN branch_id TEXT');
+      } catch (_) {
+        // Column may already exist if the table was created with v19+ schema.
+      }
+      try {
+        await db.execute('''
+          CREATE INDEX IF NOT EXISTS idx_recordings_canvas_branch
+            ON recordings(canvas_id, branch_id)
+        ''');
+      } catch (_) {}
+    }
+    if (oldVersion < 20) {
+      // ☁️ v20: Phase 2 cloud audio sync. Storage URL columns let the
+      // adapter mark a recording as already uploaded so re-saves don't
+      // re-upload, and so a fresh device knows to download the file
+      // lazily on first tap-stroke. NULL = local-only / never uploaded.
+      try {
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN audio_storage_url TEXT',
+        );
+      } catch (_) {}
+      try {
+        await db.execute(
+          'ALTER TABLE recordings ADD COLUMN strokes_storage_url TEXT',
+        );
+      } catch (_) {}
+    }
   }
 
   /// v15 → v16: convert each SectionSummary in `sections_json` into a
@@ -489,6 +528,7 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
       CREATE TABLE IF NOT EXISTS recordings (
         id                TEXT PRIMARY KEY,
         canvas_id         TEXT NOT NULL,
+        branch_id         TEXT,
         audio_path        TEXT NOT NULL,
         note_title        TEXT,
         recording_type    TEXT,
@@ -498,6 +538,8 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
         transcription_text TEXT,
         transcription_language TEXT,
         transcription_segments_json TEXT,
+        audio_storage_url TEXT,
+        strokes_storage_url TEXT,
         created_at        INTEGER NOT NULL,
         FOREIGN KEY (canvas_id) REFERENCES canvases(canvas_id) ON DELETE CASCADE
       )
@@ -505,6 +547,12 @@ class SqliteStorageAdapter implements FlueraStorageAdapter {
 
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_recordings_canvas ON recordings(canvas_id)
+    ''');
+
+    // Composite index so per-branch listing is O(log n).
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_recordings_canvas_branch
+        ON recordings(canvas_id, branch_id)
     ''');
 
     await db.execute('''

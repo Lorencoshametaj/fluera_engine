@@ -111,7 +111,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                       _showRecordingQualitySettings();
                     },
                     icon: const Icon(Icons.tune, size: 16),
-                    label: const Text('Quality Settings'),
+                    label: Text(FlueraLocalizations.of(context)!
+                        .voice_qualitySettings),
                     style: TextButton.styleFrom(
                       textStyle: const TextStyle(fontSize: 12),
                     ),
@@ -122,7 +123,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   ElevatedButton.icon(
                     onPressed: () => Navigator.pop(context, 'with_strokes'),
                     icon: const Icon(Icons.brush_rounded),
-                    label: const Text('With Strokes'),
+                    label: Text(
+                        FlueraLocalizations.of(context)!.voice_withStrokes),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       foregroundColor: Theme.of(context).colorScheme.onPrimary,
@@ -142,7 +144,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                   OutlinedButton.icon(
                     onPressed: () => Navigator.pop(context, 'without_strokes'),
                     icon: const Icon(Icons.mic_none_rounded),
-                    label: const Text('Without Strokes'),
+                    label: Text(
+                        FlueraLocalizations.of(context)!.voice_withoutStrokes),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Theme.of(context).colorScheme.primary,
                       side: BorderSide(
@@ -300,6 +303,47 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
     // 🔧 FIX #2: Guard against double-tap
     if (_isRecordingAudio) return;
 
+    // 🎙️ V1 split (2026-05-14): tier + monthly quota check before opening
+    // the recorder. Free → blocked (no voice recording). Plus → 60 min/mese.
+    // Pro → unlimited.
+    final tierResult =
+        _tierGateController.checkFeature(GatedFeature.voiceRecording);
+    if (!tierResult.allowed) {
+      // Free tier hit: surface the upgrade affordance. The engine emits
+      // `tier_limit_hit` telemetry and the host's `onTierGateBlocked`
+      // callback shows the paywall banner.
+      widget.config.onTierGateBlocked?.call(context, tierResult);
+      return;
+    }
+
+    // Reserve an optimistic 30 min slot; commit the actual minutes on stop.
+    // The reservation amount serves only the pre-flight check — the user
+    // is charged for the REAL duration via `commit()`.
+    final quotaTracker = widget.config.voiceQuotaTracker;
+    String? reservationToken;
+    if (quotaTracker != null) {
+      try {
+        reservationToken =
+            await quotaTracker.reserve(estimateMinutes: 30);
+      } on VoiceQuotaExhaustedException catch (e) {
+        // Plus user hit the 60 min/mese cap. Show the upgrade banner with
+        // a Pro-pointing message.
+        debugPrint('🎙️ Voice quota exhausted: $e');
+        widget.config.onUpgradePrompt?.call(
+          context,
+          'Hai usato i tuoi 60 minuti di registrazione di questo mese. '
+          'Con Pro registri senza limiti. €11,99/mese.',
+        );
+        return;
+      } catch (e) {
+        // Network failure / RPC error: fail open (let the user record)
+        // rather than blocking on a transient issue. The reservation
+        // commit later will be a no-op without a token.
+        debugPrint('🎙️ Voice quota reserve failed (fail-open): $e');
+      }
+    }
+    _voiceReservationToken = reservationToken;
+
     final provider = _voiceRecordingProvider;
 
     try {
@@ -319,6 +363,14 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         );
         _syncRecordingBuilder!.setRecordingType('note');
       }
+      // 🌿 V1.5 — capture the active branch at recording start. We use a
+      // local field rather than threading it through the builder because
+      // (a) the builder constructor doesn't take a branchId yet and (b)
+      // [_switchToBranch] forces a stop on switch, so this value is
+      // guaranteed to match the branch under which all stroke samples
+      // will be recorded. Applied to [SynchronizedRecording.branchId] in
+      // [_stopAudioRecording] right before saveRecording().
+      _recordingBranchId = _activeBranchId;
 
       setState(() {
         _isRecordingAudio = true;
@@ -369,6 +421,44 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         });
       }
 
+      // 🎤 Phase 3 — quota watchdog. Every 60s during active recording
+      // refresh the backend snapshot and auto-stop if the user has run
+      // out of voice minutes (Plus 60/month cap, or Pro under a backend
+      // downgrade race). Pro unlimited skips immediately. No-op when the
+      // tracker isn't wired (default SDK build).
+      _voiceQuotaWatchdog?.cancel();
+      final quotaTracker = widget.config.voiceQuotaTracker;
+      if (quotaTracker != null) {
+        _voiceQuotaWatchdog = Timer.periodic(
+          const Duration(seconds: 60),
+          (_) async {
+            if (!_isRecordingAudio || !mounted) return;
+            try {
+              final snapshot = await quotaTracker.refresh();
+              if (snapshot == null || snapshot.isUnlimited) return;
+              if (snapshot.minutesRemaining > 0) return;
+              // Quota exhausted mid-session → auto-stop + notify.
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      FlueraLocalizations.of(context)!
+                          .audioSync_quotaReachedAutoStop,
+                    ),
+                    backgroundColor: Colors.red,
+                    duration: const Duration(seconds: 4),
+                  ),
+                );
+              }
+              await _stopAudioRecording();
+            } catch (_) {
+              // Fail-open — transient backend errors should not crash
+              // an in-progress recording. Next tick retries.
+            }
+          },
+        );
+      }
+
       // 🎤 Start live streaming transcription if enabled
       // Model is already downloaded (handled in dialog toggle)
       if (_liveTranscriptionEnabled && provider is DefaultVoiceRecordingProvider) {
@@ -401,10 +491,19 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       }
     } catch (e) {
       _syncRecordingBuilder = null;
+      // 🎙️ Recorder failed to start — refund the optimistic quota reservation
+      // so the user isn't charged for nothing.
+      final token = _voiceReservationToken;
+      _voiceReservationToken = null;
+      if (token != null) {
+        unawaited(widget.config.voiceQuotaTracker?.refund(token) ??
+            Future.value());
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error starting recording: $e'),
+            content: Text(FlueraLocalizations.of(context)!
+                .voice_errorStarting(e.toString())),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -433,6 +532,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
 
       _recordingDurationSubscription?.cancel();
       _recordingDurationSubscription = null;
+      _voiceQuotaWatchdog?.cancel();
+      _voiceQuotaWatchdog = null;
 
       // 🖊️ Extract pen contact intervals from synchronized recording builder
 
@@ -442,6 +543,27 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       // wait until user confirms save in the dialog.
       // The temp path is valid for the dialog preview/playback.
       final recordedDuration = _recordingDuration;
+
+      // 🎙️ V1 voice quota commit (2026-05-14): replace the optimistic
+      // reservation with the actual minutes recorded. Round up so 1 second
+      // of recording still costs 1 minute (matches user mental model + the
+      // 30 min reservation made at start). Refund if the user produced
+      // 0 seconds of audio (recorder no-op).
+      final reservationToken = _voiceReservationToken;
+      _voiceReservationToken = null;
+      final tracker = widget.config.voiceQuotaTracker;
+      if (reservationToken != null && tracker != null) {
+        final secs = recordedDuration.inSeconds;
+        if (secs <= 0) {
+          unawaited(tracker.refund(reservationToken));
+        } else {
+          final actualMinutes = (secs + 59) ~/ 60;
+          unawaited(tracker.commit(
+            reservationToken: reservationToken,
+            actualMinutes: actualMinutes,
+          ));
+        }
+      }
 
       // 🎵 Finalize synchronized recording builder
       SynchronizedRecording? syncRecording;
@@ -489,6 +611,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
         _recordingDuration = Duration.zero;
         _recordingWithStrokes = false; // Reset for next session
         _recordingStartTime = null; // 🔧 FIX #6: Prevent stale value leaking
+        // 🌿 V1.5 — clear branch capture so the next session re-reads the
+        // current branch fresh in [_startAudioRecording].
+        _recordingBranchId = null;
       });
 
       if (audioPath != null && mounted) {
@@ -560,17 +685,26 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
             }
           }
 
-          // 💾 Build the persistable recording (with name + canvasId)
+          // 💾 Build the persistable recording (with name + canvasId + branchId)
+          // 🌿 V1.5 — capture the branch context that was active when
+          // recording started (set in _startAudioRecording). [_switchToBranch]
+          // guarantees an auto-stop on branch change, so this value matches
+          // the branch where every stroke sample was recorded.
+          final capturedBranchId = _recordingBranchId;
           SynchronizedRecording? persistable;
           if (RecordingStorageService.instance.isInitialized) {
             persistable =
                 syncRecording != null
-                    ? syncRecording.copyWith(canvasId: _canvasId)
+                    ? syncRecording.copyWith(
+                        canvasId: _canvasId,
+                        branchId: capturedBranchId,
+                      )
                     : SynchronizedRecording.empty(
                       id: generateUid(),
                       audioPath: audioPath!,
                       startTime: capturedStartTime,
                       canvasId: _canvasId,
+                      branchId: capturedBranchId,
                       noteTitle: recordingName,
                       recordingType: 'audio_only',
                     );
@@ -590,7 +724,36 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
             try {
               await RecordingStorageService.instance.saveRecording(persistable);
 
-              // ☁️ Upload audio file to cloud for cross-device access
+              // ☁️ Phase 2 cloud audio sync — fire-and-forget upload to
+              // Supabase Storage so the file is accessible from other
+              // devices. If audioStorageUrl is already set (re-save of a
+              // previously uploaded recording) we skip. Failure is silent:
+              // next session retries (the local file stays on disk).
+              final recForUpload = persistable;
+              final cloudSync = widget.config.recordingCloudSync;
+              if (cloudSync != null && recForUpload.audioStorageUrl == null) {
+                unawaited(() async {
+                  try {
+                    final url = await cloudSync.uploadRecording(recForUpload);
+                    if (url == null) return;
+                    // Persist the URL so future opens / re-saves know the
+                    // file is already uploaded (skip re-upload, enable
+                    // lazy download on other devices).
+                    final patched =
+                        recForUpload.copyWith(audioStorageUrl: url);
+                    if (RecordingStorageService.instance.isInitialized) {
+                      await RecordingStorageService.instance
+                          .saveRecording(patched);
+                    }
+                  } catch (_) {
+                    // Fail-open — retry on next canvas open
+                  }
+                }());
+              }
+
+              // ☁️ Collab CRDT broadcast (separate pipeline — shares audio
+              // bytes with active collaborators in real-time, distinct from
+              // the per-user Supabase Storage cloud sync above).
               if (_syncEngine != null) {
                 try {
                   // 🚦 #7 Rate limiting — debounce rapid recording broadcasts
@@ -874,7 +1037,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error stopping recording: $e'),
+            content: Text(FlueraLocalizations.of(context)!
+                .voice_errorStopping(e.toString())),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -917,11 +1081,12 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
-                title: const Row(
+                title: Row(
                   children: [
-                    Icon(Icons.check_circle, color: Colors.green),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Recording Complete')),
+                    const Icon(Icons.check_circle, color: Colors.green),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(FlueraLocalizations.of(context)!
+                        .voice_recordingComplete)),
                   ],
                 ),
                 content: Column(
@@ -937,8 +1102,8 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                     TextField(
                       controller: nameController,
                       decoration: InputDecoration(
-                        labelText: 'Recording name',
-                        hintText: 'Enter name',
+                        labelText: FlueraLocalizations.of(context)!.voiceRecording_recordingName,
+                        hintText: FlueraLocalizations.of(context)!.voiceRecording_enterName,
                         prefixIcon: const Icon(Icons.edit),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1004,9 +1169,10 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
     _resetRecordingsBadge();
     if (_savedRecordings.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No recordings saved for this canvas'),
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Text(
+              FlueraLocalizations.of(context)!.voice_noRecordingsSaved),
+          duration: const Duration(seconds: 2),
         ),
       );
       return;
@@ -1112,7 +1278,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                               Icons.more_vert_rounded,
                               color: cs.onSurfaceVariant,
                             ),
-                            tooltip: 'Options',
+                            tooltip: FlueraLocalizations.of(context)!.voiceRecording_options,
                             onSelected: (value) async {
                               if (value.startsWith('sort_')) {
                                 final idx = int.parse(value.split('_')[1]);
@@ -1250,7 +1416,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                       child: TextField(
                         decoration: InputDecoration(
-                          hintText: 'Search recordings...',
+                          hintText: FlueraLocalizations.of(context)!.voiceRecording_searchRecordings,
                           prefixIcon: const Icon(
                             Icons.search_rounded,
                             size: 20,
@@ -1500,10 +1666,10 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                                                     controller: controller,
                                                     autofocus: true,
                                                     decoration:
-                                                        const InputDecoration(
-                                                          labelText: 'Name',
+                                                        InputDecoration(
+                                                          labelText: FlueraLocalizations.of(context)!.voiceRecording_name,
                                                           border:
-                                                              OutlineInputBorder(),
+                                                              const OutlineInputBorder(),
                                                         ),
                                                     onSubmitted: (value) {
                                                       if (value
@@ -2359,7 +2525,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                           );
                         },
                         icon: const Icon(Icons.copy_rounded),
-                        tooltip: 'Copy text',
+                        tooltip: FlueraLocalizations.of(context)!.voiceRecording_copyText,
                         style: IconButton.styleFrom(
                           foregroundColor: cs.onSurfaceVariant,
                         ),
@@ -2390,7 +2556,7 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
                           );
                         },
                         icon: const Icon(Icons.refresh_rounded),
-                        tooltip: 'Re-transcribe',
+                        tooltip: FlueraLocalizations.of(context)!.voiceRecording_reTranscribe,
                         style: IconButton.styleFrom(
                           foregroundColor: cs.onSurfaceVariant,
                         ),
@@ -2949,13 +3115,64 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
     // Stop any existing playback
     _stopAudioPlayback();
 
+    // ☁️ Phase 2 — if this is a recording opened on a fresh device, the
+    // local audio_path file may not exist but audioStorageUrl is set.
+    // Lazily download from Supabase before binding the playback engine
+    // so AudioPlayer.setFilePath doesn't fail with FileNotFoundException.
+    var effectiveRecording = recording;
+    final cloudSync = widget.config.recordingCloudSync;
+    if (cloudSync != null &&
+        recording.audioStorageUrl != null &&
+        recording.audioPath.isNotEmpty) {
+      try {
+        final localExists = await File(recording.audioPath).exists();
+        if (!localExists) {
+          final downloadedPath = await cloudSync.downloadRecording(recording);
+          if (downloadedPath != null) {
+            effectiveRecording =
+                recording.copyWith(audioPath: downloadedPath);
+            // Patch the SQLite row so subsequent opens skip the download.
+            if (RecordingStorageService.instance.isInitialized) {
+              try {
+                await RecordingStorageService.instance
+                    .saveRecording(effectiveRecording);
+              } catch (_) {}
+            }
+          } else if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(FlueraLocalizations.of(context)!
+                    .audioSync_downloadFailedOffline),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+            // Fall through — let the playback engine fail on the missing
+            // file path instead of aborting silently. The UX surface
+            // ("file not found" snackbar) is clearer than a silent no-op.
+          }
+        }
+      } catch (_) {
+        // Fail-open: continue to bind; the playback engine surfaces the
+        // missing-file error path on its own.
+      }
+    }
+
     try {
       // Create or reuse playback controller
       _playbackController?.dispose();
       _playbackController = SynchronizedPlaybackController();
 
       // Load the recording into the controller
-      await _playbackController!.loadRecording(recording);
+      await _playbackController!.loadRecording(effectiveRecording);
+
+      // 🎤 Audio↔Stroke Sync — bind a fresh sync controller so taps on
+      // strokes during playback seek the audio to that moment. Disposed
+      // in [_stopSyncedPlayback] / canvas dispose.
+      _audioInkSyncController?.dispose();
+      _audioInkSyncController = AudioInkSyncController(
+        playbackController: _playbackController!,
+      );
+      _audioInkSyncController!.bindRecording(effectiveRecording);
 
       setState(() {
         _isPlayingSyncedRecording = true;
@@ -2973,6 +3190,9 @@ extension VoiceRecordingExtension on _FlueraCanvasScreenState {
   void _stopSyncedPlayback() {
     _playbackController?.stop();
     _playbackController?.unload();
+    _audioInkSyncController?.unbindRecording();
+    _audioInkSyncController?.dispose();
+    _audioInkSyncController = null;
     _playbackCompletedSubs[hashCode]?.cancel();
     _playbackCompletedSubs.remove(hashCode);
     setState(() {

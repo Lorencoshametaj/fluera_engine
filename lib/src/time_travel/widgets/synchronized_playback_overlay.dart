@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as dart_ui;
 import 'package:flutter/material.dart';
 import '../../drawing/models/pro_drawing_point.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../controllers/synchronized_playback_controller.dart';
 import '../../drawing/brushes/brushes.dart';
 
@@ -945,7 +946,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                         IconButton(
                           icon: const Icon(Icons.replay, color: Colors.white70),
                           onPressed: () => widget.controller.restart(),
-                          tooltip: 'Riavvia',
+                          tooltip: FlueraLocalizations.of(context)!.syncPlayback_restart,
                         ),
 
                         // Play/pause button (Main)
@@ -974,7 +975,7 @@ class _PlaybackControlsBarState extends State<_PlaybackControlsBar> {
                         IconButton(
                           icon: const Icon(Icons.stop, color: Colors.white70),
                           onPressed: () => widget.controller.stop(),
-                          tooltip: 'Stop',
+                          tooltip: FlueraLocalizations.of(context)!.syncPlayback_stop,
                         ),
 
                         // 🏎️ Speed control

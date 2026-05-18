@@ -2,6 +2,7 @@ library variable_manager_panel;
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../systems/design_variables.dart';
 import '../../systems/variable_binding.dart';
 import '../../systems/variable_resolver.dart';
@@ -195,20 +196,20 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
           if (_activeCollection != null)
             _IconBtn(
               icon: Icons.upload_rounded,
-              tooltip: 'Import W3C Tokens',
+              tooltip: FlueraLocalizations.of(context)!.varManager_importW3CTokens,
               onTap: _handleImportTokens,
               cs: cs,
             ),
           if (_activeCollection != null)
             _IconBtn(
               icon: Icons.download_rounded,
-              tooltip: 'Export W3C Tokens',
+              tooltip: FlueraLocalizations.of(context)!.varManager_exportW3CTokens,
               onTap: _handleExportTokens,
               cs: cs,
             ),
           _IconBtn(
             icon: Icons.close_rounded,
-            tooltip: 'Close',
+            tooltip: FlueraLocalizations.of(context)!.varManager_close,
             onTap: widget.onClose,
             cs: cs,
           ),
@@ -258,7 +259,7 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
           const SizedBox(width: 6),
           _IconBtn(
             icon: Icons.add_rounded,
-            tooltip: 'New Collection',
+            tooltip: FlueraLocalizations.of(context)!.varManager_newCollection,
             onTap: () => _showAddCollectionDialog(cs),
             cs: cs,
           ),
@@ -320,7 +321,7 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
         onChanged: (v) => setState(() => _searchQuery = v),
         style: TextStyle(fontSize: 12, color: cs.onSurface),
         decoration: InputDecoration(
-          hintText: 'Search variables…',
+          hintText: FlueraLocalizations.of(context)!.varManager_searchVariables,
           hintStyle: TextStyle(
             fontSize: 12,
             color: cs.onSurface.withValues(alpha: 0.4),
@@ -360,7 +361,9 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
       return Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          _searchQuery.isEmpty ? 'No variables yet' : 'No results',
+          _searchQuery.isEmpty
+              ? FlueraLocalizations.of(context)!.varManager_noVariables
+              : FlueraLocalizations.of(context)!.varManager_noResults,
           style: TextStyle(
             fontSize: 12,
             color: cs.onSurface.withValues(alpha: 0.4),
@@ -557,7 +560,7 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
           // Delete
           _IconBtn(
             icon: Icons.delete_outline,
-            tooltip: 'Remove',
+            tooltip: FlueraLocalizations.of(context)!.varManager_remove,
             size: 14,
             onTap: () => widget.onRemoveVariable?.call(collection.id, v.id),
             cs: cs,
@@ -583,7 +586,7 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
           ),
           const SizedBox(height: 12),
           Text(
-            'No variable collections',
+            FlueraLocalizations.of(context)!.varManager_noCollections,
             style: TextStyle(
               fontSize: 13,
               color: cs.onSurface.withValues(alpha: 0.4),
@@ -662,7 +665,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -697,7 +701,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -735,16 +740,16 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                       TextField(
                         controller: nameController,
                         autofocus: true,
-                        decoration: const InputDecoration(
-                          hintText: 'Variable name',
+                        decoration: InputDecoration(
+                          hintText: FlueraLocalizations.of(context)!.varManager_variableName,
                           isDense: true,
                         ),
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: groupController,
-                        decoration: const InputDecoration(
-                          hintText: 'Group (e.g. colors/primary)',
+                        decoration: InputDecoration(
+                          hintText: FlueraLocalizations.of(context)!.varManager_groupHint,
                           isDense: true,
                         ),
                       ),
@@ -772,7 +777,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
+                      child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
                     ),
                     FilledButton(
                       onPressed: () {
@@ -853,9 +859,9 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                 expands: true,
                 autofocus: true,
                 style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                decoration: const InputDecoration(
-                  hintText: 'Paste W3C DTCG JSON here…',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: FlueraLocalizations.of(context)!.varManager_pasteW3CHint,
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
               ),
@@ -863,7 +869,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -1029,7 +1036,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
+                      child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
                     ),
                     FilledButton(
                       onPressed: () {
@@ -1083,7 +1091,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
               ),
               FilledButton(
                 onPressed: () {
@@ -1136,7 +1145,8 @@ class _VariableManagerPanelState extends State<VariableManagerPanel> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child:
+                    Text(FlueraLocalizations.of(context)!.varManager_cancel),
               ),
               FilledButton(
                 onPressed: () {

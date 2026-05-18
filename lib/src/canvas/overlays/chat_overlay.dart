@@ -282,9 +282,9 @@ class _ChatOverlayState extends State<ChatOverlay>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Chat',
-                style: TextStyle(
+              Text(
+                FlueraLocalizations.of(context)!.chatOverlay_header,
+                style: const TextStyle(
                   color: Colors.white,
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -323,7 +323,9 @@ class _ChatOverlayState extends State<ChatOverlay>
             HapticFeedback.selectionClick();
             setState(() => _showHistory = !_showHistory);
           },
-          tooltip: _showHistory ? 'Torna alla chat' : 'Cronologia',
+          tooltip: _showHistory
+              ? FlueraLocalizations.of(context)!.chatOverlay_tooltipBackToChat
+              : FlueraLocalizations.of(context)!.chatOverlay_tooltipHistory,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
         ),
@@ -339,7 +341,7 @@ class _ChatOverlayState extends State<ChatOverlay>
             _cachedSuggestionsForMsgId = null;
             setState(() => _showHistory = false);
           },
-          tooltip: 'New chat',
+          tooltip: FlueraLocalizations.of(context)!.chatOverlay_tooltipNewChat,
           padding: EdgeInsets.zero,
           constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
         ),
@@ -1151,10 +1153,11 @@ class _ChatOverlayState extends State<ChatOverlay>
 
   void _showRouterUnavailable() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Questa azione non è disponibile in questo contesto.'),
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+          FlueraLocalizations.of(context)!.chatOverlay_unavailableAction),
       behavior: SnackBarBehavior.floating,
-      backgroundColor: Color(0xFF1A1A2E),
+      backgroundColor: const Color(0xFF1A1A2E),
       duration: Duration(seconds: 2),
     ));
   }
@@ -1402,7 +1405,7 @@ class _ChatOverlayState extends State<ChatOverlay>
                     color: Colors.white.withValues(alpha: 0.35)),
                 const SizedBox(height: 10),
                 Text(
-                  'Impossibile caricare la cronologia',
+                  FlueraLocalizations.of(context)!.chatOverlay_historyLoadError,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.75),
                     fontSize: 13,
@@ -1413,7 +1416,8 @@ class _ChatOverlayState extends State<ChatOverlay>
                 TextButton.icon(
                   onPressed: () => setState(() {}),
                   icon: Icon(Icons.refresh_rounded, size: 16, color: _cyan),
-                  label: Text('Riprova',
+                  label: Text(
+                      FlueraLocalizations.of(context)!.chatOverlay_retry,
                       style: TextStyle(color: _cyan, fontSize: 12)),
                 ),
               ]),
@@ -1428,7 +1432,7 @@ class _ChatOverlayState extends State<ChatOverlay>
                     color: Colors.white.withValues(alpha: 0.15)),
                 const SizedBox(height: 12),
                 Text(
-                  'Nessuna conversazione salvata',
+                  FlueraLocalizations.of(context)!.chatOverlay_historyEmpty,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.65),
                     fontSize: 14,
@@ -1523,7 +1527,9 @@ class _ChatOverlayState extends State<ChatOverlay>
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final diff = now.difference(date);
-    if (diff.inMinutes < 5) return 'Adesso';
+    if (diff.inMinutes < 5) {
+      return FlueraLocalizations.of(context)!.chatOverlay_timeNow;
+    }
     if (diff.inHours < 1) return '${diff.inMinutes} min fa';
     if (diff.inHours < 24) return '${diff.inHours}h fa';
     if (diff.inDays < 7) return '${diff.inDays}g fa';

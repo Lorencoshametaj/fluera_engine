@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 
 /// 📊 Formula Reference Sheet — enterprise-grade function reference.
 ///
@@ -383,7 +384,7 @@ class _FormulaReferenceSheetState extends State<FormulaReferenceSheet> {
           child: TextField(
             onChanged: (v) => setState(() => _searchQuery = v),
             decoration: InputDecoration(
-              hintText: 'Search functions…',
+              hintText: FlueraLocalizations.of(context)!.formulaRef_searchFunctions,
               prefixIcon: const Icon(Icons.search_rounded, size: 20),
               filled: true,
               fillColor:

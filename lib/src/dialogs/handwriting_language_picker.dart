@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../l10n/fluera_localizations.dart';
 import '../services/digital_ink_service.dart';
 
 /// ✍️ Language picker bottom sheet for Digital Ink Recognition.
@@ -140,7 +141,8 @@ class _HandwritingLanguagePickerState extends State<HandwritingLanguagePicker> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Handwriting Languages',
+                            FlueraLocalizations.of(context)!
+                                .handwritingPicker_title,
                             style: TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.w700,
@@ -149,7 +151,8 @@ class _HandwritingLanguagePickerState extends State<HandwritingLanguagePicker> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Download models for offline recognition (~15 MB each)',
+                            FlueraLocalizations.of(context)!
+                                .handwritingPicker_subtitle,
                             style: TextStyle(
                               fontSize: 12,
                               color: isDark ? Colors.white38 : Colors.black38,
@@ -299,9 +302,9 @@ class _LanguageTile extends StatelessWidget {
                   color: Colors.deepPurple.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  'Active',
-                  style: TextStyle(
+                child: Text(
+                  FlueraLocalizations.of(context)!.handwritingPicker_active,
+                  style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                     color: Colors.deepPurple,
@@ -324,9 +327,9 @@ class _LanguageTile extends StatelessWidget {
                       color: Colors.deepPurple.withValues(alpha: 0.3),
                     ),
                   ),
-                  child: const Text(
-                    'Use',
-                    style: TextStyle(
+                  child: Text(
+                    FlueraLocalizations.of(context)!.handwritingPicker_use,
+                    style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                       color: Colors.deepPurple,
@@ -370,7 +373,8 @@ class _LanguageTile extends StatelessWidget {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        '~15 MB',
+                        FlueraLocalizations.of(context)!
+                            .handwritingPicker_modelSize,
                         style: TextStyle(
                           fontSize: 11,
                           color: isDark ? Colors.white38 : Colors.black45,

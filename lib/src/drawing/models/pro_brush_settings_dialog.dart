@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../l10n/fluera_localizations.dart';
 import './pressure_curve.dart';
 import './pro_drawing_point.dart';
 import './pro_brush_settings.dart';

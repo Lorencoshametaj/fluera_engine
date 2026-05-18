@@ -608,9 +608,21 @@ extension on _FlueraCanvasScreenState {
         }
 
         // ☁️ Download images/PDFs that are in cloud but missing locally
-        // (runs in background — non-blocking)
-        downloadMissingAssets();
-        _cleanOrphanedCloudAssets(); // 🧹 Reclaim orphaned cloud storage
+        // (runs in background — non-blocking).
+        //
+        // 🚀 Z.2: schedule at Priority.idle so the HTTP setup + JSON parse +
+        // Supabase round-trip don't compete for main isolate cycles during
+        // the cold-start warm-up window (next 1-2s). Idle priority means
+        // these run only when no higher-priority frame work is pending —
+        // exactly the right behavior for "fire-and-forget" background work.
+        SchedulerBinding.instance.scheduleTask(
+          () => downloadMissingAssets(),
+          Priority.idle,
+        );
+        SchedulerBinding.instance.scheduleTask(
+          () => _cleanOrphanedCloudAssets(),
+          Priority.idle,
+        );
       }
     } catch (e, st) {
       debugPrint('❌ _loadCanvasData EXCEPTION: $e\n$st');
@@ -645,6 +657,26 @@ extension on _FlueraCanvasScreenState {
         _layerController.sceneGraph.bumpVersion();
         setState(() {}); // Rebuild widget tree with loaded data
         _canvasController.markNeedsPaint(); // Direct repaint signal
+
+        // 🚀 Z.1: ACTIVE TILE PRE-WARM during the warm-up phase.
+        // Without this, the 3 frame yields below are passive — they let the
+        // rendering pipeline "do its thing" but don't actively guide WHICH
+        // tiles to build. Result: the first frame AFTER the fade-out still
+        // pays 100-300ms of tile rebuild on canvases with many strokes.
+        // We explicitly queue the tier-2 bakes and force an extra repaint
+        // pass so the pipeline starts working on the right tiles before the
+        // first yield boundary. Reuses [preWarmNextTier] from Block A.2.
+        // See plan: quando-si-muove-tra-structured-puzzle.md.
+        if (mounted) {
+          final viewport = _canvasController.worldViewportAABB(
+            MediaQuery.sizeOf(context),
+          );
+          if (!viewport.isEmpty) {
+            final currentTier =
+                DrawingPainter.computeLodTier(_canvasController.scale);
+            DrawingPainter.preWarmNextTier(currentTier, viewport);
+          }
+        }
 
         // Wait 3 frames for cold caches to warm up behind the overlay.
         // Frame 1: R-tree build + RenderPlan compilation

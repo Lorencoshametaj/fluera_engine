@@ -104,9 +104,10 @@ extension FlueraCanvasLatexRecognitionHandler on _FlueraCanvasScreenState {
 
       if (result.latexString.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Nessuna formula riconosciuta'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(
+                FlueraLocalizations.of(context)!.latexRec_noFormula),
+            duration: const Duration(seconds: 2),
           ),
         );
         return;
@@ -266,11 +267,11 @@ class _LatexRecognitionDialogState extends State<_LatexRecognitionDialog> {
     final cs = Theme.of(context).colorScheme;
 
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.functions_rounded, size: 24),
-          SizedBox(width: 8),
-          Text('Formula riconosciuta'),
+          const Icon(Icons.functions_rounded, size: 24),
+          const SizedBox(width: 8),
+          Text(FlueraLocalizations.of(context)!.latexRec_formulaRecognized),
         ],
       ),
       content: SizedBox(
@@ -352,11 +353,11 @@ class _LatexRecognitionDialogState extends State<_LatexRecognitionDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Annulla'),
+          child: Text(FlueraLocalizations.of(context)!.latexRec_cancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Conferma'),
+          child: Text(FlueraLocalizations.of(context)!.latexRec_confirm),
         ),
       ],
     );

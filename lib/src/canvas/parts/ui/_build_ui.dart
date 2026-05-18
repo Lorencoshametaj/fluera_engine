@@ -393,6 +393,30 @@ extension on _FlueraCanvasScreenState {
                                 ),
                               ),
 
+                              // 🌍 Navigation: Mappamondo button (bottom-left, above zoom indicator)
+                              // §22 + §1098: one-tap satellite view of the Memory Palace.
+                              Positioned(
+                                bottom: 76,
+                                left: 16,
+                                child: _MappamondoButton(
+                                  tooltip: _l10n.toolbarTool_worldViewTooltip,
+                                  onPressed: () {
+                                    HapticFeedback.mediumImpact();
+                                    // 🌍 Fase 5 fix: was `fitAllContent` which
+                                    // with little content landed at scale ~0.51
+                                    // — not the "vista satellite" the button
+                                    // promised. `mappamondoView` clamps to
+                                    // godViewStartScale (0.16) so it always
+                                    // ends up at a true mappamondo zoom.
+                                    CameraActions.mappamondoView(
+                                      _canvasController,
+                                      _layerController.sceneGraph,
+                                      MediaQuery.of(context).size,
+                                    );
+                                  },
+                                ),
+                              ),
+
                               // 🔍 Navigation: Zoom Level Indicator (bottom-left)
                               Positioned(
                                 bottom: 16,
@@ -1124,14 +1148,14 @@ extension on _FlueraCanvasScreenState {
                               ),
                             ],
                           ),
-                          child: const Center(
+                          child: Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text('🙈', style: TextStyle(fontSize: 28)),
-                                SizedBox(height: 4),
-                                Text('Tap per rivelare',
-                                  style: TextStyle(
+                                const Text('🙈', style: TextStyle(fontSize: 28)),
+                                const SizedBox(height: 4),
+                                Text(FlueraLocalizations.of(context)!.buildUi_tapToReveal,
+                                  style: const TextStyle(
                                     color: Color(0xFFF48FB1),
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
@@ -1694,8 +1718,29 @@ extension on _FlueraCanvasScreenState {
                   engine: _timeTravelEngine!,
                   onExit: _exitTimeTravelMode,
                   onExportRequested: _exportTimelapse,
-                  onNewBranch: _createBranchFromCurrentPosition,
-                  onBranchExplorer: _openBranchExplorer,
+                  // 📍 Checkpoint actions — visible to ALL tiers (counter cap
+                  // for Free is enforced at save-time in VersionHistory).
+                  onSaveCheckpoint: () async {
+                    // Default checkpoint name = timestamp HH:MM
+                    final now = DateTime.now();
+                    final defaultTitle =
+                        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+                    await _saveCheckpointWithName(defaultTitle);
+                  },
+                  onViewCheckpoints: _openCheckpointPanel,
+                  // 🌿 Alternative actions — Pro-gated upstream in toolbar
+                  // wiring; these callbacks are only invoked if the menu items
+                  // were rendered (visibility is decided by null-check).
+                  onNewBranch:
+                      (V1FeatureGate.timeTravel &&
+                              _subscriptionTier == FlueraSubscriptionTier.pro)
+                          ? _createBranchFromCurrentPosition
+                          : null,
+                  onBranchExplorer:
+                      (V1FeatureGate.timeTravel &&
+                              _subscriptionTier == FlueraSubscriptionTier.pro)
+                          ? _openBranchExplorer
+                          : null,
                   onRecoverRequested: () {
                     // Recover current state elements into the present
                     final layers = _timeTravelEngine!.currentLayers;
@@ -1860,7 +1905,7 @@ extension on _FlueraCanvasScreenState {
                   if (_exportClusters.length > 1) ...[
                     IconButton(
                       icon: const Icon(Icons.chevron_left, color: Colors.white, size: 18),
-                      tooltip: 'Cluster Prec.',
+                      tooltip: FlueraLocalizations.of(context)!.buildUi_clusterPrev,
                       onPressed: _prevExportCluster,
                       padding: const EdgeInsets.all(6),
                       constraints: const BoxConstraints(),
@@ -1889,7 +1934,7 @@ extension on _FlueraCanvasScreenState {
                     ),
                     IconButton(
                       icon: const Icon(Icons.chevron_right, color: Colors.white, size: 18),
-                      tooltip: 'Cluster Succ.',
+                      tooltip: FlueraLocalizations.of(context)!.buildUi_clusterNext,
                       onPressed: _nextExportCluster,
                       padding: const EdgeInsets.all(6),
                       constraints: const BoxConstraints(),
@@ -1900,7 +1945,7 @@ extension on _FlueraCanvasScreenState {
                   ],
                   IconButton(
                     icon: const Icon(Icons.add_rounded, color: Colors.white, size: 20),
-                    tooltip: 'Add Page',
+                    tooltip: FlueraLocalizations.of(context)!.buildUi_addPage,
                     padding: const EdgeInsets.all(6),
                     constraints: const BoxConstraints(),
                     onPressed: () {
@@ -1910,7 +1955,7 @@ extension on _FlueraCanvasScreenState {
                   ),
                   IconButton(
                     icon: const Icon(Icons.remove_rounded, color: Colors.white, size: 20),
-                    tooltip: 'Remove Page',
+                    tooltip: FlueraLocalizations.of(context)!.buildUi_removePage,
                     padding: const EdgeInsets.all(6),
                     constraints: const BoxConstraints(),
                     onPressed: () {
@@ -1963,7 +2008,7 @@ extension on _FlueraCanvasScreenState {
                         : Icons.crop_free_rounded, 
                      color: Colors.white,
                   ),
-                  tooltip: 'Tap: Griglia/Libera • Long: Formato',
+                  tooltip: FlueraLocalizations.of(context)!.buildUi_gridFreeFormatTooltip,
                   onPressed: _toggleMultiPageMode,
                 ),
               ),
@@ -1974,12 +2019,12 @@ extension on _FlueraCanvasScreenState {
                       : Icons.layers, 
                    color: Colors.white,
                 ),
-                tooltip: 'Sfondo (Trasparente/Template)',
+                tooltip: FlueraLocalizations.of(context)!.buildUi_backgroundTooltip,
                 onPressed: _toggleExportBackground,
               ),
               IconButton(
                 icon: const Icon(Icons.auto_awesome, color: Colors.amberAccent),
-                tooltip: 'Auto-Frame Content',
+                tooltip: FlueraLocalizations.of(context)!.buildUi_autoFrameContent,
                 onPressed: () {
                   HapticFeedback.mediumImpact();
                   _autoFrameMultiPage();
@@ -2001,7 +2046,7 @@ extension on _FlueraCanvasScreenState {
                   foregroundColor: Colors.white70,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
-                child: const Text('Cancel'),
+                child: Text(FlueraLocalizations.of(context)!.buildUi_cancel),
               ),
               const SizedBox(width: 4),
               FilledButton.icon(
@@ -2150,6 +2195,63 @@ class _WheelPenPickerOverlayState extends State<_WheelPenPickerOverlay>
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 🌍 MAPPAMONDO BUTTON — One-tap satellite view of the canvas.
+///
+/// Pedagogical contract (§22 + §1098): the student must be able to see
+/// the whole Memory Palace from above with a single, discoverable action,
+/// not just by pinching-out manually. Calls [CameraActions.fitAllContent]
+/// which auto-frames every visible node + animates via spring physics.
+///
+/// Matches the JARVIS HUD aesthetic of [ZoomLevelIndicator] so the two
+/// controls read as part of the same navigation cluster (bottom-left).
+class _MappamondoButton extends StatelessWidget {
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _MappamondoButton({
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(22),
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xBB0A0E1A),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: const Color(0xFF82C8FF).withValues(alpha: 0.45),
+                width: 1.0,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.public,
+              size: 22,
+              color: Color(0xFFB0D4FF),
             ),
           ),
         ),

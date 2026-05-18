@@ -229,6 +229,60 @@ void main() {
       expect(updated.id, 'rec_1'); // Unchanged
     });
 
+    test('branchId round-trips through JSON (V1.5)', () {
+      final rec = SynchronizedRecording(
+        id: 'r-branch',
+        audioPath: '/tmp/x.m4a',
+        totalDuration: const Duration(seconds: 5),
+        startTime: DateTime(2025, 1, 1),
+        syncedStrokes: const [],
+        canvasId: 'c1',
+        branchId: 'br_alt',
+      );
+      final back = SynchronizedRecording.fromJsonString(rec.toJsonString());
+      expect(back.branchId, 'br_alt');
+      expect(back.canvasId, 'c1');
+    });
+
+    test('branchId defaults to null when absent (legacy recordings)', () {
+      // Recordings persisted before schema v19 have no branchId field.
+      // Deserialization must NOT throw and must resolve to null (= main).
+      final legacyJson = '{"id":"r-old","audioPath":"/tmp/x.m4a",'
+          '"totalDurationMs":5000,'
+          '"startTime":"2025-01-01T00:00:00.000",'
+          '"syncedStrokes":[],"canvasId":"c1"}';
+      final back = SynchronizedRecording.fromJsonString(legacyJson);
+      expect(back.branchId, isNull);
+      expect(back.canvasId, 'c1');
+    });
+
+    test('copyWith updates branchId only (V1.5)', () {
+      final base = SynchronizedRecording(
+        id: 'r1',
+        audioPath: '/tmp/x.m4a',
+        totalDuration: const Duration(seconds: 5),
+        startTime: DateTime(2025, 1, 1),
+        syncedStrokes: const [],
+        canvasId: 'c1',
+        branchId: 'main',
+      );
+      final copy = base.copyWith(branchId: 'br_alt');
+      expect(copy.branchId, 'br_alt');
+      expect(copy.canvasId, 'c1'); // Untouched
+      expect(copy.id, 'r1'); // Untouched
+    });
+
+    test('empty factory accepts branchId param (V1.5)', () {
+      final empty = SynchronizedRecording.empty(
+        id: 'e1',
+        audioPath: '/audio/x.m4a',
+        startTime: DateTime(2025),
+        branchId: 'br_alt',
+      );
+      expect(empty.branchId, 'br_alt');
+      expect(empty.syncedStrokes, isEmpty);
+    });
+
     test('empty factory creates no-stroke recording', () {
       final empty = SynchronizedRecording.empty(
         id: 'empty_1',

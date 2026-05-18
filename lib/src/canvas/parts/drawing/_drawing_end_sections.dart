@@ -885,7 +885,7 @@ extension on _FlueraCanvasScreenState {
                                   horizontal: 14,
                                   vertical: 12,
                                 ),
-                                hintText: 'Section name...',
+                                hintText: FlueraLocalizations.of(context)!.drawing_sectionName,
                                 hintStyle: TextStyle(
                                   color: textColor.withValues(alpha: 0.3),
                                 ),

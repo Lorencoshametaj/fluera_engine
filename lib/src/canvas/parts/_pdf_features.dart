@@ -1174,10 +1174,14 @@ extension FlueraCanvasPdfFeatures on _FlueraCanvasScreenState {
   void _onPdfZoomCheck([InfiniteCanvasController? controller]) {
     if (!mounted) return;
     if (_pdfZoomEnterCooldown) return;
+    // ⏱️ X.3: defer the check while physics is still settling. Triggering
+    // an immersive entry during a momentum animation would conflict with
+    // the in-flight transform; we want a stable scale to evaluate against.
+    final ctrl = controller ?? _canvasController;
+    if (ctrl.isAnimating) return;
     // 🚀 THROTTLE: Skip if called too recently (zoom fires 60fps)
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastZoomCheckTime < 200) return;
-    final ctrl = controller ?? _canvasController;
     // Only check during active zooming (scale > 1.2)
     if (ctrl.scale > 1.2) {
       _checkPdfZoomToEnter(ctrl);

@@ -21,7 +21,11 @@ extension LoadingOverlayExtension on _FlueraCanvasScreenState {
         builder: (context, isLoading, child) {
           return AnimatedOpacity(
             opacity: isLoading ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 350),
+            // 🚀 Z.3: 200ms snappier than the previous 350ms now that
+            // Z.1 guarantees the first post-fade paint is <8ms (no jank
+            // sneaks through). Below 150ms the fade feels abrupt; 200ms
+            // is the sweet spot for "responsive but smooth".
+            duration: const Duration(milliseconds: 200),
             curve: Curves.easeOut,
             onEnd: () {
               // Remove overlay from tree after fade-out completes

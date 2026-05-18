@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/fluera_localizations.dart';
 import '../drawing/models/brush_preset.dart';
 import '../drawing/models/pro_brush_settings.dart';
 import '../drawing/models/pro_drawing_point.dart';
@@ -112,7 +113,8 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                     Icons.save_rounded,
                     color: isDark ? Colors.tealAccent : Colors.teal,
                   ),
-                  tooltip: 'Save as Preset',
+                  tooltip: FlueraLocalizations.of(context)!
+                      .brushEditor_saveAsPreset,
                 ),
                 IconButton(
                   onPressed: () => Navigator.pop(context),
@@ -176,7 +178,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _penTypeName(widget.currentPenType),
+                      _penTypeName(context, widget.currentPenType),
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -205,20 +207,23 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
     );
   }
 
-  String _penTypeName(ProPenType type) => switch (type) {
-    ProPenType.ballpoint => 'Ballpoint',
-    ProPenType.fountain => 'Fountain Pen',
-    ProPenType.pencil => 'Pencil',
-    ProPenType.highlighter => 'Highlighter',
-    ProPenType.watercolor => 'Watercolor',
-    ProPenType.marker => 'Marker',
-    ProPenType.charcoal => 'Charcoal',
-    ProPenType.oilPaint => 'Oil Paint',
-    ProPenType.sprayPaint => 'Spray Paint',
-    ProPenType.neonGlow => 'Neon Glow',
-    ProPenType.inkWash => 'Ink Wash',
-    ProPenType.technicalPen => 'Technical Pen',
-  };
+  String _penTypeName(BuildContext context, ProPenType type) {
+    final l10n = FlueraLocalizations.of(context)!;
+    return switch (type) {
+      ProPenType.ballpoint => l10n.brushEditor_brushBallpoint,
+      ProPenType.fountain => l10n.brushEditor_brushFountain,
+      ProPenType.pencil => l10n.brushEditor_brushPencil,
+      ProPenType.highlighter => l10n.brushEditor_brushHighlighter,
+      ProPenType.watercolor => l10n.brushEditor_brushWatercolor,
+      ProPenType.marker => l10n.brushEditor_brushMarker,
+      ProPenType.charcoal => l10n.brushEditor_brushCharcoal,
+      ProPenType.oilPaint => l10n.brushEditor_brushOilPaint,
+      ProPenType.sprayPaint => l10n.brushEditor_brushSprayPaint,
+      ProPenType.neonGlow => l10n.brushEditor_brushNeonGlow,
+      ProPenType.inkWash => l10n.brushEditor_brushInkWash,
+      ProPenType.technicalPen => l10n.brushEditor_brushTechnicalPen,
+    };
+  }
 
   void _showSaveDialog(BuildContext context, bool isDark) {
     final nameController = TextEditingController();
@@ -244,7 +249,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                 (ctx, setDialogState) => AlertDialog(
                   backgroundColor: isDark ? const Color(0xFF303030) : Colors.white,
                   title: Text(
-                    'Save Preset',
+                    FlueraLocalizations.of(ctx)!.brushEditor_savePresetTitle,
                     style: TextStyle(
                       color: isDark ? Colors.white : Colors.black87,
                     ),
@@ -255,7 +260,8 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                       TextField(
                         controller: nameController,
                         decoration: InputDecoration(
-                          hintText: 'Preset name',
+                          hintText: FlueraLocalizations.of(ctx)!
+                              .brushEditor_presetNameHint,
                           hintStyle: TextStyle(
                             color: isDark ? Colors.white38 : Colors.black38,
                           ),
@@ -313,7 +319,8 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel'),
+                      child: Text(
+                          FlueraLocalizations.of(ctx)!.brushEditor_cancel),
                     ),
                     FilledButton(
                       onPressed: () async {
@@ -338,7 +345,8 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                         if (ctx.mounted) Navigator.pop(ctx);
                         if (mounted) setState(() {});
                       },
-                      child: const Text('Save'),
+                      child:
+                          Text(FlueraLocalizations.of(ctx)!.brushEditor_save),
                     ),
                   ],
                 ),
@@ -357,17 +365,19 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
           (ctx) => AlertDialog(
             backgroundColor: isDark ? const Color(0xFF303030) : Colors.white,
             title: Text(
-              'Delete "${preset.name}"?',
+              FlueraLocalizations.of(ctx)!
+                  .brushEditor_deletePresetTitle(preset.name),
               style: TextStyle(color: isDark ? Colors.white : Colors.black87),
             ),
             content: Text(
-              'This preset will be permanently removed.',
+              FlueraLocalizations.of(ctx)!.brushEditor_deletePresetBody,
               style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child:
+                    Text(FlueraLocalizations.of(ctx)!.brushEditor_cancel),
               ),
               FilledButton(
                 onPressed: () async {
@@ -382,7 +392,7 @@ class _BrushEditorSheetState extends State<BrushEditorSheet> {
                   }
                 },
                 style: FilledButton.styleFrom(backgroundColor: const Color(0xFFD32F2F)),
-                child: const Text('Delete'),
+                child: Text(FlueraLocalizations.of(ctx)!.brushEditor_delete),
               ),
             ],
           ),

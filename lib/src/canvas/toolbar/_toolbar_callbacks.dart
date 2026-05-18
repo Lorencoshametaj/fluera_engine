@@ -56,14 +56,39 @@ class ToolbarCallbacks {
   final VoidCallback? onAdvancedSplitPressed;
   final VoidCallback? onSyncToggle;
   final VoidCallback? onTimeTravelPressed;
+
+  /// 💎 Locked-state callback for Free / Plus tiers (V1 split 2026-05-14).
+  /// When [onTimeTravelPressed] is null because the user is on a tier
+  /// without the Pro pillar #1, the toolbar still surfaces the chip with
+  /// a "Pro" badge so the user knows the feature exists — tap fires this
+  /// callback so the host can open the paywall focused on time travel.
+  /// Coherent with the trasparenza-first positioning.
+  final VoidCallback? onTimeTravelUpgrade;
+
   final VoidCallback? onRecallModePressed;
   final VoidCallback? onGhostMapPressed;
   final VoidCallback? onFogOfWarPressed;
   final VoidCallback? onSocraticPressed;
+  final VoidCallback? onExamSessionPressed;
   final VoidCallback? onCrossZoneBridgesPressed;
   final VoidCallback? onBranchExplorerPressed;
+
+  /// 📍 Checkpoint panel — Free+ (tier-aware cap inside).
+  /// Surfaces a standalone entry point so Free users can reach Checkpoint
+  /// without entering Time Travel (which remains Pro-gated).
+  final VoidCallback? onCheckpointsPressed;
+
+  /// ✨ Cognitive features discovery sheet — Round 4 (2026-05-15).
+  /// On-demand modal listing the 6 most visible cognitive features so
+  /// users that bypass session-paced coachmarks still find them.
+  final VoidCallback? onFeaturesDiscoveryPressed;
   final VoidCallback? onPaperTypePressed;
   final VoidCallback? onReadingLevelPressed;
+
+  /// Fired the first time the user taps Reading Level (i.e. when
+  /// `state.readingLevelSeen == false`). Host should persist the "seen"
+  /// flag — coherent with the gallery `_flueraMethodSeen` pattern.
+  final VoidCallback? onReadingLevelMarkSeen;
   final VoidCallback? onResetRotation;
   final VoidCallback? onToggleRotationLock;
   final VoidCallback? onSearchPressed;
@@ -206,14 +231,19 @@ class ToolbarCallbacks {
     this.onAdvancedSplitPressed,
     this.onSyncToggle,
     this.onTimeTravelPressed,
+    this.onTimeTravelUpgrade,
     this.onRecallModePressed,
     this.onGhostMapPressed,
     this.onFogOfWarPressed,
     this.onSocraticPressed,
+    this.onExamSessionPressed,
     this.onCrossZoneBridgesPressed,
     this.onBranchExplorerPressed,
+    this.onCheckpointsPressed,
+    this.onFeaturesDiscoveryPressed,
     this.onPaperTypePressed,
     this.onReadingLevelPressed,
+    this.onReadingLevelMarkSeen,
     this.onResetRotation,
     this.onToggleRotationLock,
     this.onSearchPressed,

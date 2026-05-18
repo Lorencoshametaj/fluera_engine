@@ -30,6 +30,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../drawing/models/pro_drawing_point.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../services/digital_ink_service.dart';
 import '../../utils/uid.dart';
 
@@ -356,7 +357,7 @@ class _SocraticInlineScratchpadState extends State<SocraticInlineScratchpad> {
             onPressed: _confirming || _strokes.isEmpty ? null : _onClear,
             icon: const Icon(Icons.delete_outline,
                 size: 16, color: Colors.white60),
-            tooltip: 'Cancella',
+            tooltip: FlueraLocalizations.of(context)!.socraticScratchpad_clear,
             padding: const EdgeInsets.all(6),
             constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
             visualDensity: VisualDensity.compact,
@@ -364,7 +365,7 @@ class _SocraticInlineScratchpadState extends State<SocraticInlineScratchpad> {
           IconButton(
             onPressed: _confirming ? null : widget.onCancel,
             icon: const Icon(Icons.close, size: 16, color: Colors.white54),
-            tooltip: 'Annulla',
+            tooltip: FlueraLocalizations.of(context)!.socraticScratchpad_cancel,
             padding: const EdgeInsets.all(6),
             constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
             visualDensity: VisualDensity.compact,

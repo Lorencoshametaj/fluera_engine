@@ -90,7 +90,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       const SizedBox(height: 4),
       switchRow(
         icon: Icons.rotate_90_degrees_cw_rounded,
-        label: 'Angle Snap',
+        label: FlueraLocalizations.of(context)!.brushCtrl_angleSnap,
         tooltip:
             'When enabled, straight lines snap to angular increments for precise technical drawing.',
         value: _settings.techAngleSnap,
@@ -102,7 +102,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       if (_settings.techAngleSnap)
         sliderRow(
           icon: Icons.straighten_rounded,
-          label: 'Snap Angle',
+          label: FlueraLocalizations.of(context)!.brushCtrl_snapAngle,
           tooltip: 'Angular resolution for line snapping.',
           value: currentSnapIdx.toDouble(),
           min: 0,
@@ -120,7 +120,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
         ),
       switchRow(
         icon: Icons.crop_square_rounded,
-        label: 'Close Shapes',
+        label: FlueraLocalizations.of(context)!.brushCtrl_closeShapes,
         tooltip:
             'Automatically close the shape when the stroke end is near the start.',
         value: _settings.techEndpointSnap,
@@ -131,7 +131,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.change_history_rounded,
-        label: 'Corner Sharpness',
+        label: FlueraLocalizations.of(context)!.brushCtrl_cornerSharpness,
         tooltip:
             'How aggressively direction changes become sharp corners instead of smooth curves.',
         value: _settings.techCornerSharpening,
@@ -145,7 +145,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       switchRow(
         icon: Icons.grid_4x4_rounded,
-        label: 'Grid Snap',
+        label: FlueraLocalizations.of(context)!.brushCtrl_gridSnap,
         tooltip:
             'Snap drawing positions to a grid for precise alignment.',
         value: _settings.techGridSnap,
@@ -157,7 +157,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       if (_settings.techGridSnap)
         sliderRow(
           icon: Icons.space_bar_rounded,
-          label: 'Grid Size',
+          label: FlueraLocalizations.of(context)!.brushCtrl_gridSize,
           tooltip: 'Size of grid cells in logical pixels.',
           value: _settings.techGridSize,
           min: 5,
@@ -169,7 +169,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
         ),
       switchRow(
         icon: Icons.straighten_rounded,
-        label: 'Straight Assist',
+        label: FlueraLocalizations.of(context)!.brushCtrl_straightAssist,
         tooltip:
             'Automatically straighten lines when drawing slowly and nearly straight.',
         value: _settings.techStraightAssist,
@@ -180,7 +180,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       switchRow(
         icon: Icons.visibility_rounded,
-        label: 'Show Guides',
+        label: FlueraLocalizations.of(context)!.brushCtrl_showGuides,
         tooltip:
             'Display visual guide lines, angle badge, and length measurements while drawing.',
         value: _settings.techShowGuides,
@@ -191,7 +191,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       switchRow(
         icon: Icons.compare_arrows_rounded,
-        label: 'Parallel Snap',
+        label: FlueraLocalizations.of(context)!.brushCtrl_parallelSnap,
         tooltip:
             'Snap to the angle of the previous stroke for parallelism.',
         value: _settings.techParallelSnap,
@@ -202,7 +202,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       switchRow(
         icon: Icons.vertical_align_center_rounded,
-        label: 'Perpendicular Snap',
+        label: FlueraLocalizations.of(context)!.brushCtrl_perpendicularSnap,
         tooltip:
             'Snap to 90° relative to the previous stroke.',
         value: _settings.techPerpSnap,
@@ -258,7 +258,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       const SizedBox(height: 4),
       sliderRow(
         icon: Icons.touch_app_rounded,
-        label: 'Sensitivity',
+        label: FlueraLocalizations.of(context)!.brushCtrl_sensitivity,
         tooltip:
             'How much the stroke reacts to pen pressure. Higher values create more variation between light and heavy strokes.',
         value: sensitivity,
@@ -280,7 +280,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.compress_rounded,
-        label: 'Thinning',
+        label: FlueraLocalizations.of(context)!.brushCtrl_thinning,
         tooltip: 'How much pressure affects stroke width.',
         value: _settings.fountainThinning,
         min: 0.2,
@@ -292,7 +292,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.speed_rounded,
-        label: 'Velocity',
+        label: FlueraLocalizations.of(context)!.brushCtrl_velocity,
         tooltip: 'How much drawing speed affects thickness.',
         value: _settings.fountainVelocityInfluence,
         min: 0.0,
@@ -305,7 +305,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       switchRow(
         icon: Icons.screen_rotation_rounded,
-        label: 'Tilt',
+        label: FlueraLocalizations.of(context)!.brushCtrl_tilt,
         tooltip: 'When enabled, tilting the stylus changes the stroke shape.',
         value: _settings.fountainTiltEnable,
         onChanged: (v) => _update(_settings.copyWith(fountainTiltEnable: v)),
@@ -315,7 +315,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.straighten_rounded,
-        label: 'Nib Angle',
+        label: FlueraLocalizations.of(context)!.brushCtrl_nibAngle,
         tooltip: 'The rotation angle of the pen nib.',
         value: _settings.fountainNibAngleDeg,
         min: 0.0,
@@ -327,7 +327,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.line_weight_rounded,
-        label: 'Nib Strength',
+        label: FlueraLocalizations.of(context)!.brushCtrl_nibStrength,
         tooltip: 'How pronounced the nib shape effect is.',
         value: _settings.fountainNibStrength,
         min: 0.0,
@@ -339,7 +339,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.start_rounded,
-        label: 'Taper Start',
+        label: FlueraLocalizations.of(context)!.brushCtrl_taperStart,
         tooltip: 'Number of points to taper at the beginning.',
         value: _settings.fountainTaperEntry.toDouble(),
         min: 0,
@@ -352,7 +352,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.keyboard_tab_rounded,
-        label: 'Taper End',
+        label: FlueraLocalizations.of(context)!.brushCtrl_taperEnd,
         tooltip: 'Number of points to taper at the end.',
         value: _settings.fountainTaperExit.toDouble(),
         min: 0,
@@ -413,7 +413,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       const SizedBox(height: 4),
       sliderRow(
         icon: Icons.opacity_rounded,
-        label: 'Opacity',
+        label: FlueraLocalizations.of(context)!.brushCtrl_opacity,
         tooltip: 'The base transparency of the pencil stroke.',
         value: _settings.pencilBaseOpacity,
         min: 0.05,
@@ -425,7 +425,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.blur_on_rounded,
-        label: 'Softness',
+        label: FlueraLocalizations.of(context)!.brushCtrl_softness,
         tooltip: 'Adds a soft blur to pencil edges.',
         value: _settings.pencilBlurRadius,
         min: 0.0,
@@ -437,7 +437,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       ),
       sliderRow(
         icon: Icons.touch_app_rounded,
-        label: 'Pressure',
+        label: FlueraLocalizations.of(context)!.brushCtrl_pressure,
         tooltip: 'How much pen pressure affects opacity and thickness.',
         value: sensitivity,
         min: 0.0,
@@ -490,7 +490,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
       const SizedBox(height: 4),
       sliderRow(
         icon: Icons.touch_app_rounded,
-        label: 'Pressure',
+        label: FlueraLocalizations.of(context)!.brushCtrl_pressure,
         tooltip: 'Controls how much pen pressure affects line thickness.',
         value: sensitivity,
         min: 0.0,
@@ -544,7 +544,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
     const SizedBox(height: 4),
     sliderRow(
       icon: Icons.opacity_rounded,
-      label: 'Opacity',
+      label: FlueraLocalizations.of(context)!.brushCtrl_opacity,
       tooltip: 'The transparency of the highlighter.',
       value: _settings.highlighterOpacity,
       min: 0.1,
@@ -556,7 +556,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
     ),
     sliderRow(
       icon: Icons.width_normal_rounded,
-      label: 'Width',
+      label: FlueraLocalizations.of(context)!.brushCtrl_width,
       tooltip: 'Multiplies the base stroke width for the highlighter.',
       value: _settings.highlighterWidthMultiplier,
       min: 1.5,
@@ -570,7 +570,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
     ),
     switchRow(
       icon: Icons.straighten_rounded,
-      label: 'Auto-Straighten',
+      label: FlueraLocalizations.of(context)!.brushCtrl_autoStraighten,
       tooltip: 'Automatically straightens nearly-horizontal highlight lines.',
       value: _settings.highlighterAutoStraighten,
       onChanged: (v) => _update(_settings.copyWith(highlighterAutoStraighten: v)),
@@ -591,7 +591,7 @@ extension _BrushDialogControls on _ProBrushSettingsDialogState {
     };
     return sliderRow(
       icon: Icons.gesture_rounded,
-      label: 'Stabilizer',
+      label: FlueraLocalizations.of(context)!.brushCtrl_stabilizer,
       tooltip: 'Smooths out hand tremor and jitter.',
       value: _settings.stabilizerLevel.toDouble(),
       min: 0,

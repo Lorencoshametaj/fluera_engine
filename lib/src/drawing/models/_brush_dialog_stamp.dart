@@ -400,19 +400,33 @@ extension _BrushDialogStampDynamics on _ProBrushSettingsDialogState {
               isDense: true,
               underline: const SizedBox.shrink(),
               style: tt.bodySmall?.copyWith(color: cs.onSurface),
-              items: const [
-                DropdownMenuItem(value: 'none', child: Text('None')),
+              items: [
+                DropdownMenuItem(
+                    value: 'none',
+                    child: Text(FlueraLocalizations.of(context)!
+                        .brushStamp_textureNone)),
                 DropdownMenuItem(
                   value: 'pencilGrain',
-                  child: Text('Pencil Grain'),
+                  child: Text(FlueraLocalizations.of(context)!
+                      .brushStamp_texturePencil),
                 ),
-                DropdownMenuItem(value: 'charcoal', child: Text('Charcoal')),
+                DropdownMenuItem(
+                    value: 'charcoal',
+                    child: Text(FlueraLocalizations.of(context)!
+                        .brushStamp_textureCharcoal)),
                 DropdownMenuItem(
                   value: 'watercolor',
-                  child: Text('Watercolor'),
+                  child: Text(FlueraLocalizations.of(context)!
+                      .brushStamp_textureWatercolor),
                 ),
-                DropdownMenuItem(value: 'canvas', child: Text('Canvas')),
-                DropdownMenuItem(value: 'kraft', child: Text('Kraft')),
+                DropdownMenuItem(
+                    value: 'canvas',
+                    child: Text(FlueraLocalizations.of(context)!
+                        .brushStamp_textureCanvas)),
+                DropdownMenuItem(
+                    value: 'kraft',
+                    child: Text(FlueraLocalizations.of(context)!
+                        .brushStamp_textureKraft)),
               ],
               onChanged: (v) {
                 if (v != null) {
@@ -496,7 +510,9 @@ extension _BrushDialogStampDynamics on _ProBrushSettingsDialogState {
           spacing: 6,
           runSpacing: 4,
           children: [
-            presetChip('Watercolor', Icons.water_rounded, cs, tt, () {
+            presetChip(
+                FlueraLocalizations.of(context)!.brushStamp_presetWatercolor,
+                Icons.water_rounded, cs, tt, () {
               _update(
                 _settings.copyWith(
                   stampSpacing: 0.12,
@@ -512,7 +528,9 @@ extension _BrushDialogStampDynamics on _ProBrushSettingsDialogState {
                 ),
               );
             }),
-            presetChip('Charcoal', Icons.gesture_rounded, cs, tt, () {
+            presetChip(
+                FlueraLocalizations.of(context)!.brushStamp_presetCharcoal,
+                Icons.gesture_rounded, cs, tt, () {
               _update(
                 _settings.copyWith(
                   stampSpacing: 0.08,
@@ -529,7 +547,9 @@ extension _BrushDialogStampDynamics on _ProBrushSettingsDialogState {
                 ),
               );
             }),
-            presetChip('Airbrush', Icons.blur_on_rounded, cs, tt, () {
+            presetChip(
+                FlueraLocalizations.of(context)!.brushStamp_presetAirbrush,
+                Icons.blur_on_rounded, cs, tt, () {
               _update(
                 _settings.copyWith(
                   stampSpacing: 0.05,

@@ -996,7 +996,8 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         : widget.availableClusters.entries.toList();
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _buildHeader('Su cosa vuoi essere interrogato?', showClose: true),
+      _buildHeader(FlueraLocalizations.of(context)!.examOverlay_setupHeader,
+          showClose: true),
       const SizedBox(height: 8),
 
       Expanded(child: SingleChildScrollView(
@@ -1022,7 +1023,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12)),
           const SizedBox(height: 12),
           Wrap(spacing: 9, runSpacing: 9, children: [
-            _chip(id: '__all__', title: '🗂 Tutti', selected: _selectedIds.contains('__all__'),
+            _chip(id: '__all__',
+              title: FlueraLocalizations.of(context)!.examOverlay_chipAllTopics,
+              selected: _selectedIds.contains('__all__'),
               onTap: () => setState(() {
                 if (_selectedIds.contains('__all__')) _selectedIds.clear();
                 else { _selectedIds.clear(); _selectedIds.add('__all__'); }
@@ -1040,7 +1043,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           // ── Language selector ───────────────────────────────────────────
           const SizedBox(height: 16),
           Row(children: [
-            Text('Lingua', style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
+            Text(FlueraLocalizations.of(context)!.examOverlay_languageLabel,
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
             const Spacer(),
             SegmentedButton<String>(
               style: ButtonStyle(
@@ -1065,9 +1070,13 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
 
           // ── Question count slider ───────────────────────────────────────
           Row(children: [
-            Text('Domande', style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
+            Text(FlueraLocalizations.of(context)!.examOverlay_questionsLabel,
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
             const Spacer(),
-            Text('$_questionCount', style: TextStyle(color: _cyan, fontSize: 15, fontWeight: FontWeight.w700)),
+            Text('$_questionCount',
+                style: TextStyle(
+                    color: _cyan, fontSize: 15, fontWeight: FontWeight.w700)),
           ]),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
@@ -1091,8 +1100,11 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
 
           // ── Timer toggle ───────────────────────────────────────────────
           Row(children: [
-            Text('Timer per domanda (${_timerDuration}s)',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
+            Text(
+                FlueraLocalizations.of(context)!
+                    .examOverlay_timerPerQuestion(_timerDuration),
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
             const Spacer(),
             Switch.adaptive(
               value: _timerEnabled,
@@ -1401,7 +1413,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         Row(children: [
           Semantics(
             button: true,
-            label: 'Chiudi esame',
+            label: FlueraLocalizations.of(context)!.examOverlay_closeExam,
             child: GestureDetector(onTap: _confirmClose,
               child: Icon(Icons.close, color: Colors.white.withValues(alpha: 0.35), size: 19)),
           ),
@@ -1490,13 +1502,16 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   // critical for the Hypercorrection Effect (Butterfield & Metcalfe 2001):
   // if students don't understand the scale, the high-confidence wrong shock
   // is dampened and the +3× memory consolidation never fires.
-  static const Map<int, String> _confidenceLabels = {
-    1: 'Indovino',
-    2: 'Poco sicuro',
-    3: 'Più o meno',
-    4: 'Quasi certo',
-    5: 'Sicurissimo',
-  };
+  String _confidenceLabel(BuildContext context, int level) {
+    final l10n = FlueraLocalizations.of(context)!;
+    return switch (level) {
+      1 => l10n.examOverlay_confidence1,
+      2 => l10n.examOverlay_confidence2,
+      3 => l10n.examOverlay_confidence3,
+      4 => l10n.examOverlay_confidence4,
+      _ => l10n.examOverlay_confidence5,
+    };
+  }
 
   Widget _buildConfidenceSlider(ExamQuestion q) {
     return Container(
@@ -1509,7 +1524,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(
           children: [
-            Text('Quanto sei sicuro/a?',
+            Text(FlueraLocalizations.of(context)!.examOverlay_confidenceTitle,
               style: TextStyle(color: _purple, fontSize: 13, fontWeight: FontWeight.w600)),
             const SizedBox(width: 6),
             // First-time onboarding affordance: tap the (?) to learn why this
@@ -1525,7 +1540,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           ],
         ),
         const SizedBox(height: 4),
-        Text('Sii onesto: gli errori commessi con alta sicurezza si ricordano 3× di più',
+        Text(FlueraLocalizations.of(context)!.examOverlay_confidenceHint,
           style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 11, height: 1.4)),
         const SizedBox(height: 14),
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1538,7 +1553,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
                 child: Semantics(
                   button: true,
                   selected: selected,
-                  label: 'Fiducia $level su 5: ${_confidenceLabels[level]}',
+                  label: FlueraLocalizations.of(context)!
+                      .examOverlay_confidenceA11y(
+                          level, _confidenceLabel(context, level)),
                   child: GestureDetector(
                     onTap: () {
                       HapticFeedback.selectionClick();
@@ -1563,7 +1580,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          _confidenceLabels[level]!,
+                          _confidenceLabel(context, level),
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           style: TextStyle(
@@ -1719,13 +1736,13 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               Text('🧠', style: const TextStyle(fontSize: 22)),
               const SizedBox(width: 8),
               Text(
-                'Perché la tua fiducia conta',
+                FlueraLocalizations.of(context)!.examOverlay_whyConfidenceMatters,
                 style: TextStyle(color: _purple, fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ]),
             const SizedBox(height: 14),
             Text(
-              'Prima di rispondere ti chiediamo quanto sei sicuro/a su una scala 1-5.',
+              FlueraLocalizations.of(context)!.examOverlay_whyConfidenceBody,
               style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13, height: 1.5),
             ),
             const SizedBox(height: 10),
@@ -1747,7 +1764,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Non barare. Fingere bassa fiducia per "non fare brutta figura" annulla il beneficio.',
+                      FlueraLocalizations.of(context)!.examOverlay_whyConfidenceWarning,
                       style: TextStyle(color: _purple.withValues(alpha: 0.9), fontSize: 11.5, height: 1.4),
                     ),
                   ),
@@ -1758,7 +1775,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             Center(
               child: TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: Text('Capito', style: TextStyle(color: _purple)),
+                child: Text(
+                    FlueraLocalizations.of(context)!.examOverlay_understood,
+                    style: TextStyle(color: _purple)),
               ),
             ),
           ],
@@ -1878,11 +1897,14 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
   }
 
   Widget _typeBadge(ExamQuestionType type) {
+    final l10n = FlueraLocalizations.of(context)!;
     final (label, color) = switch (type) {
-      ExamQuestionType.openEnded => ('RISPOSTA APERTA', _cyan),
-      ExamQuestionType.multipleChoice => ('SCELTA MULTIPLA', _orange),
-      ExamQuestionType.trueOrFalse => ('VERO / FALSO', _purple),
-      ExamQuestionType.formulaRecall => ('FORMULA', _green),
+      ExamQuestionType.openEnded => (l10n.examOverlay_typeOpenEnded, _cyan),
+      ExamQuestionType.multipleChoice =>
+        (l10n.examOverlay_typeMultipleChoice, _orange),
+      ExamQuestionType.trueOrFalse => (l10n.examOverlay_typeTrueFalse, _purple),
+      ExamQuestionType.formulaRecall =>
+        (l10n.examOverlay_typeFormulaRecall, _green),
     };
     return Row(children: [
       Container(
@@ -1975,9 +1997,11 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
 
   Widget _buildTrueFalse(ExamQuestion q) {
     return Row(children: [
-      Expanded(child: _tfBtn(q, 0, 'Vero', _green)),
+      Expanded(child: _tfBtn(q, 0,
+          FlueraLocalizations.of(context)!.examOverlay_true, _green)),
       const SizedBox(width: 12),
-      Expanded(child: _tfBtn(q, 1, 'Falso', _red)),
+      Expanded(child: _tfBtn(q, 1,
+          FlueraLocalizations.of(context)!.examOverlay_false, _red)),
     ]);
   }
 
@@ -2394,7 +2418,10 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         ),
       const SizedBox(height: 10),
       Row(children: [
-        Expanded(child: _btn(label: 'Invia', color: _cyan, onTap: () {
+        Expanded(child: _btn(
+          label: FlueraLocalizations.of(context)!.examOverlay_submit,
+          color: _cyan,
+          onTap: () {
           _stopTimer();
           final answer = _answerCtrl.text.trim();
           setState(() { _revealed = true; _evalText = ''; });
@@ -2427,7 +2454,11 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           ),
         ),
         const SizedBox(width: 8),
-        _btn(label: 'Rivela', color: Colors.white.withValues(alpha: 0.18), small: true, onTap: () {
+        _btn(
+          label: FlueraLocalizations.of(context)!.examOverlay_reveal,
+          color: Colors.white.withValues(alpha: 0.18),
+          small: true,
+          onTap: () {
           _stopTimer();
           HapticFeedback.selectionClick();
           widget.controller.skipQuestion();
@@ -2574,7 +2605,10 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
           if ((result == ExamAnswerResult.incorrect || result == ExamAnswerResult.skipped) &&
               q.correctAnswer.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text('Risposta corretta:', style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 11)),
+            Text(
+                FlueraLocalizations.of(context)!.examOverlay_correctAnswerLabel,
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45), fontSize: 11)),
             const SizedBox(height: 4),
             // Render LaTeX if formula question
             if (q.type == ExamQuestionType.formulaRecall &&
@@ -2668,7 +2702,8 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
                 maxLines: 2,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                  hintText: 'Scrivi qui per memorizzare meglio...',
+                  hintText: FlueraLocalizations.of(context)!
+                      .examOverlay_writeToRememberHint,
                   hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2)),
                   border: InputBorder.none,
                   isDense: true,
@@ -2774,7 +2809,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         if (widget.controller.canGoPrevious) ...[
           Semantics(
             button: true,
-            label: 'Indietro',
+            label: FlueraLocalizations.of(context)!.examOverlay_back,
             child: GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
@@ -2819,7 +2854,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               color: Colors.white.withValues(alpha: 0.08),
               onTap: null) // Disabled button
           : _btn(
-              label: isLast ? 'Vedi i risultati 🎓' : 'Prossima →',
+              label: isLast
+                  ? FlueraLocalizations.of(context)!.examOverlay_seeResults
+                  : FlueraLocalizations.of(context)!.examOverlay_next,
               color: _cyan,
               // Delegate to the canonical advance method — keeps a SINGLE
               // source of truth for "what gets reset between questions".
@@ -2891,7 +2928,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Text('📦', style: TextStyle(fontSize: 40)),
           const SizedBox(height: 16),
-          Text('Blocco ${chunk + 1}/${session.totalChunks} completato',
+          Text(
+            FlueraLocalizations.of(context)!
+                .examOverlay_chunkCompleted(chunk + 1, session.totalChunks),
             style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: 10),
           Text(FlueraLocalizations.of(context)!.exam_chunkBreakSummary(correct, total),
@@ -2960,7 +2999,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             const SizedBox(height: 16),
             TextButton(
               onPressed: _cancelChunkPause,
-              child: Text('Riprendi ora', style: TextStyle(color: _cyan)),
+              child: Text(
+                  FlueraLocalizations.of(context)!.examOverlay_resumeNow,
+                  style: TextStyle(color: _cyan)),
             ),
           ] else ...[
             Row(
@@ -3135,7 +3176,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
               SizedBox(
                 width: 70,
                 child: Text(
-                  '${_confidenceLabels[lvl] ?? "—"} ($lvl)',
+                  '${_confidenceLabel(context, lvl)} ($lvl)',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.55),
                     fontSize: 10,
@@ -3376,7 +3417,9 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
             onTap: () => setState(() => _showHistory = false),
             child: Icon(Icons.arrow_back_rounded, color: Colors.white.withValues(alpha: 0.5), size: 20)),
           const SizedBox(width: 10),
-          Text('Storico sessioni', style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
+          Text(
+              FlueraLocalizations.of(context)!.examOverlay_sessionHistory,
+              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600)),
         ]),
       ),
       // Sparklines per-topic
@@ -3471,7 +3514,7 @@ class _ExamOverlayState extends State<ExamOverlay> with TickerProviderStateMixin
         if (showClose)
           Semantics(
             button: true,
-            label: 'Chiudi esame',
+            label: FlueraLocalizations.of(context)!.examOverlay_closeExam,
             child: GestureDetector(onTap: _confirmClose,
               child: Icon(Icons.close, color: Colors.white.withValues(alpha: 0.35), size: 19)),
           ),

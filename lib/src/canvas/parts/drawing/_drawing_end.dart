@@ -194,23 +194,44 @@ extension on _FlueraCanvasScreenState {
         if (conn != null) {
           HapticFeedback.heavyImpact(); // Success!
 
-          // 🏷️ Auto-populate label from recognized cluster text
+          // 🔁 Drop the radial charge: a connection was just created, so the
+          // long-press affordance has resolved into "create link" — the
+          // radial AI explosion branch is no longer the intent. Without
+          // this the controller stays in `charging` phase (tick() doesn't
+          // auto-advance), the cyan ring + yellow dots pulse forever, and
+          // the NEXT long-press is silently rejected by startCharge's
+          // `if (_phase != idle) return;` early-return. Bug observed on
+          // device 2026-05-XX (cerchio cyan persistente post-release).
+          _radialExpansionController?.cancelCharge();
+
+          // 🏷️ Auto-populate label from recognized cluster text.
+          // Uses TextLabelPicker.pickFromSingle for both endpoints:
+          //   - rispetta i word boundary (no "COMESTAM…" da "COME STAI")
+          //   - droppa stopwords ("il", "che", "an"…) e numerici
+          //   - title-case + max 14 char per lato (28 + " → " = 31 max)
+          //   - se OCR è troppo lungo per stare intero, tronca solo il
+          //     primo token (ellipsis su un singolo word, non a metà
+          //     frase) — coerente con monument/zone label rendering.
           final srcText =
               _clusterTextCache[_connectionDragSourceClusterId!] ?? '';
           final tgtText =
               _clusterTextCache[_connectionSnapTargetClusterId!] ?? '';
-          if (srcText.isNotEmpty && tgtText.isNotEmpty) {
-            final truncSrc =
-                srcText.length > 12 ? '${srcText.substring(0, 10)}…' : srcText;
-            final truncTgt =
-                tgtText.length > 12 ? '${tgtText.substring(0, 10)}…' : tgtText;
-            conn.label = '$truncSrc → $truncTgt';
-          } else if (srcText.isNotEmpty) {
-            conn.label =
-                srcText.length > 20 ? '${srcText.substring(0, 18)}…' : srcText;
-          } else if (tgtText.isNotEmpty) {
-            conn.label =
-                tgtText.length > 20 ? '${tgtText.substring(0, 18)}…' : tgtText;
+          final shortSrc = TextLabelPicker.pickFromSingle(
+            srcText,
+            maxWords: 3,
+            maxChars: 14,
+          );
+          final shortTgt = TextLabelPicker.pickFromSingle(
+            tgtText,
+            maxWords: 3,
+            maxChars: 14,
+          );
+          if (shortSrc.isNotEmpty && shortTgt.isNotEmpty) {
+            conn.label = '$shortSrc → $shortTgt';
+          } else if (shortSrc.isNotEmpty) {
+            conn.label = shortSrc;
+          } else if (shortTgt.isNotEmpty) {
+            conn.label = shortTgt;
           }
 
           // Start particle animation if not already running
@@ -222,6 +243,55 @@ extension on _FlueraCanvasScreenState {
           _autoSaveCanvas();
           // Label editor NOT opened automatically.
           // User taps connection with gesture tool to edit label.
+        } else {
+          // 🔁 addConnection returned null → blocked.
+          // Self-loop is geometrically impossible here (snap-target logic in
+          // _drawing_update.dart already excludes the source cluster), so
+          // the only realistic cause is **duplicate** (A↔B already exists).
+          //
+          // Pedagogical contract (§27 Novak Concept Mapping): rifare il
+          // gesto su una connessione esistente è semanticamente "voglio
+          // raffinare la proposition" — apri l'editor della esistente
+          // invece di rejectare silenziosamente.
+          final srcId = _connectionDragSourceClusterId!;
+          final tgtId = _connectionSnapTargetClusterId!;
+          final existing = _knowledgeFlowController!.connections
+              .where((c) =>
+                  !c.isGhost &&
+                  ((c.sourceClusterId == srcId && c.targetClusterId == tgtId) ||
+                   (c.sourceClusterId == tgtId && c.targetClusterId == srcId)))
+              .firstOrNull;
+          if (existing != null) {
+            // Highlight the existing connection.
+            _knowledgeFlowController!.selectConnection(existing.id);
+            // Compute the midpoint screen position to anchor the label
+            // overlay (same canvas→screen pattern used when tapping a
+            // connection directly).
+            final srcCentroid = _clusterCache
+                .where((c) => c.id == existing.sourceClusterId)
+                .firstOrNull
+                ?.centroid;
+            final tgtCentroid = _clusterCache
+                .where((c) => c.id == existing.targetClusterId)
+                .firstOrNull
+                ?.centroid;
+            if (srcCentroid != null && tgtCentroid != null) {
+              final midCanvas = Offset(
+                (srcCentroid.dx + tgtCentroid.dx) / 2,
+                (srcCentroid.dy + tgtCentroid.dy) / 2,
+              );
+              final midScreen = _canvasController.canvasToScreen(midCanvas);
+              setState(() {
+                _editingLabelConnectionId = existing.id;
+                _labelOverlayScreenPosition = midScreen;
+              });
+            }
+            // Soft haptic — "esiste, te la apro", non "creata".
+            HapticFeedback.lightImpact();
+          }
+          // 🔁 Same fix as the success branch: drop the charge so the cyan
+          // ring doesn't get stuck and the next long-press isn't blocked.
+          _radialExpansionController?.cancelCharge();
         }
       } else {
         // No snap target — decide between radial expansion and cancellation.
@@ -1492,6 +1562,12 @@ extension on _FlueraCanvasScreenState {
         // text for any new/changed cluster in the background. Warms the
         // [_clusterTextCache] so "Interrogami" is instant on heavy canvases.
         scheduleBackgroundExamOcr();
+
+        // 🆓 Free Background AI (Bundle A, 2026-05-17): reset the 5 s idle
+        // timer that auto-cleans OCR + generates cluster titles via Gemini
+        // Flash Lite. Zero user credits; Fluera assorbs the call. Skips
+        // when cold-start grace period is active or consent is off.
+        _backgroundAi?.onStrokeCommitted();
 
         // 🖼️ THUMBNAIL: Generate/update thumbnails for changed clusters
         if (_thumbnailCache != null) {

@@ -79,7 +79,12 @@ enum SrsStage {
       case SrsStage.solid:
         return const Color(0xFF4CAF50); // Green — well-established
       case SrsStage.mastered:
-        return const Color(0xFFFFD700); // Gold — mastered
+        // Amber-warm — distinct from monument star badge gold (0xFFFFD700)
+        // and KnowledgeConnection.crossZoneColor gold so a "mastered"
+        // cluster doesn't visually clash with a "landmark" or "bridge"
+        // signal at low zoom. Preserves the "fascia oro / completion"
+        // semantic of the mastery curve.
+        return const Color(0xFFFFB300);
       case SrsStage.integrated:
         return const Color(0xFF90CAF9); // Light blue — nearly invisible
     }

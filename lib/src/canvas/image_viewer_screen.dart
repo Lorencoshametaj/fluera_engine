@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/models/image_element.dart';
 import '../drawing/models/pro_drawing_point.dart';
+import '../l10n/fluera_localizations.dart';
 
 /// Background mode for image viewer.
 enum _ViewerBackground { dark, light, checker }
@@ -1219,7 +1220,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
             _showGrid ? Icons.grid_on_rounded : Icons.grid_off_rounded,
             onTap: () => setState(() => _showGrid = !_showGrid),
             active: _showGrid,
-            tooltip: 'Grid',
+            tooltip: FlueraLocalizations.of(context)!.imageViewer_grid,
           ),
           const SizedBox(width: 8),
           // Histogram toggle
@@ -1227,26 +1228,26 @@ class _ImageViewerScreenState extends State<ImageViewerScreen>
             Icons.bar_chart_rounded,
             onTap: () => setState(() => _showHistogram = !_showHistogram),
             active: _showHistogram,
-            tooltip: 'Histogram',
+            tooltip: FlueraLocalizations.of(context)!.imageViewer_histogram,
           ),
           const SizedBox(width: 8),
           // Background toggle
           _glassButton(
             _bgIcon,
             onTap: _cycleBackground,
-            tooltip: 'Background',
+            tooltip: FlueraLocalizations.of(context)!.imageViewer_background,
           ),
           const SizedBox(width: 8),
           // Edit
           _glassButton(Icons.tune_rounded,
             onTap: () => widget.onEdit?.call(widget.imageElement),
-            tooltip: 'Edit',
+            tooltip: FlueraLocalizations.of(context)!.imageViewer_edit,
           ),
           const SizedBox(width: 8),
           // Share
           _glassButton(Icons.ios_share_rounded,
             onTap: _shareImage,
-            tooltip: 'Share',
+            tooltip: FlueraLocalizations.of(context)!.imageViewer_share,
           ),
         ],
       ),

@@ -15,7 +15,8 @@ extension _PdfBookmarkMethods on _PdfReaderScreenState {
       HapticFeedback.mediumImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Page ${page + 1} bookmarked'),
+          content: Text(FlueraLocalizations.of(context)!
+              .pdfBookmark_pageBookmarked(page + 1)),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           backgroundColor: const Color(0xFF2A2A4A),
@@ -33,13 +34,14 @@ extension _PdfBookmarkMethods on _PdfReaderScreenState {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Page ${pageIndex + 1} bookmark removed'),
+        content: Text(FlueraLocalizations.of(context)!
+            .pdfBookmark_pageRemoved(pageIndex + 1)),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: const Color(0xFF2A2A4A),
         duration: const Duration(seconds: 3),
         action: SnackBarAction(
-          label: 'Undo',
+          label: FlueraLocalizations.of(context)!.pdfBookmark_undo,
           textColor: const Color(0xFF42A5F5),
           onPressed: () {
             if (savedData != null) {
@@ -84,20 +86,29 @@ extension _PdfBookmarkMethods on _PdfReaderScreenState {
       context: context,
       builder: (dCtx) => AlertDialog(
         backgroundColor: const Color(0xFF1A1A36),
-        title: Text('Note - Page ${pageIndex + 1}',
+        title: Text(
+            FlueraLocalizations.of(context)!
+                .pdfBookmark_noteDialogTitle(pageIndex + 1),
             style: const TextStyle(color: Colors.white, fontSize: 16)),
         content: TextField(
           controller: ctrl, autofocus: true, maxLines: 3,
           style: const TextStyle(color: Colors.white, fontSize: 14),
           decoration: InputDecoration(
-            hintText: 'Add a note...', hintStyle: const TextStyle(color: Colors.white24),
+            hintText: FlueraLocalizations.of(context)!.pdfBookmark_noteHint,
+            hintStyle: const TextStyle(color: Colors.white24),
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0x33FFFFFF))),
             focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: Color(0xFF6C63FF))),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('Cancel', style: TextStyle(color: Colors.white38))),
-          TextButton(onPressed: () => Navigator.pop(dCtx, ctrl.text), child: const Text('Save', style: TextStyle(color: Color(0xFF6C63FF)))),
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: Text(FlueraLocalizations.of(context)!.pdfBookmark_cancel,
+                  style: const TextStyle(color: Colors.white38))),
+          TextButton(
+              onPressed: () => Navigator.pop(dCtx, ctrl.text),
+              child: Text(FlueraLocalizations.of(context)!.pdfBookmark_save,
+                  style: const TextStyle(color: Color(0xFF6C63FF)))),
         ],
       ),
     ).then((result) { if (result != null) setState(() => bm.note = result); });
@@ -120,7 +131,10 @@ extension _PdfBookmarkMethods on _PdfReaderScreenState {
     final file = File('${tmpDir.path}/bookmark_summary.txt');
     await file.writeAsString(buffer.toString());
     if (!mounted) return;
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)], text: 'Bookmark summary (${sorted.length} pages)'));
+    await SharePlus.instance.share(ShareParams(
+        files: [XFile(file.path)],
+        text: FlueraLocalizations.of(context)!
+            .pdfBookmark_summaryShareText(sorted.length)));
   }
 
   void _syncBookmarkToModel(int pageIndex, bool isBookmarked) {

@@ -19,8 +19,12 @@ import '../drawing/models/pro_drawing_point.dart';
 import '../layers/fluera_layer_controller.dart';
 import '../audio/native_audio_models.dart';
 import 'ai/pedagogical_accessibility_config.dart';
+import 'ai/tier_gate_controller.dart' show GateResult, GatedFeature;
 import '../ai/ai_usage_tracker.dart';
+import '../ai/credits/ai_credits_controller.dart';
 import '../ai/telemetry_recorder.dart';
+import '../audio/quota/voice_quota_tracker.dart';
+import '../audio/cloud/recording_cloud_sync.dart';
 
 // =============================================================================
 // FLUERA CANVAS CONFIGURATION
@@ -75,6 +79,23 @@ class FlueraCanvasConfig {
 
   /// Current subscription tier (affects feature gating)
   final FlueraSubscriptionTier subscriptionTier;
+
+  /// 🛠️ Dev mode flag — unlocks debug-only entries in the toolbar settings
+  /// dropdown (e.g. Brush Testing Lab). Toggled by the 7-tap easter egg on
+  /// the Fluera tile in About settings. Defaults to false so production
+  /// builds never show debug items.
+  final bool devModeEnabled;
+
+  /// 📊 Whether the user has already seen/tapped Reading Level in the
+  /// toolbar settings dropdown. When false, a "NEW" badge is rendered as
+  /// trailing. Host persists state (e.g. SharedPreferences) and re-passes
+  /// it via this config on the next canvas open.
+  final bool readingLevelSeen;
+
+  /// Optional host callback fired the first time the user taps Reading
+  /// Level. Host should persist "seen" — coherent with `_flueraMethodSeen`
+  /// in gallery settings.
+  final VoidCallback? onReadingLevelMarkSeen;
 
   // ===========================================================================
   // STORAGE ADAPTER (RECOMMENDED)
@@ -269,6 +290,13 @@ class FlueraCanvasConfig {
   final void Function(BuildContext context, String upgradeMessage)?
       onUpgradePrompt;
 
+  /// Typed variant of [onUpgradePrompt]: receives the full [GateResult] so
+  /// the host can switch on [GatedFeature] and surface a feature-specific
+  /// cap dialog (Socratic / Ghost Map / Exam / Fog of War). When provided,
+  /// the engine prefers this over [onUpgradePrompt].
+  final void Function(BuildContext context, GateResult result)?
+      onTierGateBlocked;
+
   // ===========================================================================
   // AI USAGE TRACKING
   // ===========================================================================
@@ -282,6 +310,45 @@ class FlueraCanvasConfig {
   /// Leave null in tests / the web demo / the landing page. The engine falls
   /// back to a no-op implementation that never enforces limits.
   final AiUsageTracker? aiUsageTracker;
+
+  // ===========================================================================
+  // 💎 AI CREDITS V2 (V1 split 2026-05-14)
+  // ===========================================================================
+
+  /// Optional credits controller (Fluera AI Credits, server-authoritative).
+  ///
+  /// When provided, every metered Gemini call consumes fixed credits BEFORE
+  /// the round-trip and refunds on failure within the 30 s window.
+  /// Decoupled from [aiUsageTracker]: both run together — tracker = token
+  /// telemetry, credits = user-facing currency for the V1 paywall split.
+  ///
+  /// Falls back to [NoopAiCreditsController] when null (every consume()
+  /// succeeds, no metering, used in tests and the SDK demo).
+  final AiCreditsController? aiCreditsController;
+
+  // ===========================================================================
+  // 🎙️ VOICE QUOTA (V1 split 2026-05-14)
+  // ===========================================================================
+
+  /// Optional voice-recording quota tracker. When provided, the toolbar
+  /// recording flow consults [VoiceQuotaTracker.reserve] before starting
+  /// the recorder and [VoiceQuotaTracker.commit] when the session ends,
+  /// so the monthly cap (Plus 60 min, Pro ∞) is enforced server-side.
+  ///
+  /// Falls back to [NoopVoiceQuotaTracker] when null (no enforcement, used
+  /// in tests and demos).
+  final VoiceQuotaTracker? voiceQuotaTracker;
+
+  /// ☁️ Phase 2 Audio↔Stroke Sync — cloud upload/download adapter for
+  /// recording audio files. When provided, recordings are uploaded to
+  /// Supabase Storage post-save (fire-and-forget) and downloaded lazily
+  /// on first tap-stroke if the local file is missing on a fresh device.
+  ///
+  /// Falls back to [NoopRecordingCloudSync] when null — recordings stay
+  /// local-only (V1.0 behavior), the pricing-promise "tap a stroke,
+  /// replay what you said" still works on the device where it was
+  /// recorded.
+  final RecordingCloudSync? recordingCloudSync;
 
   // ===========================================================================
   // PRODUCT TELEMETRY
@@ -345,6 +412,13 @@ class FlueraCanvasConfig {
   /// `shared_preferences`); the engine defaults to on.
   final bool showChatReadCostBadge;
 
+  /// 🛠️ Power-user toggle: expose the classic git-style merge UI inside the
+  /// Alternative Explorer. When false (default), the explorer shows a single
+  /// "Sostituisci l'Originale" action with no parent picker or delete-after
+  /// checkbox — student-friendly semantics. Host typically wires this to a
+  /// SharedPreferences key under Settings → Studio avanzato.
+  final bool showAdvancedMergeUI;
+
   // ===========================================================================
   // EXAM PREFERENCES (persistent UI defaults)
   // ===========================================================================
@@ -373,11 +447,31 @@ class FlueraCanvasConfig {
   /// persistence is the source of truth.
   final Future<void> Function(String key, String json)? onUploadExamStrokes;
 
+  /// ✨ Round 4 (2026-05-15) — opens the host's "Cognitive Features" modal
+  /// bottom sheet listing the 6 visible cognitive features.
+  ///
+  /// Round 4.1 (same day) — the `actions` map carries per-feature
+  /// `VoidCallback`s built inline by the canvas state from its controllers
+  /// (ghost map, socratic, exam, fog of war, cross-zone, time travel) so
+  /// the sheet can actually trigger features on tap — not just inform.
+  ///
+  /// `actions` is intentionally `dynamic` here so the engine doesn't depend
+  /// on the host's `CognitiveFeatureActions` type. Host casts the value
+  /// back to its concrete struct in the implementation.
+  final void Function(
+    BuildContext context,
+    FlueraSubscriptionTier tier,
+    dynamic actions,
+  )? onShowCognitiveFeaturesSheet;
+
   const FlueraCanvasConfig({
     required this.layerController,
     this.getUserId = _defaultGetUserId,
     this.getDeviceId,
     this.subscriptionTier = FlueraSubscriptionTier.free,
+    this.devModeEnabled = false,
+    this.readingLevelSeen = false,
+    this.onReadingLevelMarkSeen,
     this.storageAdapter,
     this.onSaveCanvas,
     this.onLoadCanvas,
@@ -404,14 +498,20 @@ class FlueraCanvasConfig {
     this.pdfProvider,
     this.onPickPdfFile,
     this.onUpgradePrompt,
+    this.onTierGateBlocked,
     this.aiUsageTracker,
+    this.aiCreditsController,
+    this.voiceQuotaTracker,
+    this.recordingCloudSync,
     this.telemetry,
     this.hasAiProcessingConsent,
     this.requestAiProcessingConsent,
     this.examPreferences,
     this.onShowExamDashboard,
     this.onUploadExamStrokes,
+    this.onShowCognitiveFeaturesSheet,
     this.showChatReadCostBadge = true,
+    this.showAdvancedMergeUI = false,
   });
 
   static Future<String?> _defaultGetUserId() async => 'local_user';

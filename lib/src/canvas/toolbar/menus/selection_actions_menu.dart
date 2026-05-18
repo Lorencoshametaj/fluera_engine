@@ -195,7 +195,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
         children: [
           // Selection count badge
           Tooltip(
-            message: widget.statsSummary ?? 'Selected',
+            message: widget.statsSummary ?? FlueraLocalizations.of(context)!.selAction_selectedBadge,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
@@ -231,7 +231,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.copy_rounded,
               color: Colors.indigo,
-              tooltip: 'Copy',
+              tooltip: FlueraLocalizations.of(context)!.selAction_copy,
               onTap: widget.onCopy!,
             ),
 
@@ -240,7 +240,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.library_add_rounded,
               color: Colors.cyan,
-              tooltip: 'Duplicate',
+              tooltip: FlueraLocalizations.of(context)!.selAction_duplicate,
               onTap: widget.onDuplicate!,
             ),
 
@@ -249,7 +249,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.paste_rounded,
               color: Colors.green,
-              tooltip: 'Paste',
+              tooltip: FlueraLocalizations.of(context)!.selAction_paste,
               onTap: widget.onPaste!,
             ),
 
@@ -283,7 +283,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
           // "More" overflow toggle
           _buildCategoryToggle(
             icon: Icons.more_horiz_rounded,
-            label: 'More',
+            label: FlueraLocalizations.of(context)!.selAction_more,
             isActive: _expanded != _MenuCategory.none,
             color: Colors.blueGrey,
             onTap: () {
@@ -326,7 +326,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             children: [
               _buildCategoryTab(
                 icon: Icons.rotate_90_degrees_ccw_rounded,
-                label: 'Transform',
+                label: FlueraLocalizations.of(context)!.selAction_transform,
                 category: _MenuCategory.transform,
                 color: Colors.blue,
                 isDark: isDark,
@@ -334,7 +334,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
               const SizedBox(width: 6),
               _buildCategoryTab(
                 icon: Icons.dashboard_customize_rounded,
-                label: 'Arrange',
+                label: FlueraLocalizations.of(context)!.selAction_arrange,
                 category: _MenuCategory.arrange,
                 color: Colors.deepOrange,
                 isDark: isDark,
@@ -342,7 +342,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
               const SizedBox(width: 6),
               _buildCategoryTab(
                 icon: Icons.tune_rounded,
-                label: 'Advanced',
+                label: FlueraLocalizations.of(context)!.selAction_advanced,
                 category: _MenuCategory.advanced,
                 color: Colors.purple,
                 isDark: isDark,
@@ -441,7 +441,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
         CompactActionButton(
           icon: Icons.rotate_90_degrees_ccw_rounded,
           color: Colors.blue,
-          tooltip: 'Rotate 90°',
+          tooltip: FlueraLocalizations.of(context)!.selAction_rotate90,
           onTap: widget.onRotate,
         ),
         CompactActionButton(
@@ -473,14 +473,14 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.flip_to_front_rounded,
               color: Colors.amber.shade700,
-              tooltip: 'Bring to Front',
+              tooltip: FlueraLocalizations.of(context)!.selAction_bringToFront,
               onTap: widget.onBringToFront!,
             ),
           if (widget.onSendToBack != null)
             CompactActionButton(
               icon: Icons.flip_to_back_rounded,
               color: Colors.brown,
-              tooltip: 'Send to Back',
+              tooltip: FlueraLocalizations.of(context)!.selAction_sendToBack,
               onTap: widget.onSendToBack!,
             ),
 
@@ -492,42 +492,42 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.align_horizontal_left_rounded,
               color: Colors.deepOrange,
-              tooltip: 'Align Left',
+              tooltip: FlueraLocalizations.of(context)!.selAction_alignLeft,
               onTap: widget.onAlignLeft!,
             ),
           if (widget.onAlignCenterH != null)
             CompactActionButton(
               icon: Icons.align_horizontal_center_rounded,
               color: Colors.deepOrange,
-              tooltip: 'Align Center',
+              tooltip: FlueraLocalizations.of(context)!.selAction_alignCenter,
               onTap: widget.onAlignCenterH!,
             ),
           if (widget.onAlignRight != null)
             CompactActionButton(
               icon: Icons.align_horizontal_right_rounded,
               color: Colors.deepOrange,
-              tooltip: 'Align Right',
+              tooltip: FlueraLocalizations.of(context)!.selAction_alignRight,
               onTap: widget.onAlignRight!,
             ),
           if (widget.onAlignTop != null)
             CompactActionButton(
               icon: Icons.align_vertical_top_rounded,
               color: Colors.deepOrange.shade300,
-              tooltip: 'Align Top',
+              tooltip: FlueraLocalizations.of(context)!.selAction_alignTop,
               onTap: widget.onAlignTop!,
             ),
           if (widget.onAlignCenterV != null)
             CompactActionButton(
               icon: Icons.align_vertical_center_rounded,
               color: Colors.deepOrange.shade300,
-              tooltip: 'Align Middle',
+              tooltip: FlueraLocalizations.of(context)!.selAction_alignMiddle,
               onTap: widget.onAlignCenterV!,
             ),
           if (widget.onAlignBottom != null)
             CompactActionButton(
               icon: Icons.align_vertical_bottom_rounded,
               color: Colors.deepOrange.shade300,
-              tooltip: 'Align Bottom',
+              tooltip: FlueraLocalizations.of(context)!.selAction_alignBottom,
               onTap: widget.onAlignBottom!,
             ),
 
@@ -539,14 +539,14 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.horizontal_distribute_rounded,
               color: Colors.indigo.shade300,
-              tooltip: 'Distribute H',
+              tooltip: FlueraLocalizations.of(context)!.selAction_distributeH,
               onTap: widget.onDistributeH!,
             ),
           if (widget.onDistributeV != null)
             CompactActionButton(
               icon: Icons.vertical_distribute_rounded,
               color: Colors.indigo.shade300,
-              tooltip: 'Distribute V',
+              tooltip: FlueraLocalizations.of(context)!.selAction_distributeV,
               onTap: widget.onDistributeV!,
             ),
         ],
@@ -567,7 +567,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.select_all_rounded,
               color: Colors.blueGrey,
-              tooltip: 'Select All',
+              tooltip: FlueraLocalizations.of(context)!.selAction_selectAll,
               onTap: widget.onSelectAll!,
             ),
 
@@ -576,7 +576,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.undo_rounded,
               color: Colors.grey.shade600,
-              tooltip: 'Undo',
+              tooltip: FlueraLocalizations.of(context)!.selAction_undo,
               onTap: widget.onUndo!,
             ),
 
@@ -587,14 +587,14 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.group_work_rounded,
               color: Colors.purple,
-              tooltip: 'Group',
+              tooltip: FlueraLocalizations.of(context)!.selAction_group,
               onTap: widget.onGroup!,
             ),
           if (widget.onUngroup != null)
             CompactActionButton(
               icon: Icons.workspaces_outline,
               color: Colors.pink,
-              tooltip: 'Ungroup',
+              tooltip: FlueraLocalizations.of(context)!.selAction_ungroup,
               onTap: widget.onUngroup!,
             ),
 
@@ -611,7 +611,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
                   widget.isSelectionLocked
                       ? Colors.red.shade400
                       : Colors.grey.shade500,
-              tooltip: widget.isSelectionLocked ? 'Unlock' : 'Lock',
+              tooltip: widget.isSelectionLocked ? FlueraLocalizations.of(context)!.selAction_unlock : FlueraLocalizations.of(context)!.selAction_lock,
               onTap: () {
                 if (widget.isSelectionLocked) {
                   widget.onUnlock?.call();
@@ -626,7 +626,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.grid_4x4_rounded,
               color: widget.snapEnabled ? Colors.lime.shade700 : Colors.grey,
-              tooltip: widget.snapEnabled ? 'Snap: ON' : 'Snap: OFF',
+              tooltip: widget.snapEnabled ? FlueraLocalizations.of(context)!.selAction_snapOn : FlueraLocalizations.of(context)!.selAction_snapOff,
               onTap: widget.onToggleSnap!,
             ),
 
@@ -637,8 +637,8 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
               color: widget.multiLayerMode ? Colors.teal.shade600 : Colors.grey,
               tooltip:
                   widget.multiLayerMode
-                      ? 'Multi-Layer: ON'
-                      : 'Multi-Layer: OFF',
+                      ? FlueraLocalizations.of(context)!.selAction_multiLayerOn
+                      : FlueraLocalizations.of(context)!.selAction_multiLayerOff,
               onTap: widget.onToggleMultiLayer!,
             ),
 
@@ -649,7 +649,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.invert_colors_rounded,
               color: Colors.amber.shade800,
-              tooltip: 'Inverse Selection',
+              tooltip: FlueraLocalizations.of(context)!.selAction_inverseSelection,
               onTap: widget.onInverse!,
             ),
 
@@ -658,7 +658,7 @@ class _SelectionActionsMenuState extends State<SelectionActionsMenu>
             CompactActionButton(
               icon: Icons.content_paste_go_rounded,
               color: Colors.green.shade700,
-              tooltip: 'Paste in Place',
+              tooltip: FlueraLocalizations.of(context)!.selAction_pasteInPlace,
               onTap: widget.onPasteInPlace!,
             ),
 

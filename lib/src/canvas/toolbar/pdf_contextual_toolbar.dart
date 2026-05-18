@@ -8,6 +8,7 @@ import '../../core/models/pdf_document_model.dart';
 import '../../core/models/pdf_layout_preset.dart';
 import '../../core/nodes/pdf_document_node.dart';
 import '../../history/command_history.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../tools/pdf/pdf_annotation_controller.dart';
 import '../../tools/pdf/pdf_search_controller.dart';
 

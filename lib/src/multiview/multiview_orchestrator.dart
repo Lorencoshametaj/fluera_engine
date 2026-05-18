@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../l10n/fluera_localizations.dart';
 import '../canvas/canvas_view_tier.dart';
 import '../canvas/fluera_canvas_config.dart';
 import '../canvas/fluera_canvas_view.dart';
@@ -252,7 +253,7 @@ class MultiviewOrchestratorState extends State<MultiviewOrchestrator>
                         children: [
                           _ToolbarIconButton(
                             icon: Icons.undo_rounded,
-                            tooltip: 'Undo',
+                            tooltip: FlueraLocalizations.of(context)!.multiview_undo,
                             onPressed:
                                 _layerController.canUndo
                                     ? () {
@@ -264,7 +265,7 @@ class MultiviewOrchestratorState extends State<MultiviewOrchestrator>
                           ),
                           _ToolbarIconButton(
                             icon: Icons.redo_rounded,
-                            tooltip: 'Redo',
+                            tooltip: FlueraLocalizations.of(context)!.multiview_redo,
                             onPressed:
                                 _layerController.canRedo
                                     ? () {
@@ -292,7 +293,7 @@ class MultiviewOrchestratorState extends State<MultiviewOrchestrator>
                 _FloatingChip(
                   child: _ToolbarIconButton(
                     icon: Icons.close_rounded,
-                    tooltip: 'Exit Multiview',
+                    tooltip: FlueraLocalizations.of(context)!.multiview_exit,
                     onPressed: widget.onExitMultiview,
                   ),
                 ),
@@ -934,7 +935,7 @@ class _LayoutTypeSelector extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     return PopupMenuButton<SplitLayoutType>(
-      tooltip: 'Change layout',
+      tooltip: FlueraLocalizations.of(context)!.multiview_changeLayout,
       onSelected: onSelected,
       color: cs.surfaceContainerLow,
       shape: RoundedRectangleBorder(

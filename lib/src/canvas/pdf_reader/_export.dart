@@ -12,10 +12,12 @@ extension _PdfExportMethods on _PdfReaderScreenState {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(width: 40, height: 4, decoration: BoxDecoration(color: const Color(0x40FFFFFF), borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 16),
-            const Text('Export Annotated PDF', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+            Text(FlueraLocalizations.of(context)!.pdfReaderExport_title,
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              const Text('Quality: ', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              Text(FlueraLocalizations.of(context)!.pdfReaderExport_quality,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12)),
               for (final q in [1.0, 2.0, 3.0]) Padding(padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: ChoiceChip(
                   label: Text('${q.toInt()}×', style: TextStyle(color: _exportScale == q ? Colors.white : Colors.white54, fontSize: 12, fontWeight: FontWeight.w600)),
@@ -34,7 +36,8 @@ extension _PdfExportMethods on _PdfReaderScreenState {
                     child: const Icon(Icons.summarize_rounded, color: Color(0xFF80CBC4), size: 18)),
                   const SizedBox(width: 14),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Bookmark Summary', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                    Text(FlueraLocalizations.of(context)!.pdfReaderExport_bookmarkSummary,
+                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
                     Text('${_bookmarkedPages.length} bookmarks with notes', style: const TextStyle(color: Colors.white38, fontSize: 11)),
                   ])),
                   const Icon(Icons.chevron_right_rounded, color: Colors.white24),
@@ -67,7 +70,8 @@ extension _PdfExportMethods on _PdfReaderScreenState {
       decoration: BoxDecoration(color: const Color(0xFF1A1A36), borderRadius: BorderRadius.circular(20), boxShadow: const [BoxShadow(color: Color(0x40000000), blurRadius: 20)]),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Icon(Icons.ios_share_rounded, color: Color(0xFF42A5F5), size: 32), const SizedBox(height: 16),
-        const Text('Exporting...', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+        Text(FlueraLocalizations.of(context)!.pdfReaderExport_exporting,
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 16),
         ValueListenableBuilder<double>(valueListenable: progressNotifier, builder: (_, v, __) => ClipRRect(borderRadius: BorderRadius.circular(4),
           child: LinearProgressIndicator(value: v, backgroundColor: const Color(0x20FFFFFF), valueColor: const AlwaysStoppedAnimation(Color(0xFF42A5F5)), minHeight: 6))),
@@ -129,7 +133,10 @@ extension _PdfExportMethods on _PdfReaderScreenState {
     } catch (e) {
       overlay?.remove(); overlay = null;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export failed: $e'), behavior: SnackBarBehavior.floating,
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(FlueraLocalizations.of(context)!
+              .pdfReaderExport_failed(e.toString())),
+          behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), backgroundColor: const Color(0xFFB71C1C), duration: const Duration(seconds: 3)));
     }
   }

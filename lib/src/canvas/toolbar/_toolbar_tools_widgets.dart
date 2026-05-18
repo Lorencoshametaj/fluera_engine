@@ -242,7 +242,7 @@ class _PdfDocumentSwitcher extends StatelessWidget {
         activeIdx >= 0 ? _labelFor(documents[activeIdx], activeIdx) : 'PDF 1';
 
     return PopupMenuButton<String>(
-      tooltip: 'Switch PDF',
+      tooltip: FlueraLocalizations.of(context)!.toolsArea_switchPdf,
       onSelected: onDocumentSelected,
       position: PopupMenuPosition.under,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -362,7 +362,7 @@ class _PdfMoreActions extends StatelessWidget {
     final totalPages = doc.documentModel.totalPages;
 
     return PopupMenuButton<String>(
-      tooltip: 'More Actions',
+      tooltip: FlueraLocalizations.of(context)!.toolsArea_moreActions,
       icon: Icon(
         Icons.more_vert_rounded,
         size: 20,

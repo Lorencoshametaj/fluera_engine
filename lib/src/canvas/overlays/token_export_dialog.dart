@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../systems/design_token_exporter.dart';
 
 // ============================================================================
@@ -250,7 +251,7 @@ class _TokenExportDialogState extends State<TokenExportDialog> {
                                       ),
                                     );
                                   },
-                                  tooltip: 'Copy',
+                                  tooltip: FlueraLocalizations.of(context)!.tokenExport_copy,
                                 ),
                               ],
                             ),

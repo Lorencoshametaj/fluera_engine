@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 
 /// 🧮 LatexSymbolPalette — Enterprise-grade Material Design 3 searchable
 /// symbol grid.
@@ -55,7 +56,7 @@ class _LatexSymbolPaletteState extends State<LatexSymbolPalette> {
           child: TextField(
             onChanged: (v) => setState(() => _search = v),
             decoration: InputDecoration(
-              hintText: 'Cerca simbolo...',
+              hintText: FlueraLocalizations.of(context)!.latexSymbol_searchSymbol,
               prefixIcon: const Icon(Icons.search_rounded),
               isDense: true,
               filled: true,

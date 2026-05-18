@@ -24,6 +24,23 @@ abstract final class ToolbarTokens {
   /// hit area from surrounding padding.
   static const double tapTargetMin = 44.0;
 
+  /// Screen width below which the toolbar switches from the 3-zone
+  /// anchored layout (back | center scroll | undo/redo/settings) to a
+  /// single horizontal scrollable that contains EVERYTHING in sequence.
+  ///
+  /// Round 5.5 (2026-05-16): the 3-zone layout could not be made to scroll
+  /// reliably on phones — the narrow center-zone SingleChildScrollView
+  /// kept losing the horizontal-drag gesture arena to the canvas pan
+  /// handler beneath, even with density compaction, ShaderMask removal,
+  /// explicit dragDevices, AlwaysScrollableScrollPhysics, and opaque
+  /// Listener wrapping. The single-scroll phone layout mirrors the
+  /// tools-row pattern that works reliably on every device.
+  ///
+  /// 500dp covers every smartphone portrait (iPhone SE 375, iPhone 13/14
+  /// 390, Pixel 7 412, iPhone 14 Pro Max 430, S22 360). iPad Mini
+  /// portrait (744dp) and desktop keep the 3-zone layout.
+  static const double smallScreenThreshold = 500.0;
+
   /// Height of compact chips (Recall, Branch, layout buttons).
   /// Raised from 30→40 for better touch accessibility on stylus+finger
   /// devices. Pair with horizontal padding ≥ 6pt for effective ≥44×44

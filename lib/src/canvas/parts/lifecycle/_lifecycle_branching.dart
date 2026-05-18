@@ -29,9 +29,10 @@ extension on _FlueraCanvasScreenState {
     engine.pause();
 
     // Show naming dialog
+    final now = DateTime.now();
+    final defaultTime = '${now.hour}:${now.minute.toString().padLeft(2, '0')}';
     final nameController = TextEditingController(
-      text:
-          'Branch ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
+      text: FlueraLocalizations.of(context)!.branching_defaultBranchName(defaultTime),
     );
 
     final name = await showDialog<String>(
@@ -40,11 +41,11 @@ extension on _FlueraCanvasScreenState {
         final isDark = Theme.of(context).brightness == Brightness.dark;
         return AlertDialog(
           backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.alt_route_rounded, color: Color(0xFF7C4DFF), size: 22),
-              SizedBox(width: 8),
-              Text('New Branch'),
+              const Icon(Icons.alt_route_rounded, color: Color(0xFF7C4DFF), size: 22),
+              const SizedBox(width: 8),
+              Text(FlueraLocalizations.of(context)!.branching_newBranch),
             ],
           ),
           content: Column(
@@ -52,7 +53,7 @@ extension on _FlueraCanvasScreenState {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Fork from event $currentIndex of ${engine.totalEventCount}',
+                FlueraLocalizations.of(context)!.branching_forkFromEvent(currentIndex, engine.totalEventCount),
                 style: TextStyle(
                   color: isDark ? Colors.white54 : Colors.black45,
                   fontSize: 13,
@@ -63,7 +64,8 @@ extension on _FlueraCanvasScreenState {
                 controller: nameController,
                 autofocus: true,
                 decoration: InputDecoration(
-                  hintText: 'Branch name',
+                  hintText:
+                      FlueraLocalizations.of(context)!.branching_branchName,
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.label_outline_rounded, size: 20),
                   filled: true,
@@ -78,17 +80,17 @@ extension on _FlueraCanvasScreenState {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(FlueraLocalizations.of(context)!.branching_cancel),
             ),
             FilledButton(
               onPressed: () {
                 final n = nameController.text.trim();
-                Navigator.pop(ctx, n.isEmpty ? 'Untitled Branch' : n);
+                Navigator.pop(ctx, n.isEmpty ? FlueraLocalizations.of(context)!.branching_untitledBranch : n);
               },
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFF7C4DFF),
               ),
-              child: const Text('Create'),
+              child: Text(FlueraLocalizations.of(context)!.branching_create),
             ),
           ],
         );
@@ -123,6 +125,27 @@ extension on _FlueraCanvasScreenState {
   /// 3. Update recording context for new branch
   /// 4. If in TT mode: re-enter TT for the new branch
   Future<void> _switchToBranch(String? branchId) async {
+    // 🎤 Audio↔Stroke Sync — if an audio recording is active, stop it
+    // BEFORE swapping canvas state. Otherwise the live recording would
+    // end up associated with the wrong branch's strokes (race) and
+    // playback would replay strokes from a different scene-graph.
+    // The standard stop flow shows a save dialog so the user can keep
+    // or discard the in-progress recording.
+    if (_isRecordingAudio) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              FlueraLocalizations.of(context)!
+                  .audioSync_recordingStoppedOnBranchSwitch,
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+      await _stopAudioRecording();
+    }
+
     final wasInTimeTravel = _isTimeTravelMode;
 
     // If in TT mode, exit first
@@ -211,7 +234,7 @@ extension on _FlueraCanvasScreenState {
     }
   }
 
-  /// 🌿 Open the Branch Explorer bottom sheet
+  /// 🌿 Open the Alternative Explorer bottom sheet
   void _openBranchExplorer() {
     final manager = _getOrCreateBranchingManager();
 
@@ -229,20 +252,130 @@ extension on _FlueraCanvasScreenState {
             sourceBranchId, {
             String targetBranchId = 'br_main',
             bool deleteAfterMerge = false,
-          }) => _handleBranchMerge(
+          }) => _replaceOriginalWithAlternative(
             sourceBranchId,
             targetBranchId: targetBranchId,
             deleteAfterMerge: deleteAfterMerge,
           ),
+      showAdvancedMerge: widget.config.showAdvancedMergeUI,
     );
   }
 
-  /// 🔀 Handle branch merge (any child → parent, git-style)
+  // ============================================================================
+  // 📍 CHECKPOINT (linear save/restore — Notion-style)
+  // ============================================================================
+
+  /// Async lazy-init: lookup the in-memory cache, otherwise load from disk.
+  /// Returns the same instance across calls so the [VersionHistoryPanel]
+  /// observes mutations in real time via [setState].
+  Future<VersionHistory> _getOrLoadCheckpointHistory() async {
+    if (_checkpointHistory != null) return _checkpointHistory!;
+    _checkpointStore ??= CheckpointStore();
+    _checkpointHistory = await _checkpointStore!.load(_canvasId);
+    return _checkpointHistory!;
+  }
+
+  /// Persist current checkpoint history to disk (best-effort).
+  Future<void> _persistCheckpoints() async {
+    final history = _checkpointHistory;
+    final store = _checkpointStore;
+    if (history == null || store == null) return;
+    await store.save(_canvasId, history);
+  }
+
+  /// 📍 Save the current canvas state as a named checkpoint.
+  /// Enforces Free tier cap (3/canvas) via [VersionHistory.createEntryGated].
+  /// Snapshot data = serialized [CanvasLayer] list (same shape as
+  /// [BranchingManager.saveBranchWorkingState]), so restore round-trips.
+  Future<void> _saveCheckpointWithName(String title) async {
+    final history = await _getOrLoadCheckpointHistory();
+    final tier = widget.config.subscriptionTier;
+    final snapshot = <String, dynamic>{
+      // Full layer state — same serialization contract as BranchingManager.
+      'layers': _layerController.layers.map((l) => l.toJson()).toList(),
+      'capturedAt': DateTime.now().toIso8601String(),
+    };
+    try {
+      final userId = (await widget.config.getUserId()) ?? 'anon';
+      history.createEntryGated(
+        tier: tier,
+        title: title,
+        authorId: userId,
+        data: snapshot,
+      );
+      await _persistCheckpoints();
+      if (mounted) setState(() {}); // refresh counter in panel if open
+    } on CheckpointLimitError {
+      // Soft block — UI layer (VersionHistoryPanel) already shows upsell modal
+      // before calling here, so this catch is defensive only.
+    }
+  }
+
+  /// 🔄 Restore canvas state from a checkpoint entry.
+  /// Mirrors the layer-swap path used in [_switchToBranch].
+  Future<void> _restoreCheckpoint(VersionEntry entry) async {
+    final layersJson = entry.data['layers'] as List<dynamic>?;
+    if (layersJson == null || layersJson.isEmpty) return;
+    final layers = layersJson
+        .map((j) => CanvasLayer.fromJson(Map<String, dynamic>.from(j as Map)))
+        .toList();
+    _layerController.clearAllAndLoadLayers(layers);
+    _refreshCachedLists();
+  }
+
+  /// 📜 Open the Checkpoint panel as a modal bottom sheet.
+  Future<void> _openCheckpointPanel() async {
+    final history = await _getOrLoadCheckpointHistory();
+    if (!mounted) return;
+    final tier = widget.config.subscriptionTier;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(sheetCtx).size.height * 0.7,
+        ),
+        decoration: BoxDecoration(
+          color: Theme.of(sheetCtx).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SizedBox(
+          width: double.infinity,
+          child: VersionHistoryPanel(
+            history: history,
+            tier: tier,
+            onCreateVersion: (title) async {
+              await _saveCheckpointWithName(title);
+            },
+            onRestore: (entry) async {
+              Navigator.pop(sheetCtx);
+              await _restoreCheckpoint(entry);
+            },
+            onDelete: (entry) async {
+              history.deleteEntry(entry.id);
+              await _persistCheckpoints();
+              if (mounted) setState(() {});
+            },
+            onClose: () => Navigator.pop(sheetCtx),
+            onUpgradePressed: () {
+              Navigator.pop(sheetCtx);
+              // Route to subscription paywall — host wires this.
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 🔄 Replace Original (br_main) with the contents of a selected alternative.
   ///
-  /// Merges the source branch's layers into the target, reloads the canvas,
-  /// and switches context to the target branch. Cloud sync is triggered
-  /// automatically by [saveBranchWorkingState] inside [mergeBranch].
-  Future<void> _handleBranchMerge(
+  /// Renamed from `_handleBranchMerge` (2026-05-15) — power-user merge.
+  /// Default UI surfaces this with target=main + deleteAfterMerge=true.
+  /// Cloud sync is triggered automatically by [saveBranchWorkingState] inside
+  /// [mergeBranch].
+  Future<void> _replaceOriginalWithAlternative(
     String sourceBranchId, {
     required String targetBranchId,
     bool deleteAfterMerge = false,
@@ -301,13 +434,13 @@ extension on _FlueraCanvasScreenState {
       builder:
           (ctx) => AlertDialog(
             backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
-            title: const Text('New Branch'),
+            title: Text(FlueraLocalizations.of(context)!.branching_newBranch),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Fork from "${_activeBranchName ?? "main"}"',
+                  FlueraLocalizations.of(context)!.branching_forkFromBranch(_activeBranchName ?? 'main'),
                   style: TextStyle(
                     color: isDark ? Colors.white54 : Colors.black45,
                     fontSize: 13,
@@ -318,7 +451,8 @@ extension on _FlueraCanvasScreenState {
                   controller: nameController,
                   autofocus: true,
                   decoration: InputDecoration(
-                    hintText: 'Branch name',
+                    hintText:
+                      FlueraLocalizations.of(context)!.branching_branchName,
                     border: const OutlineInputBorder(),
                     prefixIcon: const Icon(
                       Icons.label_outline_rounded,
@@ -336,17 +470,17 @@ extension on _FlueraCanvasScreenState {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child: Text(FlueraLocalizations.of(context)!.branching_cancel),
               ),
               FilledButton(
                 onPressed: () {
                   final n = nameController.text.trim();
-                  Navigator.pop(ctx, n.isEmpty ? 'Untitled Branch' : n);
+                  Navigator.pop(ctx, n.isEmpty ? FlueraLocalizations.of(context)!.branching_untitledBranch : n);
                 },
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF7C4DFF),
                 ),
-                child: const Text('Create'),
+                child: Text(FlueraLocalizations.of(context)!.branching_create),
               ),
             ],
           ),

@@ -66,6 +66,7 @@ class RecordingStorageService {
     await _db!.insert(_kRecordingsTable, {
       'id': recording.id,
       'canvas_id': recording.canvasId ?? '',
+      'branch_id': recording.branchId,
       'audio_path': recording.audioPath,
       'note_title': recording.noteTitle,
       'recording_type': recording.recordingType,
@@ -75,6 +76,8 @@ class RecordingStorageService {
       'transcription_text': recording.transcriptionText,
       'transcription_language': recording.transcriptionLanguage,
       'transcription_segments_json': recording.transcriptionSegmentsJson,
+      'audio_storage_url': recording.audioStorageUrl,
+      'strokes_storage_url': recording.strokesStorageUrl,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
 
@@ -94,6 +97,37 @@ class RecordingStorageService {
       whereArgs: [canvasId],
       orderBy: 'created_at ASC',
     );
+
+    return _decodeRows(rows);
+  }
+
+  /// Load recordings for a specific branch of a canvas (Audio↔Stroke Sync V1.5).
+  ///
+  /// Pass `branchId == null` to load recordings on the main branch — this
+  /// also picks up rows persisted before schema v19 (which had no branch_id
+  /// column → all legacy rows are treated as main-branch by convention).
+  Future<List<SynchronizedRecording>> loadRecordingsForBranch(
+    String canvasId,
+    String? branchId,
+  ) async {
+    _ensureInitialized();
+
+    final List<Map<String, Object?>> rows;
+    if (branchId == null) {
+      rows = await _db!.query(
+        _kRecordingsTable,
+        where: 'canvas_id = ? AND (branch_id IS NULL OR branch_id = ?)',
+        whereArgs: [canvasId, ''],
+        orderBy: 'created_at ASC',
+      );
+    } else {
+      rows = await _db!.query(
+        _kRecordingsTable,
+        where: 'canvas_id = ? AND branch_id = ?',
+        whereArgs: [canvasId, branchId],
+        orderBy: 'created_at ASC',
+      );
+    }
 
     return _decodeRows(rows);
   }
@@ -155,12 +189,15 @@ class RecordingStorageService {
             startTime: DateTime.parse(row['start_time'] as String),
             syncedStrokes: syncedStrokes,
             canvasId: row['canvas_id'] as String?,
+            branchId: row['branch_id'] as String?,
             noteTitle: row['note_title'] as String?,
             recordingType: row['recording_type'] as String?,
             transcriptionText: row['transcription_text'] as String?,
             transcriptionLanguage: row['transcription_language'] as String?,
             transcriptionSegmentsJson:
                 row['transcription_segments_json'] as String?,
+            audioStorageUrl: row['audio_storage_url'] as String?,
+            strokesStorageUrl: row['strokes_storage_url'] as String?,
           ),
         );
       } catch (e) {

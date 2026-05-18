@@ -25,7 +25,8 @@ extension on _FlueraCanvasScreenState {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error loading image'),
+              content: Text(FlueraLocalizations.of(context)!
+                  .imageFeatures_errorLoading),
               backgroundColor: Colors.red,
             ),
           );
@@ -39,7 +40,8 @@ extension on _FlueraCanvasScreenState {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error decoding image'),
+              content: Text(FlueraLocalizations.of(context)!
+                  .imageFeatures_errorDecoding),
               backgroundColor: Colors.red,
             ),
           );
@@ -304,7 +306,8 @@ extension on _FlueraCanvasScreenState {
     if (hasLock == false) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Image is being edited by another collaborator'),
+          content: Text(
+              FlueraLocalizations.of(context)!.imageFeatures_beingEdited),
           backgroundColor: Colors.orange,
         ),
       );
@@ -432,7 +435,7 @@ extension on _FlueraCanvasScreenState {
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
                 child: Text(
-                  'Cancel',
+                  FlueraLocalizations.of(context)!.imageFeatures_cancel,
                   style: TextStyle(color: cs.onSurfaceVariant),
                 ),
               ),
@@ -445,7 +448,8 @@ extension on _FlueraCanvasScreenState {
                   backgroundColor: cs.error,
                   foregroundColor: cs.onError,
                 ),
-                child: const Text('Delete'),
+                child: Text(
+                    FlueraLocalizations.of(context)!.imageFeatures_delete),
               ),
             ],
           ),
@@ -460,6 +464,9 @@ extension on _FlueraCanvasScreenState {
   void _onImageZoomCheck() {
     if (!mounted) return;
     if (_imageZoomEnterCooldown) return;
+    // ⏱️ X.3: same rationale as the PDF zoom-enter check — wait for the
+    // momentum/spring to settle before evaluating viewport coverage.
+    if (_canvasController.isAnimating) return;
     // 🚀 THROTTLE: Skip expensive iteration if called too recently (zoom fires 60fps)
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastImageZoomCheckTime < 200) return;

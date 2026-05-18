@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../core/latex/ink_stroke_data.dart';
 import '../../core/latex/latex_fuzzy_corrector.dart';
 import '../../core/latex/latex_validator.dart';
@@ -533,12 +534,12 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
         actions: [
           IconButton(
             icon: const Icon(Icons.undo_rounded),
-            tooltip: 'Annulla',
+            tooltip: FlueraLocalizations.of(context)!.latex_undo,
             onPressed: _undoStack.isNotEmpty ? _undo : null,
           ),
           IconButton(
             icon: const Icon(Icons.redo_rounded),
-            tooltip: 'Ripeti',
+            tooltip: FlueraLocalizations.of(context)!.latex_redo,
             onPressed: _redoStack.isNotEmpty ? _redo : null,
           ),
           PopupMenuButton<String>(
@@ -555,41 +556,43 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                   _showCommandPalette();
               }
             },
-            itemBuilder:
-                (_) => [
-                  const PopupMenuItem(
-                    value: 'history',
-                    child: ListTile(
-                      leading: Icon(Icons.history_rounded),
-                      title: Text('Cronologia'),
-                      dense: true,
-                    ),
+            itemBuilder: (_) {
+              final l10n = FlueraLocalizations.of(context)!;
+              return [
+                PopupMenuItem(
+                  value: 'history',
+                  child: ListTile(
+                    leading: const Icon(Icons.history_rounded),
+                    title: Text(l10n.latex_history),
+                    dense: true,
                   ),
-                  const PopupMenuItem(
-                    value: 'templates',
-                    child: ListTile(
-                      leading: Icon(Icons.grid_view_rounded),
-                      title: Text('Modelli'),
-                      dense: true,
-                    ),
+                ),
+                PopupMenuItem(
+                  value: 'templates',
+                  child: ListTile(
+                    leading: const Icon(Icons.grid_view_rounded),
+                    title: Text(l10n.latex_templates),
+                    dense: true,
                   ),
-                  const PopupMenuItem(
-                    value: 'graph',
-                    child: ListTile(
-                      leading: Icon(Icons.show_chart_rounded),
-                      title: Text('Grafico'),
-                      dense: true,
-                    ),
+                ),
+                PopupMenuItem(
+                  value: 'graph',
+                  child: ListTile(
+                    leading: const Icon(Icons.show_chart_rounded),
+                    title: Text(l10n.latex_graph),
+                    dense: true,
                   ),
-                  const PopupMenuItem(
-                    value: 'palette',
-                    child: ListTile(
-                      leading: Icon(Icons.terminal_rounded),
-                      title: Text('Comandi'),
-                      dense: true,
-                    ),
+                ),
+                PopupMenuItem(
+                  value: 'palette',
+                  child: ListTile(
+                    leading: const Icon(Icons.terminal_rounded),
+                    title: Text(l10n.latex_commands),
+                    dense: true,
                   ),
-                ],
+                ),
+              ];
+            },
           ),
         ],
       ),
@@ -773,7 +776,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'Anteprima',
+                              FlueraLocalizations.of(context)!.latex_preview,
                               style: TextStyle(
                                 fontSize: 12,
                                 color: cs.onSurfaceVariant,
@@ -898,13 +901,13 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
           // E2: Undo/Redo buttons
           _HeaderIconButton(
             icon: Icons.undo_rounded,
-            tooltip: 'Annulla',
+            tooltip: FlueraLocalizations.of(context)!.latex_undo,
             enabled: _undoStack.length > 1,
             onTap: _undo,
           ),
           _HeaderIconButton(
             icon: Icons.redo_rounded,
-            tooltip: 'Ripristina',
+            tooltip: FlueraLocalizations.of(context)!.latex_reset,
             enabled: _redoStack.isNotEmpty,
             onTap: _redo,
           ),
@@ -1192,7 +1195,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Text(
-                        'Cronologia',
+                        FlueraLocalizations.of(context)!.latex_history,
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -1206,7 +1209,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                           _expressionHistory.isEmpty
                               ? Center(
                                 child: Text(
-                                  'Nessuna espressione recente',
+                                  FlueraLocalizations.of(context)!
+                                      .latex_noRecentExpressions,
                                   style: TextStyle(color: cs.onSurfaceVariant),
                                 ),
                               )
@@ -1289,7 +1293,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Modelli',
+                  FlueraLocalizations.of(context)!.latex_templates,
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -1315,8 +1319,8 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
     if (src.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text(
-            'Inserisci un\'espressione prima di visualizzare il grafico',
+          content: Text(
+            FlueraLocalizations.of(context)!.latex_enterExpressionFirst,
           ),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -2068,7 +2072,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     // Color (icon only)
                     _ToolbarIconButton(
                       icon: Icons.palette_rounded,
-                      tooltip: 'Color',
+                      tooltip: FlueraLocalizations.of(context)!.latexEditor_color,
                       onTap: () => _showColorPicker(cs),
                       dotColor: _color,
                       size: 32,
@@ -2076,7 +2080,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                     // Reference (icon only)
                     _ToolbarIconButton(
                       icon: Icons.menu_book_rounded,
-                      tooltip: 'Commands',
+                      tooltip: FlueraLocalizations.of(context)!.latexEditor_commands,
                       onTap: () => _openCommandReference(),
                       size: 32,
                     ),
@@ -2109,7 +2113,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                   // Color picker
                   _ToolbarIconButton(
                     icon: Icons.palette_rounded,
-                    tooltip: 'Color',
+                    tooltip: FlueraLocalizations.of(context)!.latexEditor_color,
                     onTap: () => _showColorPicker(cs),
                     dotColor: _color,
                   ),
@@ -2119,7 +2123,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                   // Command reference
                   _ToolbarIconButton(
                     icon: Icons.menu_book_rounded,
-                    tooltip: 'LaTeX Commands',
+                    tooltip: FlueraLocalizations.of(context)!.latexEditor_latexCommands,
                     onTap: () => _openCommandReference(),
                   ),
 
@@ -2128,7 +2132,7 @@ class _LatexEditorSheetState extends State<LatexEditorSheet>
                   // P4: Font size toggle
                   _ToolbarIconButton(
                     icon: Icons.format_size_rounded,
-                    tooltip: 'Dimensione: ${_fontSize.toInt()}',
+                    tooltip: FlueraLocalizations.of(context)!.latexEditor_fontSize(_fontSize.toInt()),
                     onTap: () {
                       HapticFeedback.selectionClick();
                       setState(() => _showFontSlider = !_showFontSlider);

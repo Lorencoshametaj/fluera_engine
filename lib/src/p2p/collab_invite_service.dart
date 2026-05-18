@@ -62,10 +62,10 @@ class CollabInviteService {
 
   /// Create a universal link (HTTPS) for platforms that prefer it.
   ///
-  /// Format: `https://fluera.app/collab/{roomId}`
+  /// Format: `https://fluera.dev/collab/{roomId}`
   static String createUniversalLink(
     String roomId, {
-    String domain = 'fluera.app',
+    String domain = 'fluera.dev',
   }) {
     return 'https://$domain/$host/$roomId';
   }
@@ -85,7 +85,7 @@ class CollabInviteService {
         }
       }
 
-      // Handle https://fluera.app/collab/{roomId}
+      // Handle https://fluera.dev/collab/{roomId}
       if (uri.scheme == 'https' && uri.pathSegments.length >= 2) {
         if (uri.pathSegments[0] == host) {
           return _validateRoomId(uri.pathSegments[1]);

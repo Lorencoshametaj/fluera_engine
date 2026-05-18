@@ -299,7 +299,7 @@ class _PdfSearchPanelState extends State<_PdfSearchPanel> {
                                 Icons.keyboard_arrow_up_rounded,
                                 size: 18,
                               ),
-                              tooltip: 'Previous (Shift+Enter)',
+                              tooltip: FlueraLocalizations.of(context)!.pdfToolbar_previousShiftEnter,
                               visualDensity: VisualDensity.compact,
                             ),
                             const SizedBox(width: 8),

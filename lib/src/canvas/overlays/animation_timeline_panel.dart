@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 import '../../systems/animation_timeline.dart';
 import '../../systems/animation_player.dart';
 import '../../systems/stagger_animation.dart';
@@ -120,7 +121,7 @@ class _AnimationTimelinePanelState extends State<AnimationTimelinePanel>
                           HapticFeedback.selectionClick();
                           setState(() => _isLooping = !_isLooping);
                         },
-                        tooltip: 'Loop',
+                        tooltip: FlueraLocalizations.of(context)!.animTimeline_loop,
                       ),
                       // Play/Pause
                       IconButton.filled(

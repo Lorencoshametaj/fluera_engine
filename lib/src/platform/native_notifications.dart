@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -325,6 +326,31 @@ class NativeNotifications {
 
   NativeNotifications._();
 
+  // ── Platform support ───────────────────────────────────────────────────────
+
+  /// Whether a native implementation exists on the current platform.
+  ///
+  /// Android and iOS only. On macOS, Linux, Windows and web every method
+  /// becomes a safe no-op returning the empty/denied/null default — callers
+  /// don't need to guard each call site.
+  static bool get isSupported {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  /// Platform-gated channel invocation. Skips the channel call on
+  /// unsupported platforms and swallows [MissingPluginException] if the
+  /// host registered the channel but not this specific method.
+  static Future<T?> _invoke<T>(String method, [dynamic arguments]) async {
+    if (!isSupported) return null;
+    try {
+      return await _method.invokeMethod<T>(method, arguments);
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   // ── Tap stream ─────────────────────────────────────────────────────────────
 
   static Stream<FNotificationTapEvent>? _tapStream;
@@ -332,8 +358,16 @@ class NativeNotifications {
   /// Broadcast stream that emits whenever the user taps a notification or one
   /// of its action buttons.
   ///
+  /// On unsupported platforms returns a never-emitting empty broadcast stream
+  /// so callers can `listen` unconditionally.
+  ///
   /// Subscribe before showing notifications to avoid missing early taps.
   static Stream<FNotificationTapEvent> get onNotificationTapped {
+    if (!isSupported) {
+      _tapStream ??=
+          const Stream<FNotificationTapEvent>.empty();
+      return _tapStream!;
+    }
     _tapStream ??= _events
         .receiveBroadcastStream()
         .where((raw) => raw is Map)
@@ -349,7 +383,10 @@ class NativeNotifications {
   /// On **Android < 13** always returns [FNotificationPermission.alreadyGranted]
   /// because no runtime permission is required.
   /// On **iOS**, presents the system alert the first time it is called.
+  /// On unsupported platforms (desktop/web) returns
+  /// [FNotificationPermission.denied] so callers skip notification flows.
   static Future<FNotificationPermission> requestPermission() async {
+    if (!isSupported) return FNotificationPermission.denied;
     try {
       final String? raw =
           await _method.invokeMethod<String>('requestPermission');
@@ -361,6 +398,8 @@ class NativeNotifications {
       };
     } on PlatformException {
       return FNotificationPermission.denied;
+    } on MissingPluginException {
+      return FNotificationPermission.denied;
     }
   }
 
@@ -371,7 +410,7 @@ class NativeNotifications {
   /// If a notification with the same [FNotification.id] is already visible,
   /// it is updated in place rather than duplicated.
   static Future<void> show(FNotification notification) async {
-    await _method.invokeMethod<void>('show', notification._toMap());
+    await _invoke<void>('show', notification._toMap());
   }
 
   // ── Schedule ───────────────────────────────────────────────────────────────
@@ -386,7 +425,7 @@ class NativeNotifications {
     FNotification notification,
     DateTime deliverAt,
   ) async {
-    await _method.invokeMethod<void>('schedule', {
+    await _invoke<void>('schedule', {
       ...notification._toMap(),
       'deliverAtMs': deliverAt.millisecondsSinceEpoch,
     });
@@ -412,7 +451,7 @@ class NativeNotifications {
     required DateTime firstDeliveryAt,
     required FRepeatInterval interval,
   }) async {
-    await _method.invokeMethod<void>('scheduleRepeating', {
+    await _invoke<void>('scheduleRepeating', {
       ...notification._toMap(),
       'deliverAtMs': firstDeliveryAt.millisecondsSinceEpoch,
       'repeatInterval': interval.name,
@@ -423,12 +462,12 @@ class NativeNotifications {
 
   /// Cancels a single pending or delivered notification by [id].
   static Future<void> cancel(String id) async {
-    await _method.invokeMethod<void>('cancel', {'id': id});
+    await _invoke<void>('cancel', {'id': id});
   }
 
   /// Cancels all pending and delivered notifications issued by this app.
   static Future<void> cancelAll() async {
-    await _method.invokeMethod<void>('cancelAll');
+    await _invoke<void>('cancelAll');
   }
 
   /// Cancels all notifications (pending + delivered) that share the given
@@ -439,7 +478,7 @@ class NativeNotifications {
   /// await NativeNotifications.cancelGroup('study_reminders');
   /// ```
   static Future<void> cancelGroup(String groupKey) async {
-    await _method.invokeMethod<void>('cancelGroup', {'groupKey': groupKey});
+    await _invoke<void>('cancelGroup', {'groupKey': groupKey});
   }
 
   // ── Badge ──────────────────────────────────────────────────────────────────
@@ -451,7 +490,7 @@ class NativeNotifications {
   /// and not guaranteed.
   static Future<void> setBadgeCount(int count) async {
     assert(count >= 0, 'Badge count must be >= 0');
-    await _method.invokeMethod<void>('setBadge', {'count': count});
+    await _invoke<void>('setBadge', {'count': count});
   }
 
   /// Clears the app icon badge.
@@ -464,8 +503,7 @@ class NativeNotifications {
   ///
   /// Each entry is a map with at least `id`, `title`, and optionally `body`.
   static Future<List<Map<String, dynamic>>> getDeliveredNotifications() async {
-    final List<Object?>? raw =
-        await _method.invokeMethod<List<Object?>>('getDelivered');
+    final List<Object?>? raw = await _invoke<List<Object?>>('getDelivered');
     if (raw == null) return [];
     return raw
         .whereType<Map<Object?, Object?>>()
@@ -488,7 +526,7 @@ class NativeNotifications {
   /// ```
   static Future<FNotificationTapEvent?> getInitialNotification() async {
     final Map<Object?, Object?>? raw =
-        await _method.invokeMethod<Map<Object?, Object?>>('getInitialNotification');
+        await _invoke<Map<Object?, Object?>>('getInitialNotification');
     if (raw == null) return null;
     return FNotificationTapEvent._fromMap(raw);
   }
@@ -498,8 +536,7 @@ class NativeNotifications {
   ///
   /// Each entry contains at least `id`, `title`, and optionally `body`.
   static Future<List<Map<String, dynamic>>> getPendingNotifications() async {
-    final List<Object?>? raw =
-        await _method.invokeMethod<List<Object?>>('getPending');
+    final List<Object?>? raw = await _invoke<List<Object?>>('getPending');
     if (raw == null) return [];
     return raw
         .whereType<Map<Object?, Object?>>()
@@ -529,7 +566,7 @@ class NativeNotifications {
     FNotificationPriority importance = FNotificationPriority.defaultPriority,
     bool enableVibration = true,
   }) async {
-    await _method.invokeMethod<void>('createChannel', {
+    await _invoke<void>('createChannel', {
       'id': id,
       'name': name,
       if (description != null) 'description': description,

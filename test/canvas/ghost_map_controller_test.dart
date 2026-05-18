@@ -36,14 +36,35 @@ class _FakeAiProvider implements AiProvider {
   @override
   Stream<String> askChatStream(String h, String m, String c) async* {}
   @override
-  Future<String> askFreeText(String prompt) async => '';
+  Future<String> askFreeText(
+    String prompt, {
+    bool isFreeBackground = false,
+  }) async =>
+      '';
   @override
   Future<String> askSocraticBatch(String prompt,
           {List<String> avoidPrompts = const []}) async =>
       '';
   @override
-  Future<String> cleanOcrItalian(String raw, {String language = 'Italian'}) async =>
+  Future<String> cleanOcrItalian(
+    String raw, {
+    String language = 'Italian',
+    bool isFreeBackground = false,
+  }) async =>
       raw;
+  @override
+  Future<String> cleanOcr(
+    String raw, {
+    String langCode = 'en',
+    bool isFreeBackground = false,
+  }) async =>
+      raw;
+  @override
+  Stream<String> streamForStage({
+    required String stage,
+    required String payload,
+    required String langCode,
+  }) async* {}
   @override
   Future<({String question, bool isAporetic})> askSocraticFollowUp({
     required String tipo,

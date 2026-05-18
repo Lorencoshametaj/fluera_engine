@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/fluera_localizations.dart';
 import '../models/canvas_branch.dart';
 import '../branching_manager.dart';
 
-/// 🌿 Branch Explorer — bottom sheet showing branch hierarchy
+/// 🌿 Alternative Explorer — bottom sheet listing canvas alternatives
 ///
-/// Displays branches as an indented folder-style list with:
-/// - Branch name, creation date, event count
-/// - Actions: Switch, Rename, Delete
-/// - Active branch indicator
-/// - "New Branch" prompt when entered from Time Travel
+/// Repositioned 2026-05-15 from "git branches" mental model to "Alternative
+/// esplorate". Defaults to flat list + non-destructive "Sostituisci Originale"
+/// action; classic merge UI is gated behind [showAdvancedMerge] for power
+/// users (Settings → Studio avanzato).
 class BranchExplorerSheet extends StatefulWidget {
   final String canvasId;
   final BranchingManager branchingManager;
@@ -25,6 +25,11 @@ class BranchExplorerSheet extends StatefulWidget {
   })?
   onMergeBranch;
 
+  /// When true, surfaces the classic git-style merge UI with checkbox
+  /// "delete after merge". Default false: a single "Sostituisci l'Originale"
+  /// action that performs target=main + deleteAfterMerge=true.
+  final bool showAdvancedMerge;
+
   const BranchExplorerSheet({
     super.key,
     required this.canvasId,
@@ -34,6 +39,7 @@ class BranchExplorerSheet extends StatefulWidget {
     this.onCreateBranch,
     this.onDeleteBranch,
     this.onMergeBranch,
+    this.showAdvancedMerge = false,
   });
 
   /// Show as a modal bottom sheet
@@ -51,6 +57,7 @@ class BranchExplorerSheet extends StatefulWidget {
       bool deleteAfterMerge,
     })?
     onMergeBranch,
+    bool showAdvancedMerge = false,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -65,6 +72,7 @@ class BranchExplorerSheet extends StatefulWidget {
             onCreateBranch: onCreateBranch,
             onDeleteBranch: onDeleteBranch,
             onMergeBranch: onMergeBranch,
+            showAdvancedMerge: showAdvancedMerge,
           ),
     );
   }
@@ -128,13 +136,13 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
             child: Row(
               children: [
                 Icon(
-                  Icons.account_tree_rounded,
+                  Icons.alt_route_rounded,
                   color: const Color(0xFF7C4DFF),
                   size: 22,
                 ),
                 const SizedBox(width: 10),
                 Text(
-                  'Branch Explorer',
+                  FlueraLocalizations.of(context)!.branchExplorer_title,
                   style: TextStyle(
                     color: textColor,
                     fontSize: 18,
@@ -151,7 +159,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                       widget.onCreateBranch!();
                     },
                     icon: const Icon(Icons.add_rounded, size: 18),
-                    label: const Text('New'),
+                    label: Text(
+                        FlueraLocalizations.of(context)!.branchExplorer_new),
                     style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFF7C4DFF),
                       textStyle: const TextStyle(
@@ -200,7 +209,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
           ),
           const SizedBox(height: 16),
           Text(
-            'No branches yet',
+            FlueraLocalizations.of(context)!.branchExplorer_emptyTitle,
             style: TextStyle(
               color: textColor,
               fontSize: 16,
@@ -209,7 +218,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Open Time Travel, navigate to any point,\nand tap "New Branch" to start experimenting.',
+            FlueraLocalizations.of(context)!.branchExplorer_emptyBody,
             textAlign: TextAlign.center,
             style: TextStyle(color: subtitleColor, fontSize: 13, height: 1.5),
           ),
@@ -257,21 +266,37 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
         '${d.day} ${_m[d.month - 1]}, ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
     final branchColor =
         isMain ? const Color(0xFF7C4DFF) : _getBranchColor(branch);
+    final l10n = FlueraLocalizations.of(context)!;
 
-    // Enhanced subtitle: date · cloud badge
-    final subtitleParts = <String>[isMain ? 'Primary branch' : dateStr];
+    // Subtitle: "Originale" for main, otherwise "Nasce da: <parent> · <date> [· ☁️]"
+    String parentLabel = l10n.branchExplorer_main;
+    if (!isMain && branch.parentBranchId != null &&
+        branch.parentBranchId != 'br_main') {
+      final parent = widget.branchingManager.branches
+          .where((b) => b.id == branch.parentBranchId)
+          .firstOrNull;
+      if (parent != null) parentLabel = parent.name;
+    }
+    final subtitleParts = <String>[
+      if (isMain)
+        l10n.branchExplorer_primaryBranch
+      else ...[
+        '${l10n.branchExplorer_parent}: $parentLabel',
+        dateStr,
+      ],
+    ];
     if (!isMain && branch.isSyncedToCloud) {
       subtitleParts.add('☁️');
     }
 
     return _BranchListTile(
-      icon: isMain ? Icons.timeline_rounded : Icons.alt_route_rounded,
+      icon: isMain ? Icons.bookmark_rounded : Icons.alt_route_rounded,
       iconColor: branchColor,
-      name: isMain ? 'Main Canvas' : branch.name,
+      name: isMain ? l10n.branchExplorer_mainCanvasLabel : branch.name,
       subtitle: subtitleParts.join(' · '),
       description: isMain ? null : branch.description,
       isActive: isActive,
-      indentLevel: isMain ? 0 : branch.depthLevel + 1,
+      indentLevel: 0, // 🌿 2026-05-15: flat layout — no more tree indentation.
       textColor: textColor,
       subtitleColor: subtitleColor,
       isDark: isDark,
@@ -339,7 +364,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 const SizedBox(height: 8),
                 ListTile(
                   leading: const Icon(Icons.edit_rounded, size: 20),
-                  title: const Text('Rename'),
+                  title: Text(
+                      FlueraLocalizations.of(context)!.branchExplorer_rename),
                   onTap: () {
                     Navigator.pop(ctx);
                     _showRenameDialog(branch);
@@ -347,7 +373,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 ),
                 ListTile(
                   leading: const Icon(Icons.description_outlined, size: 20),
-                  title: const Text('Edit Description'),
+                  title: Text(FlueraLocalizations.of(context)!
+                      .branchExplorer_editDescription),
                   subtitle:
                       branch.description != null
                           ? Text(
@@ -367,7 +394,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 ),
                 ListTile(
                   leading: const Icon(Icons.copy_rounded, size: 20),
-                  title: const Text('Duplicate'),
+                  title: Text(FlueraLocalizations.of(context)!
+                      .branchExplorer_duplicate),
                   onTap: () async {
                     Navigator.pop(ctx);
                     HapticFeedback.mediumImpact();
@@ -381,59 +409,59 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                     if (mounted) _loadBranches();
                   },
                 ),
-                if (widget.onMergeBranch != null && branch.id != 'br_main') ...[
-                  Builder(
-                    builder: (_) {
-                      // Resolve the merge target (parent branch)
-                      final targetId = branch.parentBranchId ?? 'br_main';
-                      final targetBranch =
-                          widget.branchingManager.branches
-                              .where((b) => b.id == targetId)
-                              .firstOrNull;
-                      final targetName =
-                          targetId == 'br_main'
-                              ? 'Main'
-                              : (targetBranch?.name ?? 'Parent');
-
-                      return ListTile(
-                        leading: Icon(
-                          Icons.merge_rounded,
-                          size: 20,
-                          color: const Color(0xFF66BB6A),
-                        ),
-                        title: Text(
-                          'Merge to $targetName',
-                          style: TextStyle(color: const Color(0xFF66BB6A)),
-                        ),
-                        subtitle: Text(
-                          'Overwrite "$targetName" with this branch',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _confirmMerge(branch, targetId, targetName);
-                        },
-                      );
+                // 🌿 2026-05-15: hide tree-style merge by default.
+                // Default UI exposes a single "Sostituisci l'Originale" action
+                // (target=br_main + deleteAfterMerge=true). Power users can
+                // toggle [showAdvancedMerge] in Settings to restore the
+                // classic UI with parent-target picker + checkbox.
+                if (widget.onMergeBranch != null && branch.id != 'br_main')
+                  ListTile(
+                    leading: const Icon(
+                      Icons.swap_horiz_rounded,
+                      size: 20,
+                      color: Color(0xFF66BB6A),
+                    ),
+                    title: Text(
+                      FlueraLocalizations.of(context)!.branchExplorer_merge,
+                      style: const TextStyle(color: Color(0xFF66BB6A)),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      if (widget.showAdvancedMerge) {
+                        // Advanced: parent-target merge with checkbox
+                        final targetId = branch.parentBranchId ?? 'br_main';
+                        final targetBranch =
+                            widget.branchingManager.branches
+                                .where((b) => b.id == targetId)
+                                .firstOrNull;
+                        final targetName = targetId == 'br_main'
+                            ? FlueraLocalizations.of(context)!
+                                .branchExplorer_main
+                            : (targetBranch?.name ??
+                                FlueraLocalizations.of(context)!
+                                    .branchExplorer_parent);
+                        _confirmMergeAdvanced(branch, targetId, targetName);
+                      } else {
+                        // Default: replace original (main) one-tap
+                        _confirmReplaceOriginal(branch);
+                      }
                     },
                   ),
-                ],
                 ListTile(
                   leading: Icon(
-                    Icons.delete_outline_rounded,
+                    Icons.inventory_2_outlined,
                     size: 20,
                     color: const Color(0xFFEF5350),
                   ),
                   title: Text(
-                    'Delete',
+                    FlueraLocalizations.of(context)!.branchExplorer_delete,
                     style: TextStyle(color: const Color(0xFFEF5350)),
                   ),
                   subtitle:
                       widget.branchingManager.hasChildren(branch.id)
                           ? Text(
-                            'Will also delete sub-branches',
+                            FlueraLocalizations.of(context)!
+                                .branchExplorer_archiveWithChildren,
                             style: TextStyle(
                               fontSize: 12,
                               color: const Color(0xFFE57373),
@@ -455,25 +483,26 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
   void _showRenameDialog(CanvasBranch branch) {
     final controller = TextEditingController(text: branch.name);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final l10n = FlueraLocalizations.of(context)!;
 
     showDialog(
       context: context,
       builder:
           (ctx) => AlertDialog(
             backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
-            title: const Text('Rename Branch'),
+            title: Text(l10n.branchExplorer_renameBranch),
             content: TextField(
               controller: controller,
               autofocus: true,
-              decoration: const InputDecoration(
-                hintText: 'Branch name',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: l10n.branchExplorer_branchNameHint,
+                border: const OutlineInputBorder(),
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child: Text(l10n.branchExplorer_cancel),
               ),
               FilledButton(
                 onPressed: () async {
@@ -491,7 +520,7 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF7C4DFF),
                 ),
-                child: const Text('Rename'),
+                child: Text(l10n.branchExplorer_rename),
               ),
             ],
           ),
@@ -501,26 +530,28 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
   void _showDescriptionDialog(CanvasBranch branch) {
     final controller = TextEditingController(text: branch.description ?? '');
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final l10n = FlueraLocalizations.of(context)!;
 
     showDialog(
       context: context,
       builder:
           (ctx) => AlertDialog(
             backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
-            title: const Text('Branch Description'),
+            title: Text(l10n.branchExplorer_branchDescription),
             content: TextField(
               controller: controller,
               autofocus: true,
               maxLines: 3,
-              decoration: const InputDecoration(
-                hintText: 'Why did you create this branch?',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: FlueraLocalizations.of(context)!
+                    .branchExplorer_descriptionHint,
+                border: const OutlineInputBorder(),
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child: Text(l10n.branchExplorer_cancel),
               ),
               FilledButton(
                 onPressed: () async {
@@ -536,14 +567,67 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF7C4DFF),
                 ),
-                child: const Text('Save'),
+                child: Text(l10n.branchExplorer_save),
               ),
             ],
           ),
     );
   }
 
-  void _confirmMerge(
+  /// 🌿 Default replace flow: 1-tap confirm, target=main, deleteAfterMerge=true.
+  /// No checkbox, no parent picker. Student-friendly semantics: "Sostituisci
+  /// l'Originale con questa alternativa".
+  void _confirmReplaceOriginal(CanvasBranch branch) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final l10n = FlueraLocalizations.of(context)!;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
+        icon: const Icon(
+          Icons.swap_horiz_rounded,
+          color: Color(0xFF66BB6A),
+          size: 32,
+        ),
+        title: Text(l10n.branchExplorer_replaceConfirmTitle),
+        content: Text(
+          l10n.branchExplorer_replaceConfirmBody(branch.name),
+          style: TextStyle(
+            color: isDark ? Colors.white70 : Colors.black54,
+            fontSize: 14,
+            height: 1.4,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l10n.branchExplorer_cancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              HapticFeedback.heavyImpact();
+              Navigator.pop(ctx);
+              Navigator.pop(context); // Close explorer
+              widget.onMergeBranch?.call(
+                branch.id,
+                targetBranchId: 'br_main',
+                deleteAfterMerge: true,
+              );
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF43A047),
+            ),
+            child: Text(l10n.branchExplorer_merge),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 🛠️ Power-user merge flow (gated by [showAdvancedMerge]).
+  /// Original git-style UI: parent-target picker + delete-after-merge checkbox.
+  void _confirmMergeAdvanced(
     CanvasBranch branch,
     String targetBranchId,
     String targetName,
@@ -564,14 +648,17 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                     color: const Color(0xFF66BB6A),
                     size: 32,
                   ),
-                  title: Text('Merge to $targetName'),
+                  title: Text(
+                    FlueraLocalizations.of(context)!
+                        .branchExplorer_replaceConfirmTitle,
+                  ),
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'This will replace "$targetName" with the contents '
-                        'of "${branch.name}".',
+                        FlueraLocalizations.of(context)!
+                            .branchExplorer_replaceConfirmBody(branch.name),
                         style: TextStyle(
                           color: isDark ? Colors.white70 : Colors.black54,
                           fontSize: 14,
@@ -579,37 +666,12 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withValues(
-                            alpha: isDark ? 0.15 : 0.08,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.orange.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.warning_amber_rounded,
-                              size: 18,
-                              color: const Color(0xFFFFA726),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                '"$targetName" will be overwritten. '
-                                'This cannot be undone.',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: const Color(0xFFFFA726),
-                                  height: 1.3,
-                                ),
-                              ),
-                            ),
-                          ],
+                      // Advanced-mode target selector summary
+                      Text(
+                        '→ $targetName',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? Colors.white : Colors.black87,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -631,7 +693,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Delete branch after merge',
+                              FlueraLocalizations.of(context)!
+                                  .branchExplorer_deleteAfterMerge,
                               style: TextStyle(
                                 fontSize: 13,
                                 color: isDark ? Colors.white70 : Colors.black54,
@@ -645,7 +708,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx),
-                      child: const Text('Cancel'),
+                      child: Text(FlueraLocalizations.of(context)!
+                          .branchExplorer_cancel),
                     ),
                     FilledButton(
                       onPressed: () {
@@ -661,7 +725,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                       style: FilledButton.styleFrom(
                         backgroundColor: const Color(0xFF43A047),
                       ),
-                      child: const Text('Merge'),
+                      child: Text(FlueraLocalizations.of(context)!
+                          .branchExplorer_merge),
                     ),
                   ],
                 ),
@@ -680,12 +745,13 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
           (ctx) => AlertDialog(
             backgroundColor: isDark ? const Color(0xFF2A2A3E) : Colors.white,
             icon: Icon(
-              Icons.warning_amber_rounded,
+              Icons.inventory_2_outlined,
               color: const Color(0xFFEF5350),
               size: 40,
             ),
             title: Text(
-              'Delete "${branch.name}"?',
+              FlueraLocalizations.of(context)!
+                  .branchExplorer_archiveConfirmTitle(branch.name),
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
             ),
             content: Column(
@@ -693,7 +759,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'This action is irreversible. The following will be permanently deleted:',
+                  FlueraLocalizations.of(context)!
+                      .branchExplorer_archiveConfirmBody,
                   style: TextStyle(
                     color: isDark ? Colors.white70 : Colors.black54,
                     fontSize: 14,
@@ -703,23 +770,26 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                 const SizedBox(height: 12),
                 _buildDeleteItem(
                   Icons.brush_rounded,
-                  'All drawings and strokes',
+                  FlueraLocalizations.of(context)!.branchExplorer_warningStrokes,
                   isDark,
                 ),
                 _buildDeleteItem(
                   Icons.history_rounded,
-                  'Time Travel history',
+                  FlueraLocalizations.of(context)!
+                      .branchExplorer_timeTravelHistory,
                   isDark,
                 ),
                 _buildDeleteItem(
                   Icons.photo_camera_rounded,
-                  'Canvas snapshots',
+                  FlueraLocalizations.of(context)!
+                      .branchExplorer_warningSnapshots,
                   isDark,
                 ),
                 if (hasChildren)
                   _buildDeleteItem(
                     Icons.account_tree_rounded,
-                    'All sub-branches (cascade)',
+                    FlueraLocalizations.of(context)!
+                        .branchExplorer_subBranchesCascade,
                     isDark,
                     isWarning: true,
                   ),
@@ -746,8 +816,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'You are currently on this branch. '
-                            'You will be switched to Main.',
+                            FlueraLocalizations.of(context)!
+                                .branchExplorer_youAreOnActiveWarning,
                             style: TextStyle(
                               color: const Color(0xFFFFA726),
                               fontSize: 12,
@@ -764,7 +834,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
+                child: Text(FlueraLocalizations.of(context)!
+                    .branchExplorer_cancel),
               ),
               FilledButton.icon(
                 onPressed: () async {
@@ -788,7 +859,8 @@ class _BranchExplorerSheetState extends State<BranchExplorerSheet> {
                   }
                 },
                 icon: const Icon(Icons.delete_forever_rounded, size: 18),
-                label: const Text('Delete Forever'),
+                label: Text(FlueraLocalizations.of(context)!
+                    .branchExplorer_deleteForever),
                 style: FilledButton.styleFrom(backgroundColor: const Color(0xFFEF5350)),
               ),
             ],
@@ -951,7 +1023,7 @@ class _BranchListTile extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
-                  'Active',
+                  FlueraLocalizations.of(context)!.branchExplorer_active,
                   style: TextStyle(
                     color: iconColor,
                     fontSize: 11,

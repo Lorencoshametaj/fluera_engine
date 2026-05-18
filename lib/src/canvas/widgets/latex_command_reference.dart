@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/fluera_localizations.dart';
 
 /// 🧮 LaTeX Command Reference — Enterprise-grade Material Design 3 cheat sheet.
 ///
@@ -302,11 +303,11 @@ class _LatexCommandReferenceState extends State<LatexCommandReference>
                   icon: const Icon(Icons.arrow_back_rounded),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
-                title: const Text('LaTeX Commands'),
+                title: Text(FlueraLocalizations.of(context)!.latexEditor_latexCommands),
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.info_outline_rounded),
-                    tooltip: 'Info',
+                    tooltip: FlueraLocalizations.of(context)!.latexEditor_info,
                     onPressed: () => _showInfoDialog(context, cs),
                   ),
                   const SizedBox(width: 8),
@@ -321,7 +322,7 @@ class _LatexCommandReferenceState extends State<LatexCommandReference>
                   ),
                   child: SearchBar(
                     controller: _searchController,
-                    hintText: 'Search commands...',
+                    hintText: FlueraLocalizations.of(context)!.latexEditor_searchCommands,
                     leading: Padding(
                       padding: const EdgeInsets.only(left: 8),
                       child: Icon(

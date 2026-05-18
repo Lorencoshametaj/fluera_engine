@@ -18,6 +18,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
+import '../../l10n/fluera_localizations.dart';
 import '../../reflow/content_cluster.dart';
 
 /// Lazy resolver — returns a cached title/text for the cluster id, or
@@ -378,7 +379,7 @@ class _SocraticScopePickerState extends State<SocraticScopePicker> {
       cursorColor: _accent,
       onChanged: _onQueryChanged,
       decoration: InputDecoration(
-        hintText: 'Cerca argomento (titolo o appunto)',
+        hintText: FlueraLocalizations.of(context)!.socraticScope_searchHint,
         hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
         prefixIcon: Icon(Icons.search,
             size: 18, color: Colors.white.withValues(alpha: 0.5)),

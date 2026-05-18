@@ -3,6 +3,7 @@ library professional_canvas_toolbar;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import '../../utils/key_value_store.dart';
@@ -81,6 +82,16 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   /// ☁️ Cloud sync state notifier — drives toolbar sync indicator.
   final ValueListenable<FlueraSyncState>? cloudSyncState;
 
+  /// 💎 Optional trailing slot in the right zone, rendered immediately
+  /// BEFORE the settings dropdown so it stays anchored on the far-right
+  /// edge but never blocks the settings affordance.
+  ///
+  /// V1 (2026-05-14) typical use case: the host injects
+  /// `FlueraCreditsBadge` here so the AI credit counter is always
+  /// visible — pillar of the trasparenza-first positioning.
+  /// Null = the right zone behaves exactly as before (back-compat).
+  final Widget? trailingBadge;
+
   const ProfessionalCanvasToolbar({
     super.key,
     required this.state,
@@ -88,6 +99,7 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
     this.forceLeftAlign = false,
     this.isFloating = false,
     this.cloudSyncState,
+    this.trailingBadge,
   });
 
   // ==========================================================================
@@ -148,6 +160,10 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   bool? get isSyncEnabled => state.isSyncEnabled;
   String? get activeBranchName => state.activeBranchName;
   String? get noteTitle => state.noteTitle;
+  bool get devModeEnabled => state.devModeEnabled;
+  String? get currentPaperLabel => state.currentPaperLabel;
+  int? get activeFiltersCount => state.activeFiltersCount;
+  bool get readingLevelSeen => state.readingLevelSeen;
   bool get shapeRecognitionEnabled => state.shapeRecognitionEnabled;
   int get shapeRecognitionSensitivityIndex =>
       state.shapeRecognitionSensitivityIndex;
@@ -210,20 +226,28 @@ class ProfessionalCanvasToolbar extends ConsumerStatefulWidget {
   VoidCallback? get onAdvancedSplitPressed => callbacks.onAdvancedSplitPressed;
   VoidCallback? get onSyncToggle => callbacks.onSyncToggle;
   VoidCallback? get onTimeTravelPressed => callbacks.onTimeTravelPressed;
+  VoidCallback? get onTimeTravelUpgrade => callbacks.onTimeTravelUpgrade;
   VoidCallback? get onRecallModePressed => callbacks.onRecallModePressed;
   VoidCallback? get onGhostMapPressed => callbacks.onGhostMapPressed;
   VoidCallback? get onFogOfWarPressed => callbacks.onFogOfWarPressed;
   VoidCallback? get onSocraticPressed => callbacks.onSocraticPressed;
+  VoidCallback? get onExamSessionPressed => callbacks.onExamSessionPressed;
   VoidCallback? get onCrossZoneBridgesPressed =>
       callbacks.onCrossZoneBridgesPressed;
   VoidCallback? get onBranchExplorerPressed =>
       callbacks.onBranchExplorerPressed;
+  VoidCallback? get onCheckpointsPressed => callbacks.onCheckpointsPressed;
+  VoidCallback? get onFeaturesDiscoveryPressed =>
+      callbacks.onFeaturesDiscoveryPressed;
   VoidCallback? get onPaperTypePressed => callbacks.onPaperTypePressed;
   VoidCallback? get onReadingLevelPressed => callbacks.onReadingLevelPressed;
+  VoidCallback? get onReadingLevelMarkSeen =>
+      callbacks.onReadingLevelMarkSeen;
   VoidCallback? get onResetRotation => callbacks.onResetRotation;
   VoidCallback? get onToggleRotationLock => callbacks.onToggleRotationLock;
   VoidCallback? get onSearchPressed => callbacks.onSearchPressed;
   VoidCallback? get onWheelModeToggle => callbacks.onWheelModeToggle;
+  bool get isWheelModeActive => state.isWheelModeActive;
   VoidCallback? get onBookmarksPressed => callbacks.onBookmarksPressed;
   int get bookmarkCount => state.bookmarkCount;
   VoidCallback? get onShapeRecognitionToggle =>
@@ -365,8 +389,10 @@ class _ProfessionalCanvasToolbarState
       tabs.add(ToolbarTab.excel);
     }
 
-    // Media: always available (digital text, images, recording)
-    tabs.add(ToolbarTab.media);
+    // Media tab REMOVED (2026-05-16): its 4 buttons (image picker, note
+    // import, recording, view recordings) now live inline in the Main
+    // tab next to Digital Text, so users don't context-switch for basic
+    // insert / capture operations.
 
     // Design tab — Figma-adjacent features, gated off for beta positioning.
     // Enable via V1FeatureGate.designTools when targeting designer audience.
@@ -412,13 +438,9 @@ class _ProfessionalCanvasToolbarState
     if (widget.isTabularActive || widget.hasTabularSelection) {
       return ToolbarTab.excel;
     }
-    // 4. Media: digital text, image picker, or active recording
-    if (widget.isDigitalTextActive ||
-        widget.isImagePickerActive ||
-        widget.isRecordingActive) {
-      return ToolbarTab.media;
-    }
-    // 5. Default: main drawing tools
+    // 4. Media context removed (2026-05-16) — digital text / image picker /
+    //    recording all live in Main now. Anything below this point auto-
+    //    routes to Main, which is also the explicit default.
     return ToolbarTab.main;
   }
 

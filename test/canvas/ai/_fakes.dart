@@ -210,6 +210,7 @@ class FakeGeminiProvider extends GeminiProvider {
   Future<String> cleanOcrItalian(
     String raw, {
     String language = 'Italian',
+    bool isFreeBackground = false,
   }) async {
     cleanOcrItalianCalls += 1;
     return cleanOcrItalianOverride?.call(raw) ?? raw;
@@ -252,7 +253,10 @@ class FakeGeminiProvider extends GeminiProvider {
   final List<String> askFreeTextPrompts = [];
 
   @override
-  Future<String> askFreeText(String prompt) async {
+  Future<String> askFreeText(
+    String prompt, {
+    bool isFreeBackground = false,
+  }) async {
     askFreeTextPrompts.add(prompt);
     return askFreeTextResponse;
   }

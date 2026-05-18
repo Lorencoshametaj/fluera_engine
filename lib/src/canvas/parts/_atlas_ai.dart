@@ -1087,6 +1087,25 @@ You MUST respond ENTIRELY in ${_deviceLanguageName}. Do NOT switch to another la
     // engine remains usable in tests / demos.
     if (!await _ensureAiProcessingConsent()) return;
 
+    // 💳 Tier gate — Free users get 1 Exam/week. Pro/Plus unlimited.
+    // Mirrors the pattern in _ghost_map.dart and _socratic_mode.dart.
+    if (!_checkTierGate(GatedFeature.examSession)) return;
+
+    // 💰 AI budget pre-flight — abort early if the user's monthly token
+    // pool is exhausted, instead of paying the OCR + topic-grouping AI
+    // round-trip then failing inside generateExamQuestions. Conservative
+    // estimate: setup + first question generation ≈ 8000 tokens.
+    final tracker = widget.config.aiUsageTracker;
+    if (tracker != null) {
+      try {
+        await tracker.ensureBalance(estimate: 8000, feature: 'exam_session');
+      } on AiQuotaExceededException {
+        // The app subscribes to tracker.exceededEvents in AiUsageBootstrap
+        // and surfaces the unified quota dialog — no double-dialog here.
+        return;
+      }
+    }
+
     // Pre-overlay loading feedback: from this point until the picker mounts
     // we run OCR + topic-grouping AI (~2-4s). Without a visible cue the
     // user sees "nothing happens" after tapping Interrogami. A persistent
