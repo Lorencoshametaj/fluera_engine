@@ -6,9 +6,12 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 
 import '../utils/ai_language_preference.dart';
 import 'ai_provider.dart';
+import 'clean_ocr_registry.dart';
 import 'ai_usage_tracker.dart';
 import 'atlas_action.dart';
 import 'cluster_action.dart';
+import 'credits/ai_credits_controller.dart';
+import 'credits/ai_credits_costs.dart';
 import 'gemini_client.dart';
 import 'noop_ai_usage_tracker.dart';
 import 'telemetry_recorder.dart';
@@ -102,6 +105,12 @@ class GeminiProvider implements AiProvider {
   /// using `response.usageMetadata.totalTokenCount`. Defaults to no-op.
   final AiUsageTracker _tracker;
 
+  /// 💎 Credits controller (Fluera AI Credits V2, 2026-05-14): fixed-cost
+  /// per-feature pre-flight `consume()` + `refund()` on failure. Null when
+  /// the engine ships without a credits backend — call sites skip metering
+  /// entirely in that case (legacy token-based [_tracker] still applies).
+  final AiCreditsController? _credits;
+
   /// Product telemetry sink. Every metered call emits an `ai_call` event
   /// with feature + tokens + model + latency. Defaults to no-op.
   final TelemetryRecorder _telemetry;
@@ -115,16 +124,23 @@ class GeminiProvider implements AiProvider {
   /// [tracker] — optional. When provided, every outbound Gemini call is
   /// metered and may throw [AiQuotaExceededException] on pre-flight check.
   /// Defaults to [NoopAiUsageTracker] (never enforces).
+  ///
+  /// [credits] — optional. When provided, Ghost Map / Socratic / Exam /
+  /// Chat / Background-OCR call sites consume fixed credits BEFORE the
+  /// Gemini round-trip and refund on failure (30 s window). Null disables
+  /// credit metering entirely.
   GeminiProvider({
     String? apiKey,
     GeminiProxyConfig? proxy,
     AiUsageTracker? tracker,
+    AiCreditsController? credits,
     TelemetryRecorder? telemetry,
     bool useExamPedagogyV34 = true,
     bool useChatPedagogyV34 = true,
   })  : _apiKey = apiKey,
         _proxyConfig = proxy,
         _tracker = tracker ?? NoopAiUsageTracker(),
+        _credits = credits,
         _telemetry = telemetry ?? TelemetryRecorder.noop,
         _useExamPedagogyV34 = useExamPedagogyV34,
         _useChatPedagogyV34 = useChatPedagogyV34;
@@ -141,15 +157,36 @@ class GeminiProvider implements AiProvider {
   /// Throws [AiQuotaExceededException] if [estimate] exceeds remaining balance.
   /// Records actual tokens after the call (falls back to [estimate] if the
   /// provider omits `usageMetadata`).
+  ///
+  /// When [creditFeature] is provided and a [_credits] controller is wired,
+  /// fixed-cost credits are consumed BEFORE the call and refunded if the
+  /// call throws (within the server's 30 s refund window). Independent of
+  /// the legacy token-based [_tracker] path — both run together.
   Future<T> _meter<T>(
     String feature, {
     required int estimate,
     required GeminiClient client,
     required Future<({T value, FGeminiResponse response})> Function() run,
+    AiCreditFeature? creditFeature,
+    bool isFreeBackground = false,
   }) async {
     // Client-side pre-flight from cached snapshot — saves a round trip if
     // the user is obviously over budget.
     await _tracker.ensureBalance(estimate: estimate, feature: feature);
+
+    // 💎 Credits pre-flight (V2). Throws AiCreditsExhaustedException /
+    // AiCreditsRateLimitedException which propagates to call sites.
+    //
+    // 🆓 2026-05-17 (Bundle A free-background): when isFreeBackground=true the
+    // call is Fluera-absorbed — skip user credit consume entirely. The cap
+    // check happens upstream in BackgroundAiController via
+    // `AiCreditsController.recordBackgroundCall(clusterCount)`. Telemetry is
+    // still logged with `is_free_background: true` for cost attribution.
+    AiCreditsReceipt? receipt;
+    if (creditFeature != null && _credits != null && !isFreeBackground) {
+      receipt = await _credits.consume(creditFeature);
+    }
+
     final sw = Stopwatch()..start();
     try {
       final r = await run();
@@ -166,6 +203,7 @@ class GeminiProvider implements AiProvider {
         'model': client.modelName,
         'latency_ms': sw.elapsedMilliseconds,
         'mode': usesProxy ? 'proxy' : 'direct',
+        'is_free_background': isFreeBackground,
       });
       if (usesProxy) {
         // Proxy mode: the Edge Function already called consume_ai_tokens
@@ -184,24 +222,49 @@ class GeminiProvider implements AiProvider {
       }
       return r.value;
     } on GeminiProxyQuotaExceededException {
+      // 💎 Refund the optimistic credit charge — the Gemini call was rejected.
+      if (receipt != null && _credits != null) {
+        unawaited(_credits.refund(receipt.idempotencyKey));
+      }
       // Unify proxy 429 with the engine-wide quota exception so callers
       // don't need to know which code path was taken.
       throw AiQuotaExceededException(
         needed: estimate,
         remaining: 0,
       );
+    } catch (_) {
+      // 💎 Any other failure (network, server, malformed JSON, etc.):
+      // refund within the 30 s window so the user isn't charged for nothing.
+      if (receipt != null && _credits != null) {
+        unawaited(_credits.refund(receipt.idempotencyKey));
+      }
+      rethrow;
     }
   }
 
   /// Streaming metering: pre-flight once, capture `usageMetadata` from the
   /// last chunk, reconcile in a `finally` so cancellation still records.
+  ///
+  /// When [creditFeature] is provided and [_credits] is wired, credits are
+  /// consumed before the stream starts. The stream is treated as "delivered"
+  /// once any yielded chunk reaches the caller — partial streams that throw
+  /// before yielding refund; streams that throw after yielding do not (the
+  /// user received some value).
   Stream<String> _meterStream(
     String feature, {
     required int estimate,
     required GeminiClient client,
     required Stream<FGeminiResponse> Function() start,
+    AiCreditFeature? creditFeature,
   }) async* {
     await _tracker.ensureBalance(estimate: estimate, feature: feature);
+
+    AiCreditsReceipt? receipt;
+    if (creditFeature != null && _credits != null) {
+      receipt = await _credits.consume(creditFeature);
+    }
+    bool delivered = false; // becomes true after first non-empty chunk
+
     int tokens = estimate; // fallback if the stream ends without metadata
     int? inputTokens;
     int? outputTokens;
@@ -219,12 +282,20 @@ class GeminiProvider implements AiProvider {
             outputTokens = meta!.candidatesTokenCount;
           }
           if (response.text != null && response.text!.isNotEmpty) {
+            delivered = true;
             yield response.text!;
           }
         }
       } on GeminiProxyQuotaExceededException {
         throw AiQuotaExceededException(needed: estimate, remaining: 0);
       }
+    } catch (_) {
+      // 💎 Refund only when the user never received any output. Partial
+      // streams that succeeded then failed late keep their charge.
+      if (!delivered && receipt != null && _credits != null) {
+        unawaited(_credits.refund(receipt.idempotencyKey));
+      }
+      rethrow;
     } finally {
       sw.stop();
       _telemetry.logEvent('ai_call', properties: {
@@ -1035,54 +1106,65 @@ OUTPUT — strict JSON, nothing else:
   ///
   /// [raw] should already be the trimmed MyScript output; multi-line
   /// strokes are joined with spaces by the caller.
-  Future<String> cleanOcrItalian(String raw, {String language = 'Italian'}) async {
+  /// 🧹 Legacy entry point — back-compat wrapper that maps the [language]
+  /// display name to an ISO code and delegates to [cleanOcr]. Kept so
+  /// callers pre-dating the 16-lang refactor (Bundle A, 2026-05-17)
+  /// don't need to migrate atomically.
+  @override
+  Future<String> cleanOcrItalian(
+    String raw, {
+    String language = 'Italian',
+    bool isFreeBackground = false,
+  }) {
+    // Reverse-map display name → ISO. Falls back to 'it' for the historical
+    // default and to 'en' for unknown display names.
+    String iso = 'it';
+    for (final entry in AiLanguagePreference.supportedLanguages().entries) {
+      if (entry.value == language) {
+        iso = entry.key;
+        break;
+      }
+    }
+    return cleanOcr(raw, langCode: iso, isFreeBackground: isFreeBackground);
+  }
+
+  /// 🌍 Multilang cleanOcr (Bundle A, 2026-05-17). Dispatches through
+  /// `CleanOcrRegistry` so every Tier 1+2 language gets a language-
+  /// appropriate prompt with its own examples. IT + EN are production-
+  /// native; the other 14 are ai-bootstrap stubs until Phase 2.
+  ///
+  /// Defensive contract identical to the legacy [cleanOcrItalian]: any
+  /// failure path (uninitialised model, quota, timeout, oversized
+  /// response) returns the original [raw] unchanged. No value is ever
+  /// lost.
+  ///
+  /// [langCode] defaults to `'en'` to make the contract obvious; in
+  /// practice the caller threads `AiLanguagePreference.code()` or
+  /// equivalent so the cleanup matches the student's content.
+  @override
+  Future<String> cleanOcr(
+    String raw, {
+    String langCode = 'en',
+    bool isFreeBackground = false,
+  }) async {
     if (!_initialized || _streamModel == null) return raw;
     final trimmed = raw.trim();
     // Skip very short text — too short to confidently correct without
     // hallucinating, and "F=ma" / "1ª" should pass through untouched.
     if (trimmed.length < 4) return raw;
 
-    final prompt =
-        'Pulisci questa trascrizione OCR di scrittura a mano in $language. '
-        'Correggi SOLO errori OCR ovvi:\n'
-        '1. Lettere confuse: d/e, m/n, l/i, rn/m, p/t (es. "Riposo" ≠ "Rito"), c/e\n'
-        '2. **FUSIONI con particelle/preposizioni — molto comuni in italiano**:\n'
-        '   - "LEGGITI NEWTON" → "LEGGI DI NEWTON"\n'
-        '   - "ASCAUSA" → "A CAUSA"\n'
-        '   - "PRIMOPRINCIPIO" → "PRIMO PRINCIPIO"\n'
-        '   - "DELLO/DELLA/DEGLI" attaccato → separa quando sensato\n'
-        '3. Parole frammentate: "FISI CA" → "FISICA", "Primalele" → "prima legge"\n'
-        '4. Maiuscole rotte: "SECUNDA" → "SECONDA", "TERMODINA MICA" → "TERMODINAMICA"\n'
-        '5. Refusi ovvi su parole italiane comuni del lessico scientifico/accademico\n'
-        '6. Frammenti OCR che assomigliano vagamente a notazione matematica MA '
-        'sono in un contesto di parole italiane → ricostruisci la parola:\n'
-        '   - "Corpo a R\' to" → "Corpo a Riposo" (NON "R^{2}", NON "R²")\n'
-        '   - "Sper. mento" → "Esperimento" (NON una variabile)\n'
-        '   - "f orza" o "f. orza" → "forza" (NON la funzione f)\n\n'
-        '**REGOLA CRITICA — anti-LaTeX hallucination:**\n'
-        'NON convertire MAI testo italiano ambiguo in formule LaTeX/Unicode '
-        '(R^{2}, x_t, β\', etc.) a meno che il contesto circostante sia '
-        'CHIARAMENTE matematico (numeri, segni =, operatori, simboli greci '
-        'già presenti). In dubbio, ricostruisci la PAROLA italiana o lascia '
-        'inalterato — MAI inventare una formula.\n\n'
-        'PRESERVA formule SOLO quando già evidenti come tali: F=ma, E=mc², '
-        '∫f(x)dx, H₂O, x²+y², pH, ΔG. Una sequenza tipo "R\' to" in mezzo '
-        'a "Corpo a … prima legge Newton" NON è una formula, è OCR rotto '
-        'di "Riposo".\n\n'
-        'NON cambiare il significato. NON aggiungere parole nuove. '
-        'NON commentare. NON tradurre. Se il testo è già corretto, '
-        'rispondi identico. Output: SOLO il testo pulito.\n\n'
-        'Input: $trimmed\nOutput:';
+    final prompt = CleanOcrRegistry.promptFor(langCode, trimmed);
 
     try {
       return await _meter<String>(
-        'cleanOcrItalian',
+        isFreeBackground ? 'cleanOcr_background' : 'cleanOcr',
         estimate: 200,
         client: _streamModel!,
+        isFreeBackground: isFreeBackground,
         run: () async {
           final response = await _streamModel!.generateContent(
             [Content.text(prompt)],
-            featureTag: 'cleanOcrItalian',
+            featureTag: isFreeBackground ? 'cleanOcr_background' : 'cleanOcr',
             estimate: 200,
           );
           final out = response.text?.trim() ?? '';
@@ -1093,16 +1175,16 @@ OUTPUT — strict JSON, nothing else:
           // Sanity check — if the model returned something obviously
           // longer (e.g. it added a commentary), fall back to the raw.
           if (cleaned.isEmpty || cleaned.length > trimmed.length * 2 + 20) {
-            debugPrint('🧹 cleanOcrItalian: rejected (empty or too long), '
+            debugPrint('🧹 cleanOcr[$langCode]: rejected (empty or too long), '
                 'using raw: "${trimmed.substring(0, trimmed.length.clamp(0, 60))}"');
             return (value: raw, response: response);
           }
           if (cleaned != trimmed) {
-            debugPrint('🧹 cleanOcrItalian: '
+            debugPrint('🧹 cleanOcr[$langCode]: '
                 '"${trimmed.substring(0, trimmed.length.clamp(0, 60))}" → '
                 '"${cleaned.substring(0, cleaned.length.clamp(0, 60))}"');
           } else {
-            debugPrint('🧹 cleanOcrItalian: passthrough (no changes) for '
+            debugPrint('🧹 cleanOcr[$langCode]: passthrough (no changes) for '
                 '"${trimmed.substring(0, trimmed.length.clamp(0, 60))}"');
           }
           return (value: cleaned, response: response);
@@ -1112,7 +1194,7 @@ OUTPUT — strict JSON, nothing else:
       // Quota exceeded — better to ship the raw OCR than to throw.
       return raw;
     } catch (e) {
-      debugPrint('⚠️ cleanOcrItalian error: $e');
+      debugPrint('⚠️ cleanOcr[$langCode] error: $e');
       return raw;
     }
   }
@@ -1185,6 +1267,8 @@ Genera SOLO il JSON con la prossima domanda. Cita letteralmente fra virgolette s
         'socraticFollowUp',
         estimate: 400,
         client: _socraticFollowUpModel!,
+        // 💎 4 credits per Socratic stage interaction.
+        creditFeature: AiCreditFeature.socraticStage,
         run: () async {
           final response = await _socraticFollowUpModel!.generateContent(
             [Content.text(prompt)],
@@ -1218,6 +1302,9 @@ Genera SOLO il JSON con la prossima domanda. Cita letteralmente fra virgolette s
         },
       );
     } on AiQuotaExceededException {
+      return (question: '', isAporetic: isAporeticRole);
+    } on AiCreditsExhaustedException {
+      // 💎 No credits left — caller falls back to template question.
       return (question: '', isAporetic: isAporeticRole);
     } catch (e) {
       debugPrint('⚠️ askSocraticFollowUp error: $e');
@@ -1311,24 +1398,31 @@ Genera SOLO il JSON con la prossima domanda. Cita letteralmente fra virgolette s
   /// Used for breadcrumbs and other ad-hoc non-structured prompts.
   /// Uses _streamModel (no JSON constraint, no canvas system prompt).
   @override
-  Future<String> askFreeText(String prompt) async {
+  Future<String> askFreeText(
+    String prompt, {
+    bool isFreeBackground = false,
+  }) async {
     if (!_initialized || _streamModel == null) {
       throw StateError('Atlas non inizializzato. Chiama initialize() prima.');
     }
 
+    final featureTag =
+        isFreeBackground ? 'askFreeText_background' : 'askFreeText';
+
     try {
       return await _meter<String>(
-        'askFreeText',
+        featureTag,
         estimate: 500,
         client: _streamModel!,
+        isFreeBackground: isFreeBackground,
         run: () async {
           final response = await _streamModel!.generateContent(
             [Content.text(prompt)],
-            featureTag: 'askFreeText',
+            featureTag: featureTag,
             estimate: 500,
           );
           final text = response.text?.trim() ?? '';
-          debugPrint('🔶 askFreeText response: $text');
+          debugPrint('🔶 askFreeText[$featureTag] response: $text');
           return (value: text, response: response);
         },
       );
@@ -1394,6 +1488,8 @@ FLUERA AI:''';
         featureTag: 'askChatStream',
         estimate: 1500,
       ),
+      // 💎 1 credit per chat message. Rate-limited server-side to 60/h.
+      creditFeature: AiCreditFeature.chat,
     );
   }
 
@@ -1829,6 +1925,11 @@ Output language remains $language.
         'generateExamQuestions',
         estimate: 2500,
         client: client,
+        // 💎 12 credits per exam question batch. NOTE: V1 charges once per
+        // generation call (~3-5 questions) rather than per individual question.
+        // If telemetry shows abuse (re-rolling for cheaper questions) move
+        // to per-question consume in evaluateOpenAnswer instead.
+        creditFeature: AiCreditFeature.examQuestion,
         run: () async {
           final response = await client.generateContent(
             [Content.text(prompt)],
@@ -2475,8 +2576,14 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
 </OUTPUT_FORMAT>''';
 
     int ghostMapTokens = 3500; // fallback if usageMetadata missing (e.g. timeout)
+    AiCreditsReceipt? creditsReceipt;
     try {
       await _tracker.ensureBalance(estimate: 3500, feature: 'generateGhostMap');
+      // 💎 8 credits per Ghost Map comparison. Server-side refund within
+      // 30 s if the Gemini call fails (timeout, parse error, server 5xx).
+      if (_credits != null) {
+        creditsReceipt = await _credits.consume(AiCreditFeature.ghostMap);
+      }
       // 🗺️ Use dedicated ghost map model (temperature 0.3) with 12s timeout (A3-03)
       final ghostModel = _ghostMapModel ?? _model!;
       final response = await ghostModel
@@ -2694,14 +2801,31 @@ Return ONLY valid JSON. No markdown fences, no explanation outside JSON.
         summary: json['valutazione'] as String? ?? '',
       );
     } on GeminiProxyQuotaExceededException {
+      if (creditsReceipt != null && _credits != null) {
+        unawaited(_credits.refund(creditsReceipt.idempotencyKey));
+      }
       throw AiQuotaExceededException(needed: 3500, remaining: 0);
     } on AiQuotaExceededException {
+      if (creditsReceipt != null && _credits != null) {
+        unawaited(_credits.refund(creditsReceipt.idempotencyKey));
+      }
       rethrow;
+    } on AiCreditsExhaustedException {
+      // 💎 No credits to run Ghost Map — caller falls back to empty result;
+      // the UI binds to AiCreditsController.exhaustedEvents to show the
+      // Spark Pack purchase dialog.
+      return GhostMapResult.empty();
     } on TimeoutException {
       debugPrint('🗺️ Ghost Map generation timed out (12s)');
+      if (creditsReceipt != null && _credits != null) {
+        unawaited(_credits.refund(creditsReceipt.idempotencyKey));
+      }
       return GhostMapResult.empty();
     } catch (e) {
       debugPrint('🗺️ Ghost Map generation error: $e');
+      if (creditsReceipt != null && _credits != null) {
+        unawaited(_credits.refund(creditsReceipt.idempotencyKey));
+      }
       return GhostMapResult.empty();
     }
   }

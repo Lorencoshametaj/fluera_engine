@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import './content_cluster.dart';
 import './knowledge_connection.dart';
@@ -187,6 +188,8 @@ class SemanticMorphController {
       flashcardDismissTime = DateTime.now().millisecondsSinceEpoch;
     }
     flashcardClusterId = null;
+    // Card no longer hit-testable once dismiss starts.
+    flashcardCardCanvasRect = null;
   }
 
   /// Clear the dismissing state after exit animation completes.
@@ -199,7 +202,25 @@ class SemanticMorphController {
     _dismissingClusterId = null; // Cancel any exit animation
     flashcardClusterId = clusterId;
     flashcardShowTime = DateTime.now().millisecondsSinceEpoch;
+    // The painter will overwrite this on the next frame; nulling here
+    // avoids a tap landing on a stale rect during the entrance animation
+    // (between this call and the first paint).
+    flashcardCardCanvasRect = null;
   }
+
+  /// 🃏 2026-05-18: bounds of the flashcard card in CANVAS space,
+  /// written by `KnowledgeFlowPainter._paintFlashcard` on every paint.
+  /// The tap handler reads this to detect "tap on the card body" so the
+  /// "Tap → Zoom in" hint on the card actually works — previously the
+  /// hit test only checked distance from the cluster centroid (≤ 120 px
+  /// screen), but the card is rendered ADJACENT to the cluster (at
+  /// `clusterRect.right + 15`) scaled by `1/canvasScale`, so most taps
+  /// on the card itself were further than 120 px from the centroid and
+  /// were treated as "tap outside → dismiss" instead of zoom-in.
+  ///
+  /// Null when no flashcard is rendered (set on showFlashcard / cleared
+  /// on dispose). The painter writes the latest paint rect each frame.
+  Rect? flashcardCardCanvasRect;
 
   /// Hit-test semantic nodes: returns cluster ID if [canvasPoint] falls
   /// within a semantic node circle, null otherwise.
@@ -238,14 +259,14 @@ class SemanticMorphController {
   // ===========================================================================
 
   /// Scale at which morphing starts (ink begins to fade).
-  static const double morphStartScale = 0.12;
+  static const double morphStartScale = 0.30;
 
   /// Scale at which morphing is complete (fully semantic).
-  static const double morphEndScale = 0.06;
+  static const double morphEndScale = 0.18;
 
   /// Scale at which to preemptively start AI title generation.
   /// Slightly above morphStartScale so titles are ready when morphing begins.
-  static const double aiPreloadScale = 0.20;
+  static const double aiPreloadScale = 0.35;
 
   /// Whether the semantic view is at least partially active.
   bool get isActive => morphProgress > 0.01;
@@ -258,10 +279,12 @@ class SemanticMorphController {
   // ===========================================================================
 
   /// Scale at which god view starts (super-nodes begin to appear).
-  static const double godViewStartScale = 0.04;
+  static const double godViewStartScale = 0.16;
 
   /// Scale at which god view is complete (only super-nodes visible).
-  static const double godViewEndScale = 0.02;
+  /// Aligned with [InfiniteCanvasController._minScale] = 0.10 so the
+  /// mappamondo view is fully reachable at the user's zoom clamp.
+  static const double godViewEndScale = 0.10;
 
   /// God view morph progress: 0.0 = semantic nodes, 1.0 = super-nodes only.
   double godViewProgress = 0.0;
@@ -272,14 +295,104 @@ class SemanticMorphController {
   /// Current super-nodes (recomputed on cluster changes when in god view).
   List<SuperNode> superNodes = [];
 
+  /// 🌐 META super-nodes (Tier 5) — coarse aggregation of [superNodes]
+  /// computed when the super-node count exceeds [kMetaTierMinSuperNodes].
+  ///
+  /// Pedagogical purpose: on a multi-year canvas (10k+ clusters → 30+
+  /// super-nodes via [_computeMergeRadius]) the deep god view (scale ≤
+  /// [kMetaTierActivationScale]) becomes a constellation of dots that no
+  /// human can parse. The meta tier collapses spatially close super-nodes
+  /// into a handful of "continents" (3–8 typical), giving the student a
+  /// readable overview of the entire knowledge base — Continent metaphor
+  /// of §1133 in the cognitive theory doc.
+  ///
+  /// Implementation note: meta-super-nodes are themselves [SuperNode]
+  /// instances (with synthetic ids prefixed `meta_`) so callers that
+  /// already render super-nodes can opt in via [effectiveSuperNodes]
+  /// without a new type or rendering path.
+  List<SuperNode> metaSuperNodes = const <SuperNode>[];
+
+  /// Minimum super-node count required to compute the meta tier. Below
+  /// this we just expose [superNodes] unchanged — collapsing 5 super-
+  /// nodes into 2 "continents" would lose information without solving
+  /// any readability problem.
+  static const int kMetaTierMinSuperNodes = 12;
+
+  /// Scale ≤ this triggers meta-super-node substitution in
+  /// [effectiveSuperNodes]. Sits at the midpoint of the god-view band
+  /// (godViewStart=0.16 → godViewEnd=0.10) so the user keeps seeing
+  /// individual super-nodes until they're firmly inside god view, then
+  /// the rendering collapses to continents in the final stretch.
+  static const double kMetaTierActivationScale = 0.13;
+
+  /// Multiplier applied to [_computeMergeRadius] (called on the super-
+  /// node centroids) to produce the meta-tier merge radius. Set to 2.5
+  /// so super-nodes that are merely "in the same neighborhood" of the
+  /// canvas collapse into one continent.
+  static const double _kMetaTierRadiusMultiplier = 2.5;
+
+  /// 🚀 PERF: hash key of last meta-tier computation. Avoids redundant
+  /// recompute when [superNodes] is unchanged.
+  String _lastMetaSuperNodeHash = '';
+
   /// 🤖 AI-generated macro themes per super-node ID.
   Map<String, String> superNodeThemes = {};
 
   /// 🤖 Pending AI theme requests.
   final Set<String> pendingGodViewAi = {};
 
-  /// Distance threshold (canvas px) for merging clusters into super-nodes.
-  static const double _superNodeMergeRadius = 400.0;
+  /// Lower/upper bounds (canvas px) for the adaptive super-node merge radius
+  /// computed by [_computeMergeRadius].
+  ///
+  /// 2026-05-17 (FX3): il radius era una `static const = 400.0` hardcoded.
+  /// Su canvas con pochi cluster sparsi (5 elementi spread su >2000px) il
+  /// valore fisso non riusciva a fonderli → "1 super-node per ogni cluster"
+  /// (regression osservata sul device test del 17/05). Su canvas densi
+  /// (>200 cluster fitti) 400px fondeva tutto in 1 blob. Ora il radius si
+  /// adatta alla densità:
+  ///   density = sqrt(bbox.area / clusters.length)
+  ///   radius  = density.clamp(_minMergeRadius, _maxMergeRadius)
+  /// Cluster sparsi ottengono radius alto (merge aggressivo); cluster fitti
+  /// ottengono radius basso (super-node granulari). Coerente con la scala
+  /// di canvas multi-anno (memoria `project_canvas_scale`).
+  static const double _minMergeRadius = 250.0;
+  static const double _maxMergeRadius = 800.0;
+
+  /// Sparse-cluster fallback: con ≤3 cluster il bbox è instabile (1 punto
+  /// = area 0, 2 punti = area 0 lungo una dimensione). Usiamo direttamente
+  /// il valore massimo per garantire merge.
+  static const double _sparseFallbackRadius = _maxMergeRadius;
+
+  /// Compute the adaptive super-node merge radius for the given cluster set.
+  ///
+  /// Returns a value in `[_minMergeRadius, _maxMergeRadius]` based on the
+  /// average inter-cluster spacing implied by the bounding-box density.
+  double _computeMergeRadius(List<ContentCluster> clusters) {
+    return _computeMergeRadiusFromCentroids(clusters.map((c) => c.centroid));
+  }
+
+  /// Generic density-driven radius — accepts any iterable of centroids so
+  /// the same logic can drive both the cluster tier and the meta-super-
+  /// node tier (which feeds [superNodes] centroids back through this
+  /// function with [_kMetaTierRadiusMultiplier] applied).
+  double _computeMergeRadiusFromCentroids(Iterable<Offset> centroids) {
+    final list = centroids.toList(growable: false);
+    if (list.length <= 3) return _sparseFallbackRadius;
+    double minX = double.infinity, minY = double.infinity;
+    double maxX = -double.infinity, maxY = -double.infinity;
+    for (final p in list) {
+      if (p.dx < minX) minX = p.dx;
+      if (p.dy < minY) minY = p.dy;
+      if (p.dx > maxX) maxX = p.dx;
+      if (p.dy > maxY) maxY = p.dy;
+    }
+    final w = maxX - minX;
+    final h = maxY - minY;
+    final area = w * h;
+    if (area <= 0) return _sparseFallbackRadius;
+    final density = math.sqrt(area / list.length);
+    return density.clamp(_minMergeRadius, _maxMergeRadius);
+  }
 
   /// 🚀 PERF: Hash of last cluster config for super-node skip.
   String _lastSuperNodeHash = '';
@@ -287,6 +400,11 @@ class SemanticMorphController {
   /// 🚀 PERF: Pre-computed membership map (clusterId → super-node index).
   /// Avoids rebuilding per-frame in gravity line rendering.
   Map<String, int> memberToSuperNodeIndex = {};
+
+  /// 🌐 Mirror of [memberToSuperNodeIndex] but keyed on [metaSuperNodes].
+  /// Populated only when the meta tier is active. The gravity-lines
+  /// rendering picks the right map based on which tier it's drawing.
+  Map<String, int> memberToMetaSuperNodeIndex = {};
 
   /// 🔗 Pre-computed cross-super-node connection pairs.
   /// Set of "snIdxA|snIdxB" strings (sorted) indicating shared connections.
@@ -339,9 +457,15 @@ class SemanticMorphController {
       return;
     }
 
-    // 🚀 PERF: Skip recomputation if clusters haven't changed
+    // FX3: compute adaptive merge radius first (density-driven).
+    final mergeRadius = _computeMergeRadius(clusters);
+
+    // 🚀 PERF: Skip recomputation if clusters haven't changed.
+    // 2026-05-17 (FX3): hash includes the derived radius so a cluster move
+    // that changes density (and therefore the radius) invalidates the cache
+    // even when the id-set is unchanged.
     final ids = clusters.map((c) => c.id).toList()..sort();
-    final hash = ids.join('|');
+    final hash = '${ids.join('|')}#${mergeRadius.toStringAsFixed(1)}';
     if (hash == _lastSuperNodeHash && superNodes.isNotEmpty) {
       return; // Unchanged — skip O(n²)
     }
@@ -365,8 +489,8 @@ class SemanticMorphController {
       parent[c.id] = c.id;
     }
 
-    // Merge nearby clusters (squared distance)
-    final threshold2 = _superNodeMergeRadius * _superNodeMergeRadius;
+    // Merge nearby clusters (squared distance) using the adaptive radius.
+    final threshold2 = mergeRadius * mergeRadius;
     for (int i = 0; i < clusters.length; i++) {
       for (int j = i + 1; j < clusters.length; j++) {
         final dx = clusters[i].centroid.dx - clusters[j].centroid.dx;
@@ -417,6 +541,138 @@ class SemanticMorphController {
     final superIds = superNodes.map((s) => s.id).toSet();
     superNodeThemes.removeWhere((id, _) => !superIds.contains(id));
     pendingGodViewAi.removeWhere((id) => !superIds.contains(id));
+
+    // 🌐 META TIER: compute meta-super-nodes (Tier 5) when the super-node
+    // count would overload the deep god view. Cheap O(M²) where M is the
+    // super-node count (≤ a few hundred even on multi-year canvases).
+    _computeMetaSuperNodes();
+  }
+
+  /// Compute [metaSuperNodes] from the current [superNodes] via a second
+  /// pass of Union-Find on super-node centroids, using a coarser merge
+  /// radius. Sets [metaSuperNodes] to `[]` when the super-node count
+  /// doesn't justify the meta tier (sparse canvases keep the existing
+  /// super-node rendering — there's nothing to collapse).
+  void _computeMetaSuperNodes() {
+    if (superNodes.length < kMetaTierMinSuperNodes) {
+      if (metaSuperNodes.isNotEmpty) metaSuperNodes = const <SuperNode>[];
+      if (memberToMetaSuperNodeIndex.isNotEmpty) {
+        memberToMetaSuperNodeIndex = {};
+      }
+      _lastMetaSuperNodeHash = '';
+      return;
+    }
+
+    // PERF: skip if the super-node set is unchanged. Hash includes the
+    // derived meta radius so density-shifting cluster moves invalidate.
+    final metaRadius = _computeMergeRadiusFromCentroids(
+          superNodes.map((s) => s.centroid),
+        ) *
+        _kMetaTierRadiusMultiplier;
+    final metaHashBuf = StringBuffer()..write(superNodes.length);
+    for (final sn in superNodes) {
+      metaHashBuf
+        ..write('|')
+        ..write(sn.id)
+        ..write(':')
+        ..write(sn.totalElements);
+    }
+    metaHashBuf
+      ..write('#')
+      ..write(metaRadius.toStringAsFixed(1));
+    final metaHash = metaHashBuf.toString();
+    if (metaHash == _lastMetaSuperNodeHash && metaSuperNodes.isNotEmpty) {
+      return;
+    }
+    _lastMetaSuperNodeHash = metaHash;
+
+    // Union-Find on super-node centroids.
+    final parent = <String, String>{};
+    String find(String id) {
+      while (parent[id] != id) {
+        parent[id] = parent[parent[id]!]!;
+        id = parent[id]!;
+      }
+      return id;
+    }
+
+    void union(String a, String b) {
+      final ra = find(a), rb = find(b);
+      if (ra != rb) parent[ra] = rb;
+    }
+
+    for (final sn in superNodes) {
+      parent[sn.id] = sn.id;
+    }
+
+    final threshold2 = metaRadius * metaRadius;
+    for (int i = 0; i < superNodes.length; i++) {
+      for (int j = i + 1; j < superNodes.length; j++) {
+        final dx = superNodes[i].centroid.dx - superNodes[j].centroid.dx;
+        final dy = superNodes[i].centroid.dy - superNodes[j].centroid.dy;
+        if (dx * dx + dy * dy < threshold2) {
+          union(superNodes[i].id, superNodes[j].id);
+        }
+      }
+    }
+
+    // Group super-nodes by their meta-root.
+    final groups = <String, List<SuperNode>>{};
+    for (final sn in superNodes) {
+      final root = find(sn.id);
+      groups.putIfAbsent(root, () => []).add(sn);
+    }
+
+    // Build the meta layer. We synthesise a SuperNode (the rendering
+    // pipeline only knows that type) with a `meta_<rootId>` id so
+    // theme/colour caches keyed on super-node id never collide.
+    metaSuperNodes = groups.entries.map((entry) {
+      final members = entry.value;
+      double cx = 0, cy = 0;
+      int totalEl = 0;
+      int totalMembers = 0;
+      final memberClusterIds = <String>[];
+      for (final sn in members) {
+        cx += sn.centroid.dx;
+        cy += sn.centroid.dy;
+        totalEl += sn.totalElements;
+        totalMembers += sn.memberCount;
+        memberClusterIds.addAll(sn.memberClusterIds);
+      }
+      cx /= members.length;
+      cy /= members.length;
+      return SuperNode(
+        id: 'meta_${entry.key}',
+        memberClusterIds: memberClusterIds,
+        centroid: Offset(cx, cy),
+        totalElements: totalEl,
+        memberCount: totalMembers,
+      );
+    }).toList()
+      ..sort((a, b) => b.totalElements.compareTo(a.totalElements));
+
+    // 🚀 PERF: Mirror of memberToSuperNodeIndex but keyed on the meta
+    // tier. Built in one pass after the sort so the indices line up
+    // with the final metaSuperNodes order — the gravity-lines block
+    // in _paintGodView indexes directly into the meta list.
+    memberToMetaSuperNodeIndex = {};
+    for (int i = 0; i < metaSuperNodes.length; i++) {
+      for (final mid in metaSuperNodes[i].memberClusterIds) {
+        memberToMetaSuperNodeIndex[mid] = i;
+      }
+    }
+  }
+
+  /// Returns the super-node set the rendering layer should use at the
+  /// given [canvasScale]. Defaults to [superNodes]; substitutes the
+  /// coarser [metaSuperNodes] in deep god view when there are enough
+  /// super-nodes to warrant the collapse. Callers that need stable
+  /// indices into [superNodes] (e.g. [superNodesShareConnections]) must
+  /// keep reading [superNodes] directly.
+  List<SuperNode> effectiveSuperNodes(double canvasScale) {
+    if (metaSuperNodes.isEmpty) return superNodes;
+    if (canvasScale > kMetaTierActivationScale) return superNodes;
+    return metaSuperNodes;
   }
 
   /// Recompute semantic titles and stats from current clusters and connections.
@@ -560,12 +816,25 @@ class SemanticMorphController {
     aiTitles[clusterId] = aiTitle;
     _aiTitleTextHashes[clusterId] = sourceText.trim().hashCode.toString();
 
-    // ✨ CROSSFADE: Save previous title and mark transition start
+    // ✨ CROSSFADE: Save previous title and mark transition start.
+    // Snapshot the previous semantic title BEFORE overwriting so the
+    // crossfade has a "from" frame; the painter renders the previous
+    // title with `(1 - opacity)` while the new one ramps in.
     final currentTitle = semanticTitles[clusterId];
     if (currentTitle != null && currentTitle != aiTitle) {
       previousTitles[clusterId] = currentTitle;
       titleTransitions[clusterId] = DateTime.now().millisecondsSinceEpoch;
     }
+
+    // 🔧 2026-05-18 fix: actually publish the new AI title to
+    // `semanticTitles`. Without this line the title bar keeps reading
+    // the stale heuristic OCR ("Prima- legged. nena") forever — the AI
+    // work landed in `aiTitles` but never reached `getCrossfadeTitle`,
+    // which is the source of truth the painter consumes (line 4538 of
+    // knowledge_flow_painter). User-visible symptom: AI generates a
+    // clean title successfully, the cap counter increments, but the
+    // node displays unchanged garbage OCR.
+    semanticTitles[clusterId] = aiTitle;
   }
 
   /// 🧠 Get a copy of the AI title text hashes (for persistence).

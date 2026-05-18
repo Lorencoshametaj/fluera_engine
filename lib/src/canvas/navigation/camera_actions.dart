@@ -47,6 +47,26 @@ class CameraActions {
     _animateToFitBounds(controller, bounds, viewportSize);
   }
 
+  /// 🌍 MAPPAMONDO view — fit all content but clamped to a satellite-zoom
+  /// max scale. Used by the Mappamondo button to honor its §1098
+  /// pedagogical contract ("vista satellite del Palazzo della Memoria")
+  /// regardless of how much content the canvas has.
+  ///
+  /// Default [maxScale] = 0.16 (= `SemanticMorphController.godViewStartScale`),
+  /// so even a 3-cluster canvas ends up zoomed-out enough to trigger the
+  /// god view / super-nodi tier. With more content, the natural fit scale
+  /// is already below 0.16 and the clamp is a no-op.
+  static void mappamondoView(
+    InfiniteCanvasController controller,
+    SceneGraph sceneGraph,
+    Size viewportSize, {
+    double maxScale = 0.16,
+  }) {
+    final bounds = _computeAllContentBounds(sceneGraph);
+    if (bounds == Rect.zero || bounds.isEmpty) return;
+    _animateToFitBounds(controller, bounds, viewportSize, maxScale: maxScale);
+  }
+
   // ---------------------------------------------------------------------------
   // Fit Selection
   // ---------------------------------------------------------------------------
@@ -525,11 +545,18 @@ class CameraActions {
   }
 
   /// Animate the controller to fit [bounds] within [viewportSize] with padding.
+  ///
+  /// Optional [maxScale] clamps the target scale from above. Used by
+  /// `mappamondoView` to guarantee a "satellite view" zoom even when
+  /// the content is small (a 3-cluster canvas otherwise lands at
+  /// scale ~0.51 with default fit, breaking the §1098 pedagogical
+  /// promise of the Mappamondo button).
   static void _animateToFitBounds(
     InfiniteCanvasController controller,
     Rect bounds,
-    Size viewportSize,
-  ) {
+    Size viewportSize, {
+    double? maxScale,
+  }) {
     // Available viewport with padding.
     final paddingH = viewportSize.width * _paddingFraction;
     final paddingV = viewportSize.height * _paddingFraction;
@@ -541,7 +568,10 @@ class CameraActions {
     // Scale to fit the content bounds inside the available viewport.
     final scaleX = availableW / bounds.width;
     final scaleY = availableH / bounds.height;
-    final targetScale = math.min(scaleX, scaleY).clamp(0.05, 10.0);
+    var targetScale = math.min(scaleX, scaleY).clamp(0.05, 10.0);
+    if (maxScale != null && targetScale > maxScale) {
+      targetScale = maxScale;
+    }
 
     // Offset to center the content bounds in the viewport.
     final contentCenterX = bounds.left + bounds.width / 2;
@@ -550,10 +580,51 @@ class CameraActions {
     final targetOffsetY =
         viewportSize.height / 2 - contentCenterY * targetScale;
 
+    // 🔧 2026-05-18 fix: compute the focalPoint that the zoom-spring
+    // focal-preserve math will naturally end at the desired targetOffset.
+    //
+    // Background: `animateToTransform` activates BOTH a pan spring (driving
+    // offset) and a zoom spring (driving scale). The zoom-spring tick
+    // overrides `_offset` every frame using focal-preserve math:
+    //   _offset = focalPoint - focalCanvas * newScale  (rotation-aware)
+    // where `focalCanvas = (focalPoint - currentOffset) / currentScale`.
+    // The pan spring's tick is gated `if (!_isTransformSpringActive)` and
+    // therefore SKIPS updating offset when a combined transform is
+    // running — meaning `targetOffset` passed in was effectively ignored.
+    // Previously we passed `viewportCenter` as the focal, so the resulting
+    // offset preserved whatever canvas point happened to be under the
+    // viewport center → the actual cluster landed wherever, not centred.
+    //
+    // Solving for the focal:
+    //   targetOffset = focal - (focal - currentOffset) * targetScale / currentScale
+    //   focal = (targetOffset * currentScale - currentOffset * targetScale)
+    //         / (currentScale - targetScale)
+    // (Rotation cancels out by symmetry — the un-rotate / re-rotate in the
+    // tick uses the same angle on both sides of the scale update.)
+    //
+    // When scale is essentially unchanged (pan-only), divide-by-zero is
+    // avoided by falling back to viewport center; the actual offset still
+    // converges because the focal-preserve math is a no-op at scale = 0
+    // delta.
+    final currentOffset = controller.offset;
+    final currentScale = controller.scale;
+    final dscale = currentScale - targetScale;
+    final Offset focal;
+    if (dscale.abs() < 0.001) {
+      focal = Offset(viewportSize.width / 2, viewportSize.height / 2);
+    } else {
+      focal = Offset(
+        (targetOffsetX * currentScale - currentOffset.dx * targetScale) /
+            dscale,
+        (targetOffsetY * currentScale - currentOffset.dy * targetScale) /
+            dscale,
+      );
+    }
+
     controller.animateToTransform(
       targetOffset: Offset(targetOffsetX, targetOffsetY),
       targetScale: targetScale,
-      focalPoint: Offset(viewportSize.width / 2, viewportSize.height / 2),
+      focalPoint: focal,
     );
   }
 }

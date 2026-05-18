@@ -7,8 +7,9 @@ import 'dart:ui'
     show ImageFilter; // 🖊️ For _WheelPenPickerOverlay BackdropFilter
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/foundation.dart' show compute, kIsWeb, kReleaseMode;
-import 'package:flutter/scheduler.dart' show SchedulerBinding, Ticker;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, compute, kIsWeb, kReleaseMode;
+import 'package:flutter/scheduler.dart' show Priority, SchedulerBinding, Ticker;
 import '../drawing/brushes/brush_engine.dart';
 import '../drawing/brushes/brush_texture.dart';
 import './ai/cluster_concept_index.dart'; // 🧠 Per-canvas concept source of truth
@@ -38,7 +39,9 @@ import '../utils/safe_path_provider.dart';
 import '../utils/platform_guard.dart';
 import '../utils/key_value_store.dart';
 import '../utils/ai_language_preference.dart';
+import '../ai/super_node_theme_registry.dart';
 import '../audio/native_audio_models.dart';
+import '../audio/quota/voice_quota_tracker.dart';
 import '../utils/uid.dart';
 import '../drawing/models/pro_drawing_point.dart';
 import '../drawing/models/pro_brush_settings.dart';
@@ -105,6 +108,7 @@ import '../ai/atlas_action.dart';
 import '../ai/radial_expansion_controller.dart';
 import '../rendering/canvas/radial_expansion_painter.dart';
 import '../ai/ai_provider.dart';
+import '../ai/background_ai_controller.dart';
 import '../core/nodes/text_node.dart';
 import '../core/nodes/stroke_node.dart';
 import '../core/nodes/image_node.dart';
@@ -181,7 +185,9 @@ import '../drawing/input/stroke_point_pool.dart';
 import '../drawing/input/path_pool.dart';
 import '../time_travel/models/synchronized_recording.dart';
 import '../time_travel/controllers/synchronized_playback_controller.dart';
+import '../time_travel/controllers/audio_ink_sync_controller.dart';
 import '../time_travel/widgets/synchronized_playback_overlay.dart';
+import '../time_travel/widgets/audio_ink_highlight_overlay.dart';
 import '../collaboration/widgets/canvas_presence_overlay.dart';
 import '../collaboration/widgets/connected_users_strip.dart';
 import '../collaboration/widgets/sync_status_indicator.dart';
@@ -204,7 +210,10 @@ import './overlays/stylus_hover_overlay.dart'; // 🖊️ Stylus hover cursor
 import '../time_travel/services/time_travel_playback_engine.dart';
 import '../time_travel/widgets/time_travel_timeline_widget.dart';
 import '../history/branching_manager.dart';
+import '../history/checkpoint_store.dart';
+import '../history/version_history.dart';
 import '../history/widgets/branch_explorer_sheet.dart';
+import 'widgets/version_history_panel.dart';
 
 import '../tools/base/tool_bridge.dart';
 import '../tools/unified_tool_controller.dart';
@@ -408,6 +417,7 @@ import './ai/step_gate_controller.dart';
 
 // ─── Tier Gate System (A17) ─────────────────────────────────────────────────
 import './ai/tier_gate_controller.dart';
+import '../ai/ai_usage_tracker.dart' show AiQuotaExceededException;
 
 // ─── SRS Blur on Return (Step 6/8) ─────────────────────────────────────────
 import './ai/srs_review_session.dart';
@@ -444,6 +454,9 @@ import '../p2p/canvas_rasterizer.dart';
 import './overlays/p2p_session_overlay.dart';
 import './overlays/p2p_mode_selection_sheet.dart';
 import './overlays/p2p_invite_sheet.dart';
+import './coachmark_signals.dart';
+import '../rendering/canvas/return_ritual_blur_painter.dart';
+import '../rendering/canvas/fsrs_heat_map_painter.dart';
 
 // ============================================================================
 // PART FILES
@@ -644,6 +657,24 @@ class FlueraCanvasScreen extends StatefulWidget {
   /// for this concept automatically.
   final String? pendingReviewConcept;
 
+  /// 💎 Optional widget injected into the toolbar's right zone, immediately
+  /// before the settings dropdown. V1 (2026-05-14) typical use case: the
+  /// host passes `FlueraCreditsBadge` so the AI credit counter is always
+  /// visible — pillar of the trasparenza-first positioning.
+  /// Null = the toolbar renders exactly as before (back-compat).
+  final Widget? toolbarTrailingBadge;
+
+  /// 🎬 Optional signal used by the `FlueraTimeTravelChip` to request entry
+  /// into time-travel playback mode from outside the canvas widget. The
+  /// app increments the listener's value on tap; the canvas screen
+  /// listens and calls `_enterTimeTravelMode()` when the value changes.
+  ///
+  /// Pattern is used (instead of a direct callback) because the chip is
+  /// created OUTSIDE the canvas screen — it can't reach the private
+  /// `_FlueraCanvasScreenState`. The signal closes the loop without
+  /// exposing internal state.
+  final ValueListenable<int>? timeTravelRequestSignal;
+
   const FlueraCanvasScreen({
     super.key,
     required this.config,
@@ -659,6 +690,8 @@ class FlueraCanvasScreen extends StatefulWidget {
     this.onExternalStrokeAdded,
     this.initialViewport,
     this.pendingReviewConcept,
+    this.toolbarTrailingBadge,
+    this.timeTravelRequestSignal,
   });
 
   @override
@@ -753,6 +786,36 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 💎 Cached subscription tier
   FlueraSubscriptionTier get _subscriptionTier => _config.subscriptionTier;
+
+  /// 🛠️ Dev mode flag (unlocks Brush Testing Lab in toolbar settings)
+  bool get _devModeEnabled => _config.devModeEnabled;
+
+  /// 📊 Whether Reading Level has been seen (drives NEW badge visibility).
+  bool get _readingLevelSeen => _config.readingLevelSeen;
+
+  /// Mark Reading Level as seen — invoked on first tap, forwards to host
+  /// for persistence (e.g. SharedPreferences).
+  void _markReadingLevelSeen() => _config.onReadingLevelMarkSeen?.call();
+
+  /// Convert internal `_paperType` key (e.g. 'grid_5mm') to a user-facing
+  /// label rendered as trailing on the Paper Mode entry in the toolbar
+  /// settings dropdown. Returns null for unknown keys → no trailing shown.
+  String? _paperTypeDisplayLabel(String key) {
+    switch (key) {
+      case 'blank':
+        return 'Blank';
+      case 'lines':
+        return 'Lines';
+      case 'grid_5mm':
+        return 'Grid 5mm';
+      case 'dots':
+        return 'Dots';
+      case 'music':
+        return 'Music';
+      default:
+        return null;
+    }
+  }
 
   /// 💎 Convenience: has cloud sync
   bool get _hasCloudSync => _config.cloudAdapter != null;
@@ -1018,7 +1081,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   // ⭐ Golden Shimmer fields (SRS Stage 4+ mastered nodes)
   /// Whether the golden shimmer effect is enabled.
-  bool _goldenShimmerEnabled = true;
+  ///
+  /// 2026-05-17: disabilitato di default. Il painter disegnava una stella ★
+  /// dorata su ogni nodo mastered + glow/border dorati pulsanti. Senza
+  /// affordance esplicativa l'utente lo legge come "stelline gialle che
+  /// si muovono" (3× segnalazione) → rumore visivo, non signal cognitivo.
+  /// Il codice resta dormiente come fallback per future feature pedagogiche
+  /// (es. coachmark dedicato "i mastered brillano leggermente").
+  bool _goldenShimmerEnabled = false;
 
   /// Bounding rects of mastered nodes (in canvas coordinates).
   List<Rect> _goldenShimmerNodeBounds = const [];
@@ -1159,6 +1229,21 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// Canvas infinito controller
   late final InfiniteCanvasController _canvasController;
+
+  /// 🚀 LOD defer state — accumulates tier transitions during zoom animation
+  /// so we run the (now surgical) tile eviction + `notifyListeners()` pair
+  /// exactly once at settle, instead of once per Ticker frame that crosses
+  /// a boundary. `_pendingEvictTier` stores the FIRST old tier we left in
+  /// the gesture, so we drop the actual origin tier the user moved away
+  /// from rather than an intermediate stopover (those tiers stay around
+  /// as parent fallback until evictIdleTiers reclaims them).
+  /// See plan: quando-si-muove-tra-structured-puzzle.md.
+  int? _pendingEvictTier;
+  bool _pendingLodHapticLight = false;
+
+  /// Tracks last-observed animation state so we only toggle the global
+  /// `DrawingPainter.bakeBudgetOverride` on edges, not on every notify.
+  bool _wasAnimatingForBakeBudget = false;
 
   /// 🆕 Drawing input handler (logica condivisa)
   late final DrawingInputHandler _drawingHandler;
@@ -1355,11 +1440,43 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // resolve(), shared across all cognitive features.
   ClusterConceptIndex? _clusterConceptIndex;
 
+  // 🆓 Free Background AI controller (Bundle A, 2026-05-17).
+  // Coordinates Fluera-absorbed cleanOcr + clusterTitle calls triggered
+  // on idle (5 s post-stroke) and first dezoom < 0.30. User pays zero
+  // credits; Fluera assorbs Gemini Flash Lite cost.
+  BackgroundAiController? _backgroundAi;
+
   // 🏛️ MONUMENT RESOLVER: named landmarks visible at LOD 2 (§1098).
   // Recomputed only when the graph topology changes — panning/zooming
   // reuses the cached result.
   MonumentResolver? _monumentResolver;
   int _monumentSignature = 0;
+
+  // 🏛️ MONUMENT NUDGE state (§504-507 — Monument Elaboration Nudge):
+  // - `_previousMonumentIds`: snapshot of last resolver pass so we can
+  //   detect cluster IDs that just crossed the monument threshold.
+  // - `_monumentNudgeShownThisSession`: 1-per-session frequency cap so
+  //   simultaneous promotions don't pile SnackBars on the student.
+  // Reset on each new canvas open via initState (no cross-session
+  // persistence — keeps simple, accepts re-fire if same cluster gets
+  // promoted in a fresh process; rare and harmless).
+  Set<String>? _previousMonumentIds;
+  bool _monumentNudgeShownThisSession = false;
+
+  // 🔁 RETURN RITUAL state (§1047-1062 — PASSO 6 Active Recall Spaziale).
+  // Resolved once at canvas open via CanvasCoachmarkSignals.loadCanvasVisitState.
+  // - `_returnRitualVisitCount`: monotonic open counter for this canvas
+  //   id (read pre-increment, used to scale the zoom-out factor).
+  // - `_returnRitualDaysSince`: days since the previous open (0 = same
+  //   day or never opened — no ritual fires).
+  // - `_returnRitualActive`: gate signaling that the ritual conditions
+  //   are met (host setting on + ≥1 day gap + ≥2 visits).
+  // - `_returnRitualBlur`: the blur controller owns timer + tween;
+  //   created when active, disposed in screen dispose.
+  int _returnRitualVisitCount = 0;
+  int _returnRitualDaysSince = 0;
+  bool _returnRitualActive = false;
+  ReturnRitualBlurController? _returnRitualBlur;
 
   /// XOR-hash of all cluster text content. Cheap (one hash per entry,
   /// O(texts) total) and sensitive to *any* text change — unlike a
@@ -1391,7 +1508,276 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     );
     _monumentResolver = fresh;
     _monumentSignature = sig;
+    // Invalidate the bounds list — recomputed lazily on next read.
+    _monumentBoundsCache = null;
+    // 🏛️ Detect newly-promoted monuments to surface the elaboration
+    // nudge (§504-507). Signature changed → graph topology changed →
+    // candidate for diff. Deferred via post-frame callback because this
+    // runs during paint (showSnackBar in paint = re-entrant rebuild).
+    _detectAndNudgeNewMonuments(fresh.monumentIds);
     return fresh;
+  }
+
+  /// 🏛️ Diff the resolver's monument set against the previous pass and
+  /// fire a one-shot SnackBar nudge on the first newly-promoted cluster
+  /// of the session. Pedagogical contract (§504-507): when a concept
+  /// becomes central, the student should be reminded to elaborate it
+  /// visually so it reads as a landmark (Memory Palace anchor §22).
+  ///
+  /// Gated by [CanvasCoachmarkSignals.monumentNudgeEnabled] (host toggle).
+  /// Once-per-session cap via [_monumentNudgeShownThisSession]; cleared
+  /// on canvas open by [initState].
+  void _detectAndNudgeNewMonuments(Set<String> currentIds) {
+    if (!CanvasCoachmarkSignals.monumentNudgeEnabled) return;
+    if (_monumentNudgeShownThisSession) {
+      _previousMonumentIds = currentIds;
+      return;
+    }
+    final prev = _previousMonumentIds;
+    _previousMonumentIds = currentIds;
+    // First pass after open: seed the snapshot, never fire on initial
+    // load (the student is opening the canvas, not actively promoting).
+    if (prev == null) return;
+    final newlyPromoted = currentIds.difference(prev);
+    if (newlyPromoted.isEmpty) return;
+    // Pick the candidate with the strongest importance to nudge first.
+    final importance = _monumentResolver?.importance ?? const {};
+    final ranked = newlyPromoted.toList()
+      ..sort((a, b) =>
+          (importance[b] ?? 0.0).compareTo(importance[a] ?? 0.0));
+    String? chosenId;
+    String chosenLabel = '';
+    for (final id in ranked) {
+      final raw = _clusterTextCache[id]?.trim();
+      if (raw == null || raw.isEmpty) continue;
+      final picked = TextLabelPicker.pickFromMany([raw], maxChars: 22);
+      if (picked.isEmpty) continue;
+      chosenId = id;
+      chosenLabel = picked;
+      break;
+    }
+    if (chosenId == null) return;
+    _monumentNudgeShownThisSession = true;
+    // Defer to post-frame: this method runs inside paint via the
+    // painter's `_monumentsOrCompute()` accessor — calling
+    // ScaffoldMessenger here would re-enter the widget rebuild.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      // Skip if a mode that should not be interrupted is active.
+      if (_recallModeController.isActive) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      if (messenger == null) return;
+      messenger.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          backgroundColor: const Color(0xFF1A1A2E),
+          content: Text(
+            _l10n.monumentNudge_messageWithLabel(chosenLabel),
+            style: const TextStyle(
+              color: Color(0xFFB0D4FF),
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+          action: SnackBarAction(
+            label: _l10n.monumentNudge_dismissCta,
+            textColor: const Color(0xFF82C8FF),
+            onPressed: () {/* SnackBar auto-dismisses */},
+          ),
+        ),
+      );
+    });
+  }
+
+  /// 🔁 Loads per-canvas visit state via the host signal hook and
+  /// activates the ritual when the gating conditions are met.
+  /// Pedagogical contract (§1047-1062): ritual fires only after the
+  /// student has already opened the canvas at least twice AND the
+  /// last open was ≥ 1 day ago. The first-ever open is just a seed
+  /// (no zoom-out, no blur) — the ritual is about *return*, not entry.
+  Future<void> _resolveReturnRitualState() async {
+    final loader = CanvasCoachmarkSignals.loadCanvasVisitState;
+    final saver = CanvasCoachmarkSignals.saveCanvasVisitState;
+    if (loader == null || saver == null) return;
+    final state = await loader(_canvasId);
+    if (!mounted) return;
+    final visitCount = state?.visitCount ?? 0;
+    final lastVisitedMs = state?.lastVisitedMs ?? 0;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final daysSince = lastVisitedMs == 0
+        ? 0
+        : ((nowMs - lastVisitedMs) ~/ Duration(days: 1).inMilliseconds);
+    final newVisitCount = visitCount + 1;
+    // Persist updated state immediately so a force-close mid-session
+    // still increments the counter for the next open.
+    // ignore: discarded_futures
+    saver(_canvasId, newVisitCount, nowMs);
+    _returnRitualVisitCount = newVisitCount;
+    _returnRitualDaysSince = daysSince;
+    _returnRitualActive = daysSince >= 1 && newVisitCount >= 2;
+    if (_returnRitualActive && mounted) {
+      // Create the blur controller — owns timer + AnimationController.
+      // intensity ∈ (0, 0.50] mapped from daysSince via piecewise lerp.
+      final intensity = ReturnRitualBlurController.intensityFromDays(
+        daysSince,
+      );
+      if (intensity > 0.005) {
+        _returnRitualBlur?.dispose();
+        _returnRitualBlur = ReturnRitualBlurController(
+          intensity: intensity,
+          vsync: this,
+        );
+        if (mounted) setState(() {});
+      }
+      // Schedule a one-off zoom-out re-application: if the initial
+      // viewport restore has already run, the modulation re-targets
+      // the camera with a brief tween. Cheap; safe to no-op.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _applyReturnRitualZoomOut();
+      });
+    }
+  }
+
+  /// True while the ritual's own programmatic zoom-out tween is running.
+  /// Suppresses `_dismissReturnRitualOnInteraction` so the camera
+  /// animation we just kicked off doesn't immediately destroy the blur.
+  bool _ritualZoomInProgress = false;
+
+  /// Dismiss the return-ritual blur on any meaningful user interaction
+  /// (first stroke, first pan, first pinch). Idempotent — safe to call
+  /// from multiple gesture handlers. Skipped while the ritual's own
+  /// programmatic zoom-out animation is still running.
+  void _dismissReturnRitualOnInteraction() {
+    if (_ritualZoomInProgress) return;
+    final ctrl = _returnRitualBlur;
+    if (ctrl == null || !ctrl.isActive) return;
+    ctrl.dismiss();
+  }
+
+  /// 🔁 Progressive zoom-out applied at canvas return.
+  /// Sessione 2 → 0.95×, sessione 3 → 0.90×, ... cap 0.50×.
+  /// Smooth spring landing via [InfiniteCanvasController.animateMultiPhase].
+  void _applyReturnRitualZoomOut() {
+    if (!_returnRitualActive) return;
+    final zoomFactor = math.max(
+      0.50,
+      1.0 - 0.05 * (_returnRitualVisitCount - 1).clamp(0, 10),
+    );
+    if ((zoomFactor - 1.0).abs() < 0.01) return;
+    // Clamps mirror [InfiniteCanvasController._minScale / _maxScale]
+    // (private constants — duplicated here as literals on purpose).
+    final target = (_canvasController.scale * zoomFactor).clamp(0.10, 5.0);
+    _ritualZoomInProgress = true;
+    _canvasController.animateMultiPhase(
+      keyframes: [
+        CameraKeyframe(
+          targetOffset: _canvasController.offset,
+          targetScale: target.toDouble(),
+          durationSeconds: 0.55,
+          curve: Curves.easeOutCubic,
+        ),
+      ],
+    );
+    // Release the suppression slightly after the animation completes.
+    Future.delayed(const Duration(milliseconds: 700), () {
+      _ritualZoomInProgress = false;
+    });
+  }
+
+  /// 🏛️ Canvas-space bounds of every monument cluster — fed to
+  /// [DrawingPainter.monumentBounds] so Tier 1/2 simplification
+  /// preserves the strokes of the visible landmarks of the Memory
+  /// Palace (§22 §504-507). Cached and reused (identity-stable) so
+  /// [DrawingPainter.shouldRepaint] doesn't false-trigger every frame.
+  List<Rect>? _monumentBoundsCache;
+  List<Rect> _monumentBoundsList() {
+    final cached = _monumentBoundsCache;
+    if (cached != null) return cached;
+    final ids = _monumentsOrCompute().monumentIds;
+    if (ids.isEmpty) {
+      _monumentBoundsCache = const <Rect>[];
+      return _monumentBoundsCache!;
+    }
+    final list = <Rect>[];
+    for (final c in _clusterCache) {
+      if (!ids.contains(c.id)) continue;
+      final b = c.bounds;
+      if (b.isEmpty || !b.isFinite) continue;
+      list.add(b);
+    }
+    _monumentBoundsCache = List.unmodifiable(list);
+    return _monumentBoundsCache!;
+  }
+
+  // 🌡️ FSRS HEAT-MAP cache: cluster id → worst-of SrsStage matched
+  // among concepts in `_reviewSchedule` via substring on
+  // `_clusterTextCache`. Null entries = "untouched" (no FSRS match),
+  // which the painter renders as a neutral gray ring (§1420 "nodi vuoti").
+  // Invalidated by the signature pattern below — recomputed only when
+  // either the review schedule or the cluster text cache mutates.
+  Map<String, SrsStage?>? _fsrsClusterStageCache;
+  int _fsrsClusterStageSignature = 0;
+
+  /// Aggregate hash over `_reviewSchedule` sensitive to stage transitions
+  /// (post-review) but not to no-op re-reads. Cheap O(N concepts).
+  int _reviewScheduleStageHash() {
+    var h = 0;
+    for (final entry in _reviewSchedule.entries) {
+      final stage = stageFromCard(entry.value);
+      h ^= entry.key.hashCode;
+      h ^= stage.index << 16;
+    }
+    return h;
+  }
+
+  /// Compute (and cache) cluster id → dominant SrsStage map for the FSRS
+  /// heat-map painter. The "dominant" stage is the *worst* (lowest index,
+  /// i.e. fragile beats integrated) of the concepts matched into the
+  /// cluster — segnala the weakest link, that's what should drive review
+  /// priority. Returns identity-stable map so the painter's
+  /// `shouldRepaint` doesn't false-trigger every frame.
+  ///
+  /// Reuses the substring-match pattern from
+  /// [srs_blur_overlay_painter.dart] (worst-of by enum index).
+  Map<String, SrsStage?> _fsrsClusterStageList() {
+    final sig = Object.hash(
+      _reviewSchedule.length,
+      _clusterTextCache.length,
+      _clusterTextContentHash(),
+      _reviewScheduleStageHash(),
+      _clusterCache.length,
+    );
+    final cached = _fsrsClusterStageCache;
+    if (cached != null && sig == _fsrsClusterStageSignature) return cached;
+
+    final result = <String, SrsStage?>{};
+    // Pre-compute (concept, stage) pairs once per recompute.
+    final entries = _reviewSchedule.entries
+        .map((e) => (e.key.toLowerCase(), stageFromCard(e.value)))
+        .toList(growable: false);
+
+    for (final cluster in _clusterCache) {
+      final raw = _clusterTextCache[cluster.id];
+      if (raw == null || raw.isEmpty) {
+        result[cluster.id] = null; // untouched
+        continue;
+      }
+      final lower = raw.toLowerCase();
+      SrsStage? worst;
+      for (final (concept, stage) in entries) {
+        if (concept.isEmpty) continue;
+        if (!lower.contains(concept)) continue;
+        if (worst == null || stage.index < worst.index) {
+          worst = stage;
+        }
+        // Early exit: fragile is the absolute worst, can't get lower.
+        if (worst == SrsStage.fragile) break;
+      }
+      result[cluster.id] = worst; // null if no concept matched
+    }
+    _fsrsClusterStageCache = Map.unmodifiable(result);
+    _fsrsClusterStageSignature = sig;
+    return _fsrsClusterStageCache!;
   }
 
   // 🏛️ Landmark OCR trigger — guards proactive text-cache population.
@@ -1409,6 +1795,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   void _maybePopulateTextsForLandmarks() {
     if (!mounted) return;
     if (_populatingLandmarkTexts) return;
+    // ⏱️ X.3: skip during active zoom physics — silent OCR is expensive
+    // and the student isn't reading labels mid-pinch. Re-fires at settle.
+    if (_canvasController.isAnimating) return;
     if (_canvasController.scale >= 0.30) return;
     if (_clusterCache.isEmpty) return;
 
@@ -1520,6 +1909,18 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   /// minimap landmark layer refreshes; persistence is driven by the
   /// controller itself.
   void _onBookmarksChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// 🔧 2026-05-18: rebuild when the cluster-concept index changes
+  /// (post-bindCanvas hydration, after every `setTitle` /
+  /// `upsertConcepts`). Without this listener the flashcard mini-card
+  /// would keep reading the old `cleanedOcrTexts` derived at the prior
+  /// build — i.e. raw OCR for the first frames after a canvas reopen
+  /// even though the cleaned text was already on disk and freshly
+  /// hydrated into `_concepts`.
+  void _onConceptIndexChanged() {
     if (!mounted) return;
     setState(() {});
   }
@@ -1938,6 +2339,25 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool get _useRadialWheel => _WheelModePref.enabled;
   set _useRadialWheel(bool v) => _WheelModePref.enabled = v;
 
+  /// Round 4.3 — fires when [WheelModePref.enabledListenable] changes.
+  /// Allows Settings → Studio avanzato toggle to take effect without
+  /// requiring a canvas reopen.
+  void _onWheelModePrefChanged() {
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  /// 🎚️ A.3: edge-triggered sync of the global bake budget override with
+  /// the canvas controller's animation state. Called on every controller
+  /// notify, but only writes when the animating flag flips, so the cost
+  /// per call is a single bool comparison.
+  void _syncBakeBudgetWithAnimationState() {
+    final isAnim = _canvasController.isAnimating;
+    if (isAnim == _wasAnimatingForBakeBudget) return;
+    _wasAnimatingForBakeBudget = isAnim;
+    DrawingPainter.bakeBudgetOverride = isAnim ? 0 : null;
+  }
+
   /// 2️⃣ TOAST: confirmation message shown after toggle.
   String? _wheelModeToast;
   bool _wheelModeToastVisible = false;
@@ -2028,6 +2448,20 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     });
     HapticFeedback.mediumImpact();
 
+    // 🎓 First-time explainer: when the user enables wheel mode for the
+    // first time, open a modal sheet describing what changes and how
+    // long-press + drag-to-select works. `WheelModePref.introSeen` is
+    // persisted so the sheet shows at most once across sessions.
+    if (_useRadialWheel && !WheelModePref.introSeen) {
+      WheelModePref.introSeen = true;
+      // Schedule after the current frame so the toggle's setState has
+      // already laid out before we push a new route.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showWheelModeIntroSheet();
+      });
+    }
+
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _wheelModeToastVisible = false);
     });
@@ -2051,6 +2485,99 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         setState(() => _wheelPillVisible = false);
       }
     });
+  }
+
+  /// Modal sheet shown the first time the user activates wheel mode.
+  /// Explains the long-press + drag-to-select interaction so the new
+  /// mode doesn't feel like the toolbar "disappeared and broke". The
+  /// `WheelModePref.introSeen` flag (already set in [_toggleWheelMode])
+  /// guarantees it shows at most once.
+  void _showWheelModeIntroSheet() {
+    final l10n = FlueraLocalizations.of(context)!;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Icon(Icons.donut_large_rounded,
+                          size: 28, color: cs.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          l10n.wheelModeIntro_title,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurface,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    l10n.wheelModeIntro_lead,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _WheelIntroStep(index: 1, text: l10n.wheelModeIntro_step1),
+                  const SizedBox(height: 10),
+                  _WheelIntroStep(index: 2, text: l10n.wheelModeIntro_step2),
+                  const SizedBox(height: 10),
+                  _WheelIntroStep(index: 3, text: l10n.wheelModeIntro_step3),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: Text(l10n.wheelModeIntro_cta),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// 🖊️ Toggle the transient pen picker overlay.
@@ -2099,19 +2626,26 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 
   /// 🎨 Apply a brush preset — single source of truth.
   void _applyBrushPreset(BrushPreset preset) {
-    // 🔒 V1 paywall gate (blocker, 2026-05-05): Free tier is locked to the
-    // three "writing" brushes (pencil, fountain, marker). Anything richer
-    // (technical pen, calligraphy, highlighter — and the GPU brushes once
-    // they ship) requires Plus or higher. We preserve the current visual
-    // selection by NOT mutating tool state, then surface the upgrade
-    // prompt so the user knows why nothing happened.
+    // 🔒 V1 paywall gate (blocker, 2026-05-05; bug-fixed 2026-05-16):
+    // Free tier sees only the brushes in `BrushPreset.freePresetIds`
+    // (Everyday Pen, Soft Pencil, Highlighter). Anything else opens
+    // the upgrade prompt; we preserve the current visual selection by
+    // NOT mutating tool state so the user keeps their previous brush.
+    //
+    // Gate now keys on `preset.id` to stay in lockstep with the toolbar
+    // strip (single source of truth). The previous implementation gated
+    // on `preset.penType` via `V1FeatureGate.isBrushFree` whose whitelist
+    // was {pencil, fountain, marker} — which did NOT match the three
+    // free preset IDs (Everyday Pen is ballpoint, Highlighter is
+    // highlighter). Result: free presets like Highlighter triggered
+    // the paywall even though the strip rendered them as free.
     if (widget.config.subscriptionTier == FlueraSubscriptionTier.free &&
-        !V1FeatureGate.isBrushFree(preset.penType)) {
+        !BrushPreset.freePresetIds.contains(preset.id)) {
       final cb = widget.config.onUpgradePrompt;
       if (cb != null) {
         cb(
           context,
-          'Questo pennello è disponibile con Plus. I tre pennelli base (matita, penna, marker) restano sempre gratis.',
+          'Sblocca il pennello "${preset.name}" con Fluera Plus o Pro.',
         );
       }
       return;
@@ -2635,6 +3169,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   bool _isRecordingAudio = false;
   Duration _recordingDuration = Duration.zero;
 
+  /// 🎙️ V1 voice quota reservation token. Issued by
+  /// `voiceQuotaTracker.reserve()` at the start of a recording session,
+  /// then committed (with actual minutes) on stop or refunded on failure.
+  /// Null when no recording is in flight or no quota tracker is wired.
+  String? _voiceReservationToken;
+
   /// 🚀 P99 FIX: ValueNotifiers for recording UI — toolbar observes these
   /// directly, avoiding full canvas setState() during recording.
   final ValueNotifier<Duration> _recordingDurationNotifier = ValueNotifier(
@@ -2647,16 +3187,34 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   final ValueNotifier<bool> _isRecordingNotifier = ValueNotifier(false);
 
   StreamSubscription<Duration>? _recordingDurationSubscription;
+
+  /// 🎤 Phase 3 quota watchdog — fires every 60s during active recording
+  /// and auto-stops if the user's voice minutes quota has been exhausted
+  /// (Plus tier hitting 60 min/month, or Pro tier on a downgraded backend).
+  /// Cancelled in [_stopAudioRecording] and on canvas dispose.
+  Timer? _voiceQuotaWatchdog;
   List<String> _savedRecordings = [];
   bool _recordingWithStrokes = false;
   DateTime? _recordingStartTime;
 
   /// 🎵 Registrazione sincronizzata con tratti
   SynchronizedRecordingBuilder? _syncRecordingBuilder;
+
+  /// 🌿 V1.5 — branch active when recording started. Captured in
+  /// [_startAudioRecording], applied to [SynchronizedRecording.branchId]
+  /// at save time. Reset to null on stop. `null` = main branch (legacy
+  /// recordings persisted pre-v19 schema also resolve to main on load).
+  String? _recordingBranchId;
   DateTime? _currentStrokeStartTime;
   List<SynchronizedRecording> _syncedRecordings = [];
   SynchronizedPlaybackController? _playbackController;
   bool _isPlayingSyncedRecording = false;
+
+  /// 🎤 Audio↔Stroke Sync — V1 Pro feature.
+  /// Created lazily during [_startSyncedPlayback] and disposed on stop.
+  /// When non-null and `isAvailable`, tapping a stroke seeks audio to the
+  /// moment that stroke was drawn and glows for 2s (highlight decay).
+  AudioInkSyncController? _audioInkSyncController;
 
   /// 🎵 Audio-only playback state (mini-player)
   bool _isPlayingAudio = false;
@@ -2746,6 +3304,12 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   BranchingManager? _branchingManager;
   String? _activeBranchId;
   String? _activeBranchName;
+
+  /// 📍 Checkpoint history (linear save/restore — Notion-style page history).
+  /// Tier-gated: Free 3/canvas, Plus/Pro unlimited. Persisted via
+  /// [CheckpointStore] under `{ttPath}/checkpoints.json`.
+  VersionHistory? _checkpointHistory;
+  CheckpointStore? _checkpointStore;
 
   // ============================================================================
   // 🎨 DESIGN FEATURES STATE
@@ -2843,6 +3407,32 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   void initState() {
     super.initState();
 
+    // 🏛️ Reset monument-nudge per-session state. _previousMonumentIds
+    // null = "first resolver pass is the seed, no nudge yet" — this is
+    // the desired behavior on canvas open so the student isn't
+    // immediately nudged about clusters that were already monuments
+    // before they reopened the canvas.
+    _previousMonumentIds = null;
+    _monumentNudgeShownThisSession = false;
+
+    // 🔁 Resolve return-ritual state (async). Loader is host-provided;
+    // when null the ritual is treated as disabled. Fired-and-forgotten
+    // here; if it lands before the lastViewport restore the modulation
+    // applies, otherwise it just sits dormant — graceful degradation.
+    _returnRitualActive = false;
+    _returnRitualVisitCount = 0;
+    _returnRitualDaysSince = 0;
+    if (CanvasCoachmarkSignals.returnRitualEnabled) {
+      _resolveReturnRitualState();
+    }
+
+    // 🎬 Wire the cross-widget time-travel request signal (V1 2026-05-14).
+    // The `FlueraTimeTravelChip` (created outside the canvas) increments
+    // the listener's value; the canvas screen reacts by entering playback
+    // mode. Decoupled from the chip so the engine stays unaware of the
+    // host's tier service.
+    widget.timeTravelRequestSignal?.addListener(_onTimeTravelRequested);
+
     // 🌍 Auto-detect dictionary language from device locale
     final deviceLocale = WidgetsBinding.instance.platformDispatcher.locale;
     WordCompletionDictionary.instance.setLanguageFromCode(
@@ -2877,6 +3467,9 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         if (mounted) setState(() => _wheelHintVisible = false);
       });
     });
+    // 🔄 Round 4.3 — subscribe to live changes so Settings → Studio
+    // avanzato toggle takes effect immediately without canvas reopen.
+    _WheelModePref.enabledListenable.addListener(_onWheelModePrefChanged);
 
     // 📅 Load spaced repetition schedule from disk
     _loadSpacedRepetition().then((_) {
@@ -3109,14 +3702,32 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // LOD boundaries (0.2x, 0.5x). Without this, the RepaintBoundary-cached
     // CustomPaint never repaints during zoom, so strokes stay visible
     // at extreme dezoom instead of fading out.
-    _canvasController.onLodTierChanged = () {
-      DrawingPainter.invalidateAllTiles();
-      _layerController.notifyListeners();
-      HapticFeedback.lightImpact(); // subtle "mode change" feedback
+    //
+    // ⏱️ DEFER DURING ANIMATION + SURGICAL EVICT (X.1): the old full
+    // `invalidateAllTiles()` disposed up to 144 Pictures across 3 tiers
+    // synchronously — 8-15ms desktop, 25-40ms mobile, the entire visible
+    // hitch even when paid once at settle. We now only evict the tier the
+    // user just left (~3ms). The new tier is preserved as parent fallback
+    // for any future approach, and the layer/stroke caches don't need a
+    // wipe on LOD switch — they self-invalidate on version change.
+    // Static zoom (wheel scroll, no Ticker) still runs synchronously below.
+    _canvasController.onLodTierChanged = (oldTier, newTier) {
+      final scale = _canvasController.scale;
+      if (_canvasController.isAnimating) {
+        // Coalesce: subsequent tier changes during the same animation
+        // accumulate but only the FIRST old tier is remembered — that's
+        // the one the user actually departed from. Intermediates are
+        // dropped by evictIdleTiers later.
+        _pendingEvictTier ??= oldTier;
+        _pendingLodHapticLight = true;
+      } else {
+        DrawingPainter.evictTierFromCache(oldTier);
+        _layerController.notifyListeners();
+        HapticFeedback.lightImpact();
+      }
 
       // 🔮 PARTICLE TICKER: Auto-start when entering LOD 1/2 with connections,
       // auto-stop when returning to LOD 0 (battery savings)
-      final scale = _canvasController.scale;
       if (scale < 0.5 &&
           _knowledgeFlowController != null &&
           _knowledgeFlowController!.connections.isNotEmpty &&
@@ -3144,6 +3755,36 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       _checkSemanticTitlePreload(scale);
     };
 
+    // 🔮 LOD APPROACH PRE-WARM: when zoom enters the band adjacent to a
+    // tier boundary, drain the bake queue more aggressively and force a
+    // repaint so the new tier's tile cache is warmer at switch time. The
+    // approach band is asymmetric vs the switch hysteresis to avoid double
+    // firing — see `_checkLodApproach` in InfiniteCanvasController.
+    _canvasController.onLodTierApproaching = (nextTier) {
+      if (!mounted) return;
+      final viewport = _canvasController.worldViewportAABB(
+        MediaQuery.sizeOf(context),
+      );
+      if (viewport.isEmpty) return;
+      DrawingPainter.preWarmNextTier(nextTier, viewport);
+    };
+
+    // 🚀 LOD SETTLE DRAIN: when all physics simulations stop, execute any
+    // tile invalidation that was deferred during the animation (see the
+    // `onLodTierChanged` handler above). Runs at most once per gesture even
+    // if the zoom crossed multiple LOD boundaries — coalesced via the
+    // `_pendingLodInvalidation` flag.
+    _canvasController.onAnimationSettle = () {
+      final evictTier = _pendingEvictTier;
+      if (evictTier == null) return;
+      _pendingEvictTier = null;
+      final fireHaptic = _pendingLodHapticLight;
+      _pendingLodHapticLight = false;
+      DrawingPainter.evictTierFromCache(evictTier);
+      if (mounted) _layerController.notifyListeners();
+      if (fireHaptic) HapticFeedback.lightImpact();
+    };
+
     // 🔑 When gesture/animation fully ends, rebuild the DrawingPainter child
     // so it re-renders at the new LOD tier. Without this, the AnimatedBuilder
     // caches the child widget and never rebuilds it after zoom.
@@ -3158,6 +3799,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 🔍 Real-time zoom detection: check continuously during pinch gestures
     _canvasController.addListener(_onPdfZoomCheck);
     _canvasController.addListener(_onImageZoomCheck);
+    // 🎚️ A.3: while the zoom physics simulation is running, suppress the
+    // post-frame tier-2 thumbnail bakes (set override to 0). They resume
+    // at settle (override cleared). Parent fallback covers the visual gap.
+    _canvasController.addListener(_syncBakeBudgetWithAnimationState);
 
     // 🏛️ Proactive OCR trigger for the monument/zone LOD 2 layer.
     // Without this, _clusterTextCache stays empty until the student opens
@@ -3166,6 +3811,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // correctly. Firing at the 0.30 threshold gives the async OCR pipeline
     // time to finish before the student reaches 0.15 (LOD 2).
     _canvasController.addListener(_maybePopulateTextsForLandmarks);
+
+    // 🔁 Pan/pinch by the user → dismiss the return-ritual blur. Idempotent;
+    // first real interaction (whatever it is) clears the blur.
+    _canvasController.addListener(_dismissReturnRitualOnInteraction);
 
     // 🌀 Load persisted rotation lock preference
     _canvasController.loadPersistedState();
@@ -3323,7 +3972,68 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
           },
           reviewScheduleFn: () => _reviewSchedule,
           languageNameFn: () => _deviceLanguageName,
+          // 🔧 2026-05-18: bridge ClusterConceptIndex → SemanticMorphController
+          // so the title bar painter (which reads `semanticTitles[clusterId]`
+          // via `getCrossfadeTitle`) picks up the title generated by the
+          // background AI batch. Without this, AI titles landed only in
+          // ClusterConceptIndex._concepts; the painter kept showing the
+          // raw OCR forever.
+          onTitleResolved: (clusterId, title, sourceText) {
+            _semanticMorphController?.recordAiTitle(
+              clusterId,
+              title,
+              sourceText ?? '',
+            );
+          },
         );
+
+        // 🆓 Free Background AI orchestrator (Bundle A, 2026-05-17).
+        //
+        // Reads `consent_ai_background` from the host's cognitive
+        // preferences (default ON). The host wires `consentFn` in
+        // `Fluera/lib/main.dart` via a `CognitivePreferences` callback;
+        // when omitted (e.g. plain `fluera_engine` usage), it defaults
+        // to allowed.
+        _backgroundAi = BackgroundAiController(
+          providerFn: () {
+            try {
+              return EngineScope.current.atlasProvider;
+            } catch (_) {
+              return null;
+            }
+          },
+          indexFn: () => _clusterConceptIndex!,
+          clustersFn: () => _clusterCache,
+          clusterTextsFn: () => _clusterTextCache,
+          creditsControllerFn: () {
+            try {
+              return EngineScope.current.aiCreditsController;
+            } catch (_) {
+              return null;
+            }
+          },
+          consentFn: () =>
+              CanvasCoachmarkSignals.backgroundAiEnabled,
+          // 🎯 Viewport prioritisation — pass the canvas-space viewport
+          // rect so the controller batches on-screen clusters first.
+          // Returns null pre-mount (no context) → controller falls back
+          // to the natural cluster order, no harm done.
+          viewportFn: () {
+            if (!mounted) return null;
+            try {
+              final size = MediaQuery.sizeOf(context);
+              final tl = _canvasController.screenToCanvas(Offset.zero);
+              final br = _canvasController.screenToCanvas(
+                Offset(size.width, size.height),
+              );
+              return Rect.fromLTRB(tl.dx, tl.dy, br.dx, br.dy);
+            } catch (_) {
+              return null;
+            }
+          },
+        );
+        _backgroundAi!.onCanvasOpened();
+
         // 🤝 Wire cross-feature avoid: Socratic and Exam now share the
         // same "recently-asked" view via the index (B1 of the consolidation
         // sprint). Each controller still keeps its local ring buffer for
@@ -3335,6 +4045,14 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         // ID is set a few lines above; bindCanvas reads the on-disk
         // JSON and notifies listeners when concepts populate.
         unawaited(_clusterConceptIndex!.bindCanvas(_canvasId));
+        // 🔧 2026-05-18: rebuild on every concept change so the
+        // flashcard mini-card picks up persisted `cleanedOcr` after
+        // `bindCanvas` async-hydrates from disk, and similarly when
+        // `setTitle` / `upsertConcepts` fire during a session. Without
+        // this, the widget tree only rebuilt on canvas-controller
+        // events (pan / zoom), so a freshly opened canvas would show
+        // raw OCR until the user happened to pan or zoom.
+        _clusterConceptIndex!.addListener(_onConceptIndexChanged);
         _thumbnailCache = ClusterThumbnailCache();
         _knowledgeParticleTicker = createTicker((elapsed) {
           // Tick particles at ~60fps (16ms = 0.016s)
@@ -3405,6 +4123,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       _isDrawingNotifier.addListener(() {
         if (_isDrawingNotifier.value) {
           _flowGuard.onDrawingStarted();
+          // 🔁 First stroke after a return-ritual open dismisses the blur.
+          _dismissReturnRitualOnInteraction();
           // 🎵 A13-05: Suppress sounds during active writing
           PedagogicalSoundEngine.instance.suppressForWriting();
         } else {
@@ -3545,6 +4265,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
         cloudData['layers'] = saveData.layers.map((l) => l.toJson()).toList();
         _syncEngine!.flush(_canvasId, cloudData);
       }
+
+      // 🆓 Free Background AI: cancel pending idle timer + suspend trigger
+      // edge detection. Resumed below in `AppLifecycleState.resumed`.
+      _backgroundAi?.onAppPaused();
     } else if (state == AppLifecycleState.inactive) {
       // 🚀 APP SWITCHER: App partially visible — suspend non-essential work
       // but keep ALL caches intact (user likely returns within seconds).
@@ -3562,6 +4286,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     } else if (state == AppLifecycleState.resumed) {
       // 🚀 SCREEN-ON OPT: Recover from background
       _onResumeFromBackground();
+
+      // 🆓 Free Background AI: resume trigger system (idle timer & edge
+      // detection are re-armed on the next stroke / scale change).
+      _backgroundAi?.onAppResumed();
 
       // 🔮 PARTICLE THROTTLE: Restart ticker if it was active before pause
       if (_particleTickerWasActive &&
@@ -3737,12 +4465,41 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
   // DISPOSE
   // ============================================================================
 
+  /// 🎬 Handler for the cross-widget time-travel request signal.
+  /// Fires when the host increments `timeTravelRequestSignal.value`, which
+  /// happens when the user taps the `FlueraTimeTravelChip` in the toolbar.
+  /// Idempotent: a second increment while already in time-travel mode
+  /// is a no-op (the `_enterTimeTravelMode` guard short-circuits).
+  void _onTimeTravelRequested() {
+    if (!mounted) return;
+    // Fire-and-forget: the chip should never block on the entry animation,
+    // and any failure logs internally without throwing back to the caller.
+    unawaited(_enterTimeTravelMode());
+  }
+
   @override
   void dispose() {
+    // 🔁 Drop the return-ritual blur controller — it owns an
+    // AnimationController + Timer that must be released to avoid leaks.
+    _returnRitualBlur?.dispose();
+    _returnRitualBlur = null;
+
+    // 🎬 Detach the time-travel signal listener BEFORE other dispose runs
+    // so a stale notification can't trigger _enterTimeTravelMode after
+    // the controllers are torn down.
+    widget.timeTravelRequestSignal?.removeListener(_onTimeTravelRequested);
+
+    // 🔄 Round 4.3 — drop the WheelModePref listener so a stale toggle
+    // can't fire setState after dispose.
+    _WheelModePref.enabledListenable.removeListener(_onWheelModePrefChanged);
+
     // 🏛️ Unregister landmark OCR listener BEFORE the rest of dispose runs,
     // so trailing controller notifications can't fire an async callback that
     // touches a defunct context via ScaffoldMessenger.
     _canvasController.removeListener(_maybePopulateTextsForLandmarks);
+    // 🔁 Drop ritual dismiss listener — controller outlives this dispose
+    // chain when reused across canvas opens.
+    _canvasController.removeListener(_dismissReturnRitualOnInteraction);
 
     // 📌 Tear down bookmarks before other controllers — listener removal
     // must precede the controller dispose, and the thumbnail cache holds
@@ -3768,8 +4525,13 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     _knowledgeParticleTicker?.dispose();
     _knowledgeFlowController?.dispose();
     _thumbnailCache?.dispose();
-    // 🧠 CLUSTER CONCEPT INDEX: Release per-canvas concept cache
+    // 🧠 CLUSTER CONCEPT INDEX: Release per-canvas concept cache.
+    // Remove listener first so setState isn't called from a stale
+    // notification while the State is unmounting.
+    _clusterConceptIndex?.removeListener(_onConceptIndexChanged);
     _clusterConceptIndex?.dispose();
+    // 🆓 Free Background AI: cancel any pending idle / cold-start timers
+    _backgroundAi?.dispose();
     // 🗺️ GHOST MAP: Release controller + animation
     _ghostMapAnimController?.dispose();
     _ghostMapFadeOutController?.dispose(); // Fix #18
@@ -3897,6 +4659,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     // 🌊 LIQUID: Detach physics ticker before disposal
     _canvasController.detachTicker();
     _canvasController.removeListener(_onPdfZoomCheck);
+    _canvasController.removeListener(_syncBakeBudgetWithAnimationState);
+    // Always release the global override on dispose so a stale 0-budget
+    // can't suppress bakes for the next canvas screen.
+    DrawingPainter.bakeBudgetOverride = null;
     _canvasController.dispose();
     _playbackController?.dispose();
 
@@ -3922,6 +4688,8 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
     if (_isRecordingAudio) {
       _recordingDurationSubscription?.cancel();
       _recordingDurationSubscription = null;
+      _voiceQuotaWatchdog?.cancel();
+      _voiceQuotaWatchdog = null;
       _syncRecordingBuilder = null;
       _isRecordingAudio = false;
       // Fire-and-forget — provider.stopRecording() will stop the native recorder
@@ -3945,6 +4713,10 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
       _isPlayingSyncedRecording = false;
       _voiceRecordingProvider.stopPlayback();
     }
+    // 🎤 Audio↔Stroke Sync — release the sync controller (also disposes if
+    // playback was stopped without going through _stopSyncedPlayback).
+    _audioInkSyncController?.dispose();
+    _audioInkSyncController = null;
     // 🔧 FIX #7: Clean up playback completion listener
     VoiceRecordingExtension._playbackCompletedSubs[hashCode]?.cancel();
     VoiceRecordingExtension._playbackCompletedSubs.remove(hashCode);
@@ -3964,6 +4736,57 @@ class _FlueraCanvasScreenState extends State<FlueraCanvasScreen>
 // ============================================================================
 // 📌 BOOKMARK NAME DIALOG
 // ============================================================================
+
+/// Numbered step row used by the wheel-mode intro sheet. Renders a
+/// circular badge with the step index next to the explanation text so
+/// the user can see the 1-2-3 flow at a glance.
+class _WheelIntroStep extends StatelessWidget {
+  final int index;
+  final String text;
+
+  const _WheelIntroStep({required this.index, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: cs.primary.withValues(alpha: 0.14),
+            shape: BoxShape.circle,
+          ),
+          child: Text(
+            '$index',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: cs.primary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: cs.onSurface,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 /// Dialog for naming a new spatial bookmark. Owns its own
 /// [TextEditingController] so its lifecycle mirrors the widget tree —

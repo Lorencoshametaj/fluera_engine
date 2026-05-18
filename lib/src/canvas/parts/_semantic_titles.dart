@@ -698,25 +698,49 @@ TITLE (in $lang):''';
     final scale = _canvasController.scale;
 
     // ── 0. Flashcard OPEN → dismiss or zoom-in ──
-    // When a flashcard is open:
-    //   • tap ON the card/node (≤120px) → zoom in
-    //   • tap ANYWHERE else → dismiss the flashcard
+    //
+    // 🃏 2026-05-18 (round 2): rewritten after device feedback.
+    //
+    // Old behaviour (and its bug):
+    //   • Tap cluster → showFlashcard, flashcardClusterId set.
+    //   • Painter hasn't painted yet → flashcardCardCanvasRect == null.
+    //   • User taps again because they think nothing happened (the
+    //     entrance animation is still mid-way at 200 ms).
+    //   • 2nd tap was within `dist < 120` of the cluster centroid →
+    //     fallback fired _handleFlashcardZoomIn → zoom — but the user
+    //     had never actually READ the card. Worse, the card had just
+    //     started painting, so it appeared mid-zoom and "tuffed" into
+    //     the destination, looking buggy.
+    //
+    // New rules:
+    //   (1) GRACE PERIOD — for the first 250 ms after showFlashcard,
+    //       swallow taps entirely (no zoom, no dismiss) so the entrance
+    //       animation can finish and the user can read the card.
+    //   (2) Tap on the card body → zoom in (canvas-rect hit-test, now
+    //       reliable because the painter publishes the rect every paint).
+    //   (3) Anything else → dismiss. No "cluster centroid distance"
+    //       fallback — the card is the explicit zoom target, the cluster
+    //       node is not.
     final fcId = _semanticMorphController!.flashcardClusterId;
     if (fcId != null) {
-      final fcCluster = _clusterCache.where((c) => c.id == fcId).firstOrNull;
-      if (fcCluster != null) {
-        final nodeScreenCenter = _canvasController.canvasToScreen(fcCluster.centroid);
-        final dist = (screenPoint - nodeScreenCenter).distance;
-
-        if (dist < 120) {
-          // Tap ON the flashcard → zoom in
-          _handleFlashcardZoomIn(fcId);
-          _canvasController.markNeedsPaint();
-          setState(() {});
-          return true;
-        }
+      final timeSinceShow = DateTime.now().millisecondsSinceEpoch -
+          _semanticMorphController!.flashcardShowTime;
+      if (timeSinceShow < 250) {
+        // Grace period: ignore taps until the entrance animation is far
+        // enough along that the user can see the card.
+        return true;
       }
-      // Tap OUTSIDE the flashcard → dismiss
+
+      final cardRect = _semanticMorphController!.flashcardCardCanvasRect;
+      // (a) Tap on the card body → zoom in.
+      if (cardRect != null && cardRect.contains(canvasPoint)) {
+        _handleFlashcardZoomIn(fcId);
+        _canvasController.markNeedsPaint();
+        setState(() {});
+        return true;
+      }
+
+      // (b) Tap anywhere else → dismiss.
       _semanticMorphController!.dismissFlashcard();
       _canvasController.markNeedsPaint();
       setState(() {});
@@ -726,33 +750,24 @@ TITLE (in $lang):''';
 
 
     // ── 1. Hit-test node circles ──
+    //
+    // Reached only when `fcId == null` (the section above returns
+    // unconditionally otherwise). So this is the first-show path:
+    // user tapped a node, no flashcard active yet → show one. There is
+    // no "tap-twice-on-cluster-to-zoom" shortcut any more — the only
+    // path to zoom is an explicit tap on the card body.
     final hitId = _semanticMorphController!.hitTestSemanticNode(
       canvasPoint, _clusterCache, scale,
       clusterTexts: _clusterTextCache,
     );
 
     if (hitId != null) {
-      if (_semanticMorphController!.flashcardClusterId == hitId) {
-        // Tap same node with flashcard open → zoom in!
-        _handleFlashcardZoomIn(hitId);
-      } else {
-        // Show flashcard for this node
-        _semanticMorphController!.showFlashcard(hitId);
-        HapticFeedback.lightImpact();
-      }
+      _semanticMorphController!.showFlashcard(hitId);
+      HapticFeedback.lightImpact();
       _canvasController.markNeedsPaint();
       setState(() {});
       _scheduleFlashcardRepaints();
       return true;
-    } else {
-      // Tap on empty space → dismiss any open flashcard
-      if (_semanticMorphController!.flashcardClusterId != null) {
-        _semanticMorphController!.dismissFlashcard();
-        _canvasController.markNeedsPaint();
-        setState(() {});
-        _scheduleFlashcardRepaints();
-        return true;
-      }
     }
     return false;
   }
@@ -1090,23 +1105,14 @@ TITLE (in $lang):''';
     }
 
     try {
-      final sb = StringBuffer();
-      sb.writeln('IGNORE tutte le regole precedenti sui canvas action.');
-      sb.writeln();
-      sb.writeln('Sei un analista tematico. Per ogni gruppo di argomenti, '
-          'genera UN MACRO-TEMA (max 25 caratteri) che li unifica.');
-      sb.writeln();
-      sb.writeln('REGOLE:');
-      sb.writeln('- MAX 25 caratteri');
-      sb.writeln('- Un titolo tematico ampio, non specifico');
-      sb.writeln('- Lingua: stessa degli argomenti');
-      sb.writeln('- Rispondi con JSON: {"temi": {"1": "tema1", ...}}');
-      sb.writeln();
-
+      // 🌐 Bundle C (2026-05-17): build the topic-groups block then defer
+      // the actual prompt template to `SuperNodeThemeRegistry` which picks
+      // the right cell for the current AiLanguagePreference (16 langs Tier
+      // 1+2) and falls back to English on miss.
+      final groupsBlock = StringBuffer();
       int idx = 1;
       final indexed = <int, SuperNode>{};
       for (final sn in superNodes.take(5)) {
-        // Collect member titles
         final memberTitles = <String>[];
         for (final mid in sn.memberClusterIds) {
           final title = _semanticMorphController!.aiTitles[mid] ??
@@ -1115,7 +1121,7 @@ TITLE (in $lang):''';
         }
         if (memberTitles.isEmpty) continue;
 
-        sb.writeln('$idx. ARGOMENTI: ${memberTitles.join(", ")}');
+        groupsBlock.writeln('$idx. ARGOMENTI: ${memberTitles.join(", ")}');
         indexed[idx] = sn;
         idx++;
       }
@@ -1126,10 +1132,12 @@ TITLE (in $lang):''';
         return;
       }
 
-      sb.writeln();
-      sb.write('JSON:');
+      final prompt = SuperNodeThemeRegistry.promptFor(
+        AiLanguagePreference.code(),
+        groupsBlock.toString().trimRight(),
+      );
 
-      final response = await provider.askAtlas(sb.toString(), [
+      final response = await provider.askAtlas(prompt, [
         {'id': 'god_view', 'tipo': 'macro_temi', 'contenuto': 'Batch'},
       ]);
 

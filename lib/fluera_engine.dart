@@ -260,6 +260,7 @@ export 'src/rendering/scene_graph/render_batch.dart';
 // in their respective add-on packages.
 
 // Canvas Painters
+export 'src/canvas/coachmark_signals.dart';
 export 'src/rendering/canvas/drawing_painter.dart';
 export 'src/rendering/canvas/current_stroke_painter.dart';
 export 'src/rendering/canvas/background_painter.dart';
@@ -326,6 +327,14 @@ export 'src/time_travel/widgets/time_travel_timeline_widget.dart';
 export 'src/time_travel/widgets/time_travel_lasso_overlay.dart';
 export 'src/time_travel/controllers/synchronized_playback_controller.dart';
 export 'src/time_travel/widgets/synchronized_playback_overlay.dart';
+// 🎬 Time Travel retention policy (V1 split 2026-05-14): 90 d Free ring,
+// unlimited Plus/Pro. Playback UI is Pro-only.
+export 'src/time_travel/retention/time_travel_retention_policy.dart';
+export 'src/time_travel/widgets/time_travel_entry_point.dart';
+// 🎤✋ Audio-ink seek overlay (Pro pillar #3, 2026-05-14): long-press →
+// seek audio playback to the stroke's recorded timestamp. Wraps the canvas.
+export 'src/time_travel/controllers/audio_ink_gesture_handler.dart';
+export 'src/time_travel/widgets/audio_ink_seek_overlay.dart';
 
 // ────────────────────────── HISTORY ──────────────────────────
 export 'src/history/command_history.dart';
@@ -379,6 +388,18 @@ export 'src/collaboration/conflict_resolution.dart';
 export 'src/collaboration/widgets/conflict_resolution_dialog.dart';
 export 'src/collaboration/design_comment.dart';
 export 'src/collaboration/ready_to_use_adapters.dart';
+// 🤝 Collab invite + entry point (Pro pillar #2, V1 split 2026-05-14).
+export 'src/collaboration/invite/collab_invite_link.dart';
+export 'src/collaboration/widgets/collab_entry_point.dart';
+export 'src/collaboration/widgets/collab_share_sheet.dart';
+
+// 💳 Paywall comparison table (V1 split 2026-05-14, trasparenza-first).
+// Drop-in 3-column Free / Plus / Pro + Spark Pack + incumbent comparison.
+export 'src/paywall/paywall_comparison_table.dart';
+
+// 📊 Purchase telemetry (V1 split funnel: paywall_shown → purchase_sub|purchase_pack).
+export 'src/analytics/purchase_telemetry.dart';
+export 'src/analytics/v1_analytics_events.dart';
 
 // ────────────────────────── EXPORT ──────────────────────────
 export 'src/export/export_pipeline.dart';
@@ -577,10 +598,14 @@ export 'src/config/multi_page_config.dart';
 export 'src/config/color_manager.dart';
 export 'src/config/split_panel_content.dart';
 export 'src/config/advanced_split_layout.dart';
+// V1 launch kill switches — compile-time tree-shakable feature flags so the
+// host can branch on enabled / deferred capabilities.
+export 'src/config/v1_feature_gate.dart';
 
 // ────────────────────────── UTILS ──────────────────────────
 export 'src/utils/reduced_motion.dart';
 export 'src/utils/ai_language_preference.dart';
+export 'src/utils/ui_language_preference.dart';
 
 // ────────────────────────── STORAGE ──────────────────────────
 export 'src/storage/fluera_storage_adapter.dart';
@@ -615,6 +640,34 @@ export 'src/platform/native_pdf_provider.dart';
 export 'src/ai/ai_usage_tracker.dart';
 export 'src/ai/noop_ai_usage_tracker.dart';
 export 'src/ai/telemetry_recorder.dart'; // 📊 Product telemetry sink
+
+// AI Credits V2 (Fluera AI Credits, 2026-05-14):
+// Fixed-cost-per-feature credit currency replacing per-feature token caps.
+// Host apps implement [AiCreditsController] against Supabase; engine ships
+// a no-op default so the SDK stays usable without a backing impl.
+export 'src/ai/credits/ai_credits_costs.dart';
+export 'src/ai/credits/ai_credits_controller.dart';
+export 'src/ai/credits/noop_ai_credits_controller.dart';
+export 'src/ai/credits/widgets/ai_credits_badge.dart';
+export 'src/ai/credits/widgets/ai_credits_exhausted_sheet.dart';
+
+// 🆓 Free Background AI (2026-05-17):
+// Coordinates Fluera-absorbed cleanOcr + clusterTitle background calls
+// triggered automatically (idle 5 s post-stroke / first dezoom < 0.30).
+// User pays zero credits; Fluera assorbs Gemini Flash Lite cost.
+export 'src/ai/background_ai_controller.dart';
+
+// 🎙️ Voice Quota (V1 split 2026-05-14):
+// Monthly voice-recording minute cap. Plus 60 min, Pro unlimited.
+// Host apps implement [VoiceQuotaTracker] against Supabase; engine ships
+// a no-op default for SDK builds without a backend.
+export 'src/audio/quota/voice_quota_tracker.dart';
+export 'src/audio/quota/noop_voice_quota_tracker.dart';
+export 'src/audio/quota/widgets/voice_record_button.dart';
+export 'src/audio/quota/widgets/voice_record_button_state.dart';
+// ☁️ Phase 2 — Audio cloud sync adapter. Host apps inject a Supabase impl
+// via FlueraCanvasConfig.recordingCloudSync; engine ships a no-op default.
+export 'src/audio/cloud/recording_cloud_sync.dart';
 
 // Gemini proxy: when the app constructs EngineScope with a GeminiProxyConfig,
 // all Gemini calls route through a Supabase Edge Function that holds the

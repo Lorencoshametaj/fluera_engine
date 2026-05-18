@@ -81,11 +81,28 @@ class ClusterConceptIndex extends ChangeNotifier {
     required Map<String, SrsCardData> Function() reviewScheduleFn,
     required String Function() languageNameFn,
     DigitalInkService? inkService,
+    this.onTitleResolved,
   })  : _providerFn = providerFn,
         _strokeMapFn = strokeMapFn,
         _reviewScheduleFn = reviewScheduleFn,
         _languageNameFn = languageNameFn,
         _inkService = inkService ?? DigitalInkService.instance;
+
+  /// 🔧 2026-05-18: optional sink invoked whenever [setTitle] commits a
+  /// new title. The canvas screen wires this to
+  /// `SemanticMorphController.recordAiTitle` so the title bar painter
+  /// (which reads `semanticTitles[clusterId]` via
+  /// `getCrossfadeTitle`) picks up the AI-generated value.
+  ///
+  /// Without this propagation the AI work landed in [_concepts] but
+  /// never reached the painter — the user saw the raw OCR ("Prima-
+  /// legged. nena") instead of "Prima legge di Newton" even after
+  /// the background batch completed and the cap counter ticked up.
+  ///
+  /// Optional so the SDK + tests can use `ClusterConceptIndex` without
+  /// a morph controller wired.
+  void Function(String clusterId, String title, String? sourceText)?
+      onTitleResolved;
 
   final AiProvider? Function() _providerFn;
   final Map<String, ProStroke> Function() _strokeMapFn;
@@ -115,6 +132,23 @@ class ClusterConceptIndex extends ChangeNotifier {
   final Set<String> _invalidated = {};
 
   bool _disposed = false;
+
+  /// 🔧 2026-05-18: debounced opportunistic flush. Without this, AI
+  /// titles only hit disk on `dispose()` (canvas close). Hot restart /
+  /// app kill / crash mid-session → titles lost; next open shows raw
+  /// OCR forever. Debounce keeps writes off the hot path (idle 2 s
+  /// after the last title arrival → one flush).
+  Timer? _flushDebounce;
+  static const Duration _flushDebounceDuration = Duration(seconds: 2);
+
+  void _scheduleFlush() {
+    if (_disposed || _canvasId == null || _persistence == null) return;
+    _flushDebounce?.cancel();
+    _flushDebounce = Timer(_flushDebounceDuration, () {
+      if (_disposed) return;
+      unawaited(flush());
+    });
+  }
 
   // ────────────────────────────────────────────────────────────────────
   // Read API
@@ -290,7 +324,15 @@ class ClusterConceptIndex extends ChangeNotifier {
       existing.lastUpdated = DateTime.now();
       existing.sourceVersion += 1;
     }
+    // 🔧 2026-05-18: forward to the host so SemanticMorphController's
+    // `semanticTitles` + `aiTitles` stay in sync. See class-level
+    // `onTitleResolved` doc for context.
+    onTitleResolved?.call(clusterId, title, sourceText);
     notifyListeners();
+    // 🔧 2026-05-18: opportunistic flush so AI titles survive hot
+    // restart / app kill / crash. Debounced (2 s) to coalesce a batch
+    // of titles arriving in quick succession into a single write.
+    _scheduleFlush();
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -307,6 +349,7 @@ class ClusterConceptIndex extends ChangeNotifier {
     bool needsTitle = false,
     bool needsTopic = false,
     bool needsConcepts = false,
+    bool isFreeBackground = false,
   }) {
     if (_disposed) {
       return Future.value(ClusterConcept(clusterId: cluster.id));
@@ -328,6 +371,7 @@ class ClusterConceptIndex extends ChangeNotifier {
       needsTitle: needsTitle,
       needsTopic: needsTopic,
       needsConcepts: needsConcepts,
+      isFreeBackground: isFreeBackground,
     );
     _inflight[key] = fut;
     fut.whenComplete(() {
@@ -416,6 +460,7 @@ class ClusterConceptIndex extends ChangeNotifier {
     required bool needsTitle,
     required bool needsTopic,
     required bool needsConcepts,
+    bool isFreeBackground = false,
   }) async {
     // 🛡️ Race guard: if the index was disposed while this resolve was
     // queued, bail before touching `_concepts` (cleared on dispose).
@@ -493,20 +538,20 @@ class ClusterConceptIndex extends ChangeNotifier {
       final raw = concept.rawOcr!.trim();
       final eligibleForCleanup =
           cluster.strokeIds.length >= 3 || raw.length >= 5;
-      // 🛡️ Multi-language guard: the cleanup prompt is Italian-tuned
-      // ("Pulisci questa trascrizione OCR italiana..."). If the device
-      // locale is Italian but this specific cluster looks English
-      // (predominantly ASCII letters, no Italian accents, no Italian
-      // function words), skip cleanup — Gemini would otherwise
-      // "italianize" the English content. Heuristic, not perfect, but
-      // catches the common case "studente IT scrive paragrafo EN".
-      final looksLikeOtherLanguage = _languageNameFn() == 'Italian' &&
-          _looksLikeNonItalian(raw);
+      // 🛡️ Multi-language guard: the cleanup prompt is tuned per
+      // language but Gemini can still "italianise" a paragraph the
+      // student wrote in English on an IT device (or any analogous
+      // cross-language pairing). Skip cleanup when the heuristic
+      // detector says the OCR looks like a different language than
+      // the user's preference — better to ship raw than to translate.
+      final isoCode = _displayNameToIso(_languageNameFn());
+      final looksLikeOtherLanguage = _looksLikeOtherLanguage(raw, isoCode);
       if (provider != null && eligibleForCleanup && !looksLikeOtherLanguage) {
         try {
-          concept.cleanedOcr = await provider.cleanOcrItalian(
+          concept.cleanedOcr = await provider.cleanOcr(
             concept.rawOcr!,
-            language: _languageNameFn(),
+            langCode: isoCode,
+            isFreeBackground: isFreeBackground,
           );
           // Tag the cached value with the live prompt version so a
           // future prompt bump invalidates it automatically.
@@ -564,7 +609,11 @@ class ClusterConceptIndex extends ChangeNotifier {
       final provider = _providerFn();
       if (source != null && source.trim().isNotEmpty && provider != null) {
         try {
-          final title = await _generateTitle(cluster, source);
+          final title = await _generateTitle(
+            cluster,
+            source,
+            isFreeBackground: isFreeBackground,
+          );
           if (title != null && title.isNotEmpty) {
             concept.title = title;
             concept.titlePromptVersion = _kTitlePromptVersion;
@@ -662,7 +711,10 @@ class ClusterConceptIndex extends ChangeNotifier {
   /// Results are written to [_concepts] via [setTitle] so subsequent
   /// `resolve(needsTitle: true)` calls and consumers reading
   /// `peek(id).title` see the same data.
-  Future<void> bulkGenerateTitles(Map<String, String> clusterTexts) async {
+  Future<void> bulkGenerateTitles(
+    Map<String, String> clusterTexts, {
+    bool isFreeBackground = false,
+  }) async {
     if (_disposed) return;
     final provider = _providerFn();
     if (provider == null) return;
@@ -688,7 +740,11 @@ class ClusterConceptIndex extends ChangeNotifier {
         bounds: const Rect.fromLTWH(0, 0, 1, 1),
         centroid: const Offset(0, 0),
       );
-      final title = await _generateTitle(cluster, entry.value);
+      final title = await _generateTitle(
+        cluster,
+        entry.value,
+        isFreeBackground: isFreeBackground,
+      );
       if (title != null && title.isNotEmpty) {
         setTitle(entry.key, title, sourceText: entry.value);
       }
@@ -703,7 +759,10 @@ class ClusterConceptIndex extends ChangeNotifier {
     // text via askFreeText; we parse it below.
     try {
       final prompt = _buildBulkTitlePrompt(pending);
-      final freeText = await provider.askFreeText(prompt);
+      final freeText = await provider.askFreeText(
+        prompt,
+        isFreeBackground: isFreeBackground,
+      );
       // Tolerate ```json fences and stray whitespace.
       final stripped = freeText
           .replaceAll('```json', '')
@@ -819,8 +878,9 @@ class ClusterConceptIndex extends ChangeNotifier {
   /// title or `null` on failure / unparsable response.
   Future<String?> _generateTitle(
     ContentCluster cluster,
-    String sourceText,
-  ) async {
+    String sourceText, {
+    bool isFreeBackground = false,
+  }) async {
     final provider = _providerFn();
     if (provider == null) return null;
 
@@ -843,7 +903,10 @@ class ClusterConceptIndex extends ChangeNotifier {
     // "The user wants a title for these notes" (device 2026-05-12).
     // askFreeText goes through `_streamModel` which has no system prompt
     // and no JSON mimeType, so we get a plain title string back.
-    final raw = await provider.askFreeText(prompt);
+    final raw = await provider.askFreeText(
+      prompt,
+      isFreeBackground: isFreeBackground,
+    );
     if (raw.trim().isEmpty) return null;
     // Drift check is now inside `_cleanGeneratedTitle` (Phase 1.3 fix
     // 2026-05-12) so Path D (bulkGenerateTitles) also benefits.
@@ -947,21 +1010,54 @@ class ClusterConceptIndex extends ChangeNotifier {
     return _isoToDisplayName(detected);
   }
 
-  static String _isoToDisplayName(String iso) => switch (iso) {
-        'it' => 'Italian',
-        'en' => 'English',
-        'es' => 'Spanish',
-        'fr' => 'French',
-        'de' => 'German',
-        'pt' => 'Portuguese',
-        _ => 'English',
-      };
+  /// Reverse of [_isoToDisplayName] — used to fetch the native-language
+  /// instruction (which is keyed on ISO code, not display name) when the
+  /// title prompt resolves a language via display name.
+  ///
+  /// Returns `'en'` for unknown display names so [nativeLangInstruction]
+  /// degrades to an empty string (no enforcement, safe default).
+  static String _displayNameToIso(String displayName) {
+    for (final entry in AiLanguagePreference.supportedLanguages().entries) {
+      if (entry.value == displayName) return entry.key;
+    }
+    return 'en';
+  }
+
+  /// Maps a 2-letter ISO code to its English display name. Delegates to
+  /// [AiLanguagePreference.supportedLanguages] (16 langs Tier 1+2: en, it,
+  /// es, pt, fr, de, ja, ko, hi, ar, zh, ru, nl, sv, pl, tr) so this stays
+  /// the single source of truth — no duplicate language tables drift apart.
+  ///
+  /// Unknown / unsupported codes fall back to `'English'` (same behaviour as
+  /// the legacy 6-language switch). Note: [detectLanguageSignature] only
+  /// recognises 6 Latin languages today, so iso values like `'ja'`/`'ar'`
+  /// here come from [AiLanguagePreference.code()] (user preference / device
+  /// locale), not from content detection.
+  static String _isoToDisplayName(String iso) {
+    return AiLanguagePreference.supportedLanguages()[iso] ?? 'English';
+  }
+
+  /// Visible-for-testing wrapper around the private [_buildTitlePrompt]
+  /// so the multilang smoke test (16 langs × display-name interpolation)
+  /// can exercise it without exposing the rest of the resolve pipeline.
+  @visibleForTesting
+  String buildTitlePromptForTest(String clusterText) =>
+      _buildTitlePrompt(clusterText);
 
   String _buildTitlePrompt(String clusterText) {
     final lang = _resolveTitleLang(clusterText);
-    return '''You label concept clusters. Generate ONE short title for the notes below.
+    // Anti-drift: inject the instruction WRITTEN IN the target language at
+    // the very top — measurably more effective than an English "respond in
+    // X" instruction (memory: `feedback_atlas_title_drift_pattern`).
+    // Empty for English (no enforcement needed) and for unsupported langs.
+    final iso = _displayNameToIso(lang);
+    final nativeInstr = AiLanguagePreference.nativeLangInstruction(iso);
+    final nativeBlock = nativeInstr.isEmpty ? '' : '$nativeInstr\n\n';
+    return '''${nativeBlock}You label concept clusters. Generate ONE short title for the notes below.
 
 🌍 OUTPUT LANGUAGE = $lang. The title MUST be in $lang. Translate any scientific concept name into $lang — even if the international (English) name is more famous. Never switch language, never produce a calque from another language.
+
+🚫 NEVER output in English unless $lang == "English".
 
 HARD RULES:
 - Max 30 characters.
@@ -984,26 +1080,52 @@ more famous internationally. Output ONLY the title text in $lang.
 TITLE (in $lang):''';
   }
 
-  /// Heuristic: does [raw] look like a NON-Italian SENTENCE? Used to
-  /// skip the Italian-tuned cleanOcrItalian pass when the device is
-  /// IT but the specific cluster is a phrase in another language.
+  /// Generalised heuristic (Bundle A, 2026-05-17): does [raw] look like
+  /// a SENTENCE in a language different from [expectedCode]? Used by
+  /// the cleanOcr pipeline to skip cleanup when the OCR is in a language
+  /// other than the student's preference — better to ship the raw OCR
+  /// than to let Gemini "translate" the content.
   ///
-  /// Single-token inputs are NEVER flagged: garbled OCR like
-  /// "Primalele" (which IS Italian, just fused) must still be cleaned.
-  /// The check is reserved for multi-word inputs where we have signal
-  /// from function words.
+  /// Returns `true` when the content-based detector
+  /// ([detectLanguageSignature]) recognises a specific Latin-script
+  /// language AND it differs from [expectedCode]. Returns `false` for:
+  ///   • `unknown` detector outcome (not enough signal — let cleanup try)
+  ///   • detected == [expectedCode] (matching, cleanup proceeds normally)
+  ///   • non-Latin expected languages (JA/KO/HI/AR/ZH/RU/NL/SV/PL/TR):
+  ///     the detector only knows 6 Latin languages, so we can't tell
+  ///     reliably whether OCR is in the expected non-Latin language —
+  ///     conservative default is to allow cleanup
   ///
-  /// Returns `true` when ALL of the following hold:
-  ///   • text has ≥ 3 word tokens (multi-word phrase)
-  ///   • no Italian accented letters (àèéìòù)
-  ///   • NO Italian function words present
-  ///   • English function words ARE present (the, of, is, and, etc.)
-  ///
-  /// False positives (Italian sentence written entirely without
-  /// function words, e.g. an isolated formula label) → cleanup skipped
-  /// → acceptable, rawOcr / dict re-rank already handled it.
-  /// False negatives (mixed-language single-token "Newton") → cleanup
-  /// runs → Gemini preserves it (proper noun handling in prompt).
+  /// Preserves the legacy safeguard of ≥3 tokens — single-word OCR like
+  /// "Primalele" must still be cleaned, even if it looks ambiguous.
+  bool _looksLikeOtherLanguage(String raw, String expectedCode) {
+    final lower = raw.toLowerCase().trim();
+    if (lower.length < 4) return false;
+    final tokens = lower
+        .split(RegExp(r'[^a-zàèéìòùáéíóúüñâêîôûäöß]+'))
+        .where((t) => t.isNotEmpty)
+        .toList();
+    if (tokens.length < 3) return false;
+    final detected = detectLanguageSignature(raw);
+    if (detected == 'unknown') return false;
+    if (detected == expectedCode) return false;
+    // Detector knows only 6 Latin languages. If [expectedCode] is one
+    // of them and detected is a different Latin language → confident
+    // "other". If [expectedCode] is non-Latin (JA/KO/etc) the detector
+    // can't validate the expected side, so we conservatively allow
+    // cleanup to run (better to attempt translation guard inside the
+    // language-specific prompt than skip silently).
+    const latinKnownByDetector = {'it', 'en', 'es', 'fr', 'de', 'pt'};
+    if (!latinKnownByDetector.contains(expectedCode)) return false;
+    return true;
+  }
+
+  /// Legacy IT-only wrapper preserved for any internal call site we may
+  /// have missed during the Bundle-A refactor. Deprecated — new callers
+  /// should use [_looksLikeOtherLanguage] directly with an explicit
+  /// `expectedCode`.
+  @Deprecated('Use _looksLikeOtherLanguage(raw, expectedCode) instead.')
+  // ignore: unused_element
   bool _looksLikeNonItalian(String raw) {
     final lower = raw.toLowerCase().trim();
     if (lower.length < 4) return false;
@@ -1078,6 +1200,21 @@ TITLE (in $lang):''';
     if (_disposed) return;
     if (hydrated.isNotEmpty) {
       _concepts.addAll(hydrated);
+      // 🔧 2026-05-18: replay onTitleResolved for every restored title so
+      // SemanticMorphController.semanticTitles is populated post-rehydrate.
+      // Without this, a hot-restart / cold-open shows "Cluster" everywhere
+      // even though the AI titles are already on disk and in `_concepts`;
+      // the painter reads via `getCrossfadeTitle` → `semanticTitles[…]`,
+      // which we now bring in sync with the persisted state.
+      final cb = onTitleResolved;
+      if (cb != null) {
+        for (final entry in hydrated.entries) {
+          final title = entry.value.title;
+          if (title != null && title.trim().isNotEmpty) {
+            cb(entry.key, title, entry.value.rawOcr);
+          }
+        }
+      }
       notifyListeners();
     }
   }
@@ -1099,6 +1236,7 @@ TITLE (in $lang):''';
   @override
   void dispose() {
     // Best-effort flush on dispose. Fire-and-forget — dispose is sync.
+    _flushDebounce?.cancel();
     if (_canvasId != null && _persistence != null && _concepts.isNotEmpty) {
       unawaited(_persistence!.save(_canvasId!, Map.from(_concepts)));
     }

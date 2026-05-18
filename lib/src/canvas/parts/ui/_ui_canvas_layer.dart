@@ -161,6 +161,27 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                                   10000 /
                                   1000.0,
                               clusterTexts: _clusterTextCache,
+                              // 🧹 2026-05-18: AI-cleaned OCR per cluster.
+                              // Derived from the live ClusterConceptIndex
+                              // snapshot so the flashcard mini-card and
+                              // keyword extractor read normalised text
+                              // ("Prima legge di Newton") instead of the
+                              // MyScript raw artefacts ("Prima lelle o'
+                              // newtn"). Empty map when the index is null
+                              // (tests / SDK) or before background cleanOcr
+                              // batch completes — painter falls back to
+                              // clusterTexts automatically.
+                              cleanedOcrTexts: _clusterConceptIndex == null
+                                  ? const <String, String>{}
+                                  : <String, String>{
+                                      for (final entry in _clusterConceptIndex!
+                                          .snapshot()
+                                          .entries)
+                                        if ((entry.value.cleanedOcr ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          entry.key: entry.value.cleanedOcr!,
+                                    },
                               selectedConnectionId: _editingLabelConnectionId,
                               // 📚 LOW-ZOOM: thumbnails sub-pixel below
                               // scale 0.30 → drawing them is wasted
@@ -207,6 +228,10 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                               zoneMembership: _zonesOrCompute().membership,
                               hiddenForRecallClusterIds:
                                   _clustersHiddenForRecall(),
+                              // FSRS stage per cluster — same cached map
+                              // already fed to FsrsHeatMapPainter. Drives
+                              // continent-color modulation at god view.
+                              clusterStages: _fsrsClusterStageList(),
                             ),
                             size: Size.infinite,
                           ),
@@ -215,6 +240,122 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 },
               ),
             ),
+          // ══════════════════════════════════════════════════════════════
+          // Z-ORDER STACK A DEZOOM (scale ≤ 0.25) — Fase 4 cleanup ref:
+          //   0. BackgroundPainter          — paper + dot grid
+          //   1. DrawingPainter Tier 1/2    — stroke raster + 🏛️ monument
+          //                                   stroke preservation
+          //   2. KnowledgeFlowPainter:
+          //      2a. Zone tints (Picture)         — IDENTITY (regione)
+          //      2b. Network glow                 — AMBIENT
+          //      2c. Cluster dots + halos         — IDENTITY
+          //      2d. Cross-zone bridges (gold)    — RELATION (autostrade)
+          //      2e. Monument pills + zone labels — IDENTITY (testo)
+          //      2f. Semantic nodes (morph)       — IDENTITY (concept)
+          //      2g. Super-nodi (god view)        — IDENTITY (tema)
+          //   3. FsrsHeatMapPainter         — STAGE signal
+          //                                   (Fix 1: monuments suppressed)
+          //   4. ReturnRitualBlurPainter    — transient on multi-day return
+          //   5. SrsBlurOverlayPainter      — active review session
+          //   6. FogOfWarOverlayPainter     — exam mode
+          //
+          // Gerarchia: IDENTITY (chi sei) > RELATION (chi connetti) >
+          // STAGE (cosa sai) > TRANSIENT (cosa stai facendo).
+          // ══════════════════════════════════════════════════════════════
+
+          // 🌡️ FSRS STAGE HEAT-MAP: stage-colored rings on every cluster
+          // at zoom-out (scale ≤ 0.25). §1416-1420 "i nodi rossi vuoti
+          // sono la mappa delle lacune". Pure overlay: never blocks
+          // input, never mutates state. AnimatedBuilder rebuilds on
+          // controller scale change so the smoothstep fade picks up.
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _canvasController,
+              builder: (context, _) {
+                final s = _canvasController.scale;
+                if (!CanvasCoachmarkSignals.fsrsHeatMapEnabled ||
+                    s > FsrsHeatMapPainter.kActivationScale) {
+                  return const SizedBox.shrink();
+                }
+                final m = Matrix4.identity()
+                  ..translateByDouble(
+                    _canvasController.offset.dx,
+                    _canvasController.offset.dy,
+                    0.0,
+                    1.0,
+                  );
+                if (_canvasController.rotation != 0.0) {
+                  m.rotateZ(_canvasController.rotation);
+                }
+                m.scaleByDouble(s, s, 1.0, 1.0);
+                return Transform(
+                  transform: m,
+                  child: CustomPaint(
+                    painter: FsrsHeatMapPainter(
+                      clusters: _clusterCache,
+                      clusterStages: _fsrsClusterStageList(),
+                      // 🏛️ Fase 4 Fix 1+4: suppress colored ring on monuments
+                      // (rendundant with pill) + outer-inflated gray ring
+                      // on untouched monuments so geometry stays clean.
+                      monumentIds: _monumentsOrCompute().monumentIds,
+                      canvasScale: s,
+                      fadeOpacity: FsrsHeatMapPainter.fadeFromScale(s),
+                      // FX5 — early-out when the stroke Tier 2 thumbnails
+                      // are still strong (semanticMorphProgress < 0.3).
+                      semanticMorphProgress:
+                          _semanticMorphController?.morphProgress ?? 0.0,
+                    ),
+                    size: Size.infinite,
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // 🔁 RETURN RITUAL BLUR: transient blur on cluster ink at canvas
+          // open after multi-day gap (§1047-1062 — PASSO 6). Same canvas-
+          // space Transform as KnowledgeFlowPainter so the blur RRects
+          // line up with the underlying strokes. Skipped entirely when
+          // the controller is null/inactive (cheapest possible no-op).
+          if (_returnRitualBlur != null)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _returnRitualBlur!,
+                builder: (context, _) {
+                  if (!_returnRitualBlur!.isActive) {
+                    return const SizedBox.shrink();
+                  }
+                  return AnimatedBuilder(
+                    animation: _canvasController,
+                    builder: (context, _) {
+                      final m = Matrix4.identity()
+                        ..translateByDouble(
+                          _canvasController.offset.dx,
+                          _canvasController.offset.dy,
+                          0.0,
+                          1.0,
+                        );
+                      if (_canvasController.rotation != 0.0) {
+                        m.rotateZ(_canvasController.rotation);
+                      }
+                      final s = _canvasController.scale;
+                      m.scaleByDouble(s, s, 1.0, 1.0);
+                      return Transform(
+                        transform: m,
+                        child: CustomPaint(
+                          painter: ReturnRitualBlurPainter(
+                            clusters: _clusterCache,
+                            controller: _returnRitualBlur!,
+                          ),
+                          size: Size.infinite,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+
           // 🧠 RECALL NODE OVERLAYS: Canvas-space status indicators.
           // Mounted INSIDE the Transform stack (like KnowledgeFlowPainter)
           // so they move in perfect lock-step with strokes during zoom.
@@ -275,30 +416,49 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
           // Renders AFTER knowledge flow so bubbles appear on top of connections.
           // 🚀 RASTER FIX (tier 2): expansion bubbles are sub-pixel at
           // scale < 0.25, skip entirely.
-          if (_radialExpansionController != null &&
-              _radialExpansionController!.phase != RadialExpansionPhase.idle)
-            IgnorePointer(
-              child: AnimatedBuilder(
-                animation: _canvasController,
-                builder: (context, _) {
-                  if (_canvasController.scale < 0.25) {
-                    return const SizedBox.shrink();
-                  }
-                  return CustomPaint(
-                    painter: RadialExpansionPainter(
-                      controller: _radialExpansionController!,
-                      canvasOffset: _canvasController.offset,
-                      canvasScale: _canvasController.scale,
-                      animationTime:
-                          DateTime.now().millisecondsSinceEpoch %
-                          10000 /
-                          1000.0,
-                    ),
-                    size: Size.infinite,
-                  );
-                },
-              ),
-            ),
+          //
+          // ⚠️ MOUNT REACTIVITY (fix 2026-05-XX): the `if (... phase != idle)`
+          // guard MUST be re-evaluated whenever the RadialExpansionController
+          // changes phase. The controller is plain Dart (not a Listenable)
+          // and `_startRadialCharge` signals phase changes by incrementing
+          // `_uiRebuildNotifier`. Without wrapping the mount in a
+          // `ValueListenableBuilder<int>(_uiRebuildNotifier)` the outer `if`
+          // is only re-evaluated on parent rebuilds (e.g. pan/zoom via
+          // canvasController), and the cyan charge ring is invisible during
+          // a stationary long-press. Observed on device: long-press → no
+          // ring; pan a tiny bit → ring suddenly appears.
+          ValueListenableBuilder<int>(
+            valueListenable: _uiRebuildNotifier,
+            builder: (context, _, __) {
+              if (_radialExpansionController == null ||
+                  _radialExpansionController!.phase ==
+                      RadialExpansionPhase.idle) {
+                return const SizedBox.shrink();
+              }
+              return IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _canvasController,
+                  builder: (context, _) {
+                    if (_canvasController.scale < 0.25) {
+                      return const SizedBox.shrink();
+                    }
+                    return CustomPaint(
+                      painter: RadialExpansionPainter(
+                        controller: _radialExpansionController!,
+                        canvasOffset: _canvasController.offset,
+                        canvasScale: _canvasController.scale,
+                        animationTime:
+                            DateTime.now().millisecondsSinceEpoch %
+                            10000 /
+                            1000.0,
+                      ),
+                      size: Size.infinite,
+                    );
+                  },
+                ),
+              );
+            },
+          ),
           // 💛 ZEIGARNIK PULSE: Ambient amber glow on incomplete nodes.
           // Rendered ABOVE radial expansion, BELOW SRS blur.
           //
@@ -558,6 +718,40 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                         },
                       ),
                     ),
+              ),
+            ),
+          // 🎤✨ AUDIO-INK HIGHLIGHT: 2s purple glow on the stroke seeked
+          // during synced playback (Pro pillar — V1 wire-up 2026-05-15).
+          // Mounted only while a recording is bound to the sync controller.
+          // The painter is canvas-space, so wrap in the same Transform stack
+          // as DrawingPainter so the glow follows pan/zoom in lock-step.
+          if (_audioInkSyncController != null)
+            IgnorePointer(
+              child: AnimatedBuilder(
+                animation: _canvasController,
+                builder: (context, _) {
+                  final aiM = Matrix4.identity()
+                    ..translateByDouble(
+                      _canvasController.offset.dx,
+                      _canvasController.offset.dy,
+                      0.0,
+                      1.0,
+                    );
+                  if (_canvasController.rotation != 0.0) {
+                    aiM.rotateZ(_canvasController.rotation);
+                  }
+                  final aiS = _canvasController.scale;
+                  aiM.scaleByDouble(aiS, aiS, 1.0, 1.0);
+                  return Transform(
+                    transform: aiM,
+                    child: AudioInkHighlightOverlay(
+                      controller: _audioInkSyncController!,
+                      strokesProvider: () =>
+                          _layerController.activeLayer?.strokes ??
+                          const <ProStroke>[],
+                    ),
+                  );
+                },
               ),
             ),
           // 🌫️ FOG OF WAR: PLACEHOLDER — moved below Vulkan texture.
@@ -1142,6 +1336,12 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                   // After zoom settles (300ms), trigger DrawingPainter rebuild
                   // which starts progressive tile-by-tile LOD rendering.
                   final s = _canvasController.scale;
+                  // 🆓 Free Background AI edge trigger: first dezoom < 0.30
+                  // (semantic morph onset) forces an immediate batch so the
+                  // semantic node titles are ready before the morph reveals
+                  // them. Cheap edge-detection — only mutates state inside
+                  // the controller, no AI call on the path above the threshold.
+                  _backgroundAi?.onScaleChanged(s);
                   final tier = DrawingPainter.computeLodTier(s);
                   if (tier != _lastWidgetLodTier) {
                     _lastWidgetLodTier = tier;
@@ -1205,6 +1405,20 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                             _canvasBackgroundColor, // 🚀 LAYER MERGE
                         isActivelyDrawing:
                             _isDrawingNotifier.value && !_effectiveIsEraser,
+                        // 🏛️ Monument preservation at LOD Tier 1/2.
+                        monumentBounds: _monumentBoundsList(),
+                        // FX1+FX2+FX7 — propagate the semantic crossfade so
+                        // Tier 1/2 stroke alphas + monument bypass stay in
+                        // lock-step with the semantic node morph.
+                        semanticMorphProgress:
+                            _semanticMorphController?.morphProgress ?? 0.0,
+                        // 🌍 2026-05-18: propagate god-view progress so the
+                        // TileKey bucket axis 2 is in sync with the live
+                        // morph state. Otherwise tiles baked outside god
+                        // view would persist past scale 0.10 and the
+                        // mappamondo would show stale ink.
+                        godViewProgress:
+                            _semanticMorphController?.godViewProgress ?? 0.0,
                       ),
                       isComplex:
                           true, // 🚀 RASTER: hint to cache raster output aggressively
@@ -1647,11 +1861,25 @@ extension FlueraCanvasLayersUI on _FlueraCanvasScreenState {
                 return true;
               }
 
-              // ✍️ SMART INK: tap on stroke → show recognized text popup
+              // ✍️ SMART INK / 🎤 AUDIO-INK SYNC: tap on stroke routing.
+              //
+              // When a synced recording is bound (Pro feature, active during
+              // synced playback), a stroke tap seeks the audio to the moment
+              // that stroke was drawn — overrides the Smart Ink popup. The
+              // [AudioInkSyncController] also fires a 2s highlight glow,
+              // rendered by [AudioInkHighlightOverlay] in the canvas stack.
               if (_effectiveIsPanMode) {
                 final canvasPos = _canvasController.screenToCanvas(screenPoint);
                 final hit = _hitTestStroke(canvasPos);
                 if (hit != null) {
+                  final inkSync = _audioInkSyncController;
+                  if (inkSync != null && inkSync.isAvailable) {
+                    // Fire-and-forget — seekToStroke schedules audio seek
+                    // and notifies listeners (overlay paints the glow).
+                    inkSync.seekToStroke(hit.strokeId);
+                    HapticFeedback.lightImpact();
+                    return true;
+                  }
                   showSmartInk(
                     screenAnchor: screenPoint,
                     stroke: hit.stroke,

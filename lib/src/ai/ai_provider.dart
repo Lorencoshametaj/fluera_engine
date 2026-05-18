@@ -77,7 +77,10 @@ abstract class AiProvider {
   /// Unlike [askAtlas] which expects structured JSON actions,
   /// this method sends raw text and returns raw text — ideal for
   /// Socratic questions, breadcrumbs, and other non-structured prompts.
-  Future<String> askFreeText(String prompt) async {
+  Future<String> askFreeText(
+    String prompt, {
+    bool isFreeBackground = false,
+  }) async {
     final response = await askAtlas(prompt, const []);
     return response.explanation ?? '';
   }
@@ -139,7 +142,32 @@ abstract class AiProvider {
   ///
   /// Default implementation returns [raw] unchanged so providers that
   /// don't implement it stay backward-compatible.
-  Future<String> cleanOcrItalian(String raw, {String language = 'Italian'}) =>
+  Future<String> cleanOcrItalian(
+    String raw, {
+    String language = 'Italian',
+    bool isFreeBackground = false,
+  }) =>
+      Future.value(raw);
+
+  /// 🌍 Multilang cleanOcr (Bundle A, 2026-05-17). Drop-in replacement
+  /// for [cleanOcrItalian] keyed on ISO code instead of display name —
+  /// dispatches through `CleanOcrRegistry` so every Tier 1+2 language
+  /// gets a language-appropriate prompt with its own examples.
+  ///
+  /// 🆓 [isFreeBackground] (2026-05-17): when `true`, the call is
+  /// Fluera-absorbed (no user credit consume). Cap enforcement happens
+  /// upstream in `BackgroundAiController` via
+  /// `AiCreditsController.recordBackgroundCall`. Default `false` keeps
+  /// the legacy paid-call semantics for any caller that hasn't migrated.
+  ///
+  /// Default implementation returns [raw] unchanged (back-compat). The
+  /// legacy [cleanOcrItalian] entry point still exists for callers that
+  /// pre-date the multilang refactor; new callers should use this one.
+  Future<String> cleanOcr(
+    String raw, {
+    String langCode = 'en',
+    bool isFreeBackground = false,
+  }) =>
       Future.value(raw);
 
   /// 🔶 Socratic V2 multi-turn follow-up. Given the student's sketch

@@ -5,6 +5,7 @@ import '../../reflow/content_cluster.dart';
 import '../../reflow/knowledge_connection.dart';
 import '../../reflow/knowledge_flow_controller.dart';
 import '../../reflow/connection_suggestion_engine.dart';
+import '../../canvas/ai/srs_stage_indicator.dart';
 import '../../reflow/semantic_morph_controller.dart';
 import '../../reflow/text_label_picker.dart';
 import '../../reflow/zone_labeler.dart';
@@ -47,8 +48,16 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// 🖼️ Mini-thumbnail previews
   final Map<String, ui.Image> thumbnails;
 
-  /// 🔤 Recognized text per cluster (from DigitalInk + _clusterTextCache)
+  /// 🔤 Recognized text per cluster (from DigitalInk + _clusterTextCache).
+  /// Raw OCR — may contain MyScript artefacts ("Prima lelle o' newtn").
   final Map<String, String> clusterTexts;
+
+  /// 🧹 AI-cleaned OCR per cluster (from ClusterConceptIndex.cleanedOcr).
+  /// Preferred over [clusterTexts] for any user-visible surface — the
+  /// flashcard mini-card, keyword extraction, and OCR preview all read
+  /// `cleanedOcrTexts[id] ?? clusterTexts[id]` so they show normalised
+  /// text while the AI cleanup is in-flight or absent.
+  final Map<String, String> cleanedOcrTexts;
 
   /// ✨ Animation time (seconds) for breathing + particle effects
   final double animationTime;
@@ -138,6 +147,18 @@ class KnowledgeFlowPainter extends CustomPainter {
   /// because they name the macro-region, not individual items.
   final Set<String> hiddenForRecallClusterIds;
 
+  /// 🌡️ FSRS stage per cluster (worst-of matched concepts). Same map
+  /// already consumed by `FsrsHeatMapPainter` — passed through here so
+  /// `_paintGodView` can derive a "continent stage" by taking the worst
+  /// stage across each super-node's member clusters (and the meta tier's
+  /// member super-nodes by transitivity). The continent glow gets a
+  /// subtle tint toward that stage color so the student sees at a glance
+  /// which area of the Palazzo is fragile vs solid (§1416-1420).
+  ///
+  /// `null` value = cluster never matched any FSRS concept (untouched);
+  /// missing key = same. Empty map disables the propagation entirely.
+  final Map<String, SrsStage?> clusterStages;
+
   // LOD thresholds
   static const double _lodLevel1Min = 0.15;
   static const double _lodLevel1Max = 0.5;
@@ -182,6 +203,7 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.snapTargetClusterId,
     this.thumbnails = const {},
     this.clusterTexts = const {},
+    this.cleanedOcrTexts = const {},
     this.animationTime = 0.0,
     this.selectedConnectionId,
     this.semanticMorphProgress = 0.0,
@@ -204,6 +226,7 @@ class KnowledgeFlowPainter extends CustomPainter {
     this.zoneLabels = const <ZoneLabel>[],
     this.zoneMembership = const <String, String>{},
     this.hiddenForRecallClusterIds = const <String>{},
+    this.clusterStages = const <String, SrsStage?>{},
   });
 
   @override
@@ -219,21 +242,31 @@ class KnowledgeFlowPainter extends CustomPainter {
     final lod = _getLodLevel();
     final fade = _computeFade();
 
-    // 📚 LOW-ZOOM GATE: under scale 0.20 every effect smaller than ~5
-    // canvas-pixels is already sub-pixel on screen — emitting it burns
-    // GPU fillrate for nothing. Gate the costly cosmetic layers (glow,
-    // halos, monument/zone labels, badges, underlines, network stats,
-    // flight VFX) but KEEP the pedagogical core (cluster outlines +
-    // labels, connections, semantic nodes / super-nodes, mastery via
-    // FogOfWar overlay). 0.20 chosen to align with FogOfWar's own
-    // gate so the overview stack stops/starts coherently.
-    final bool _isLowZoom = canvasScale < 0.20;
+    // 📚 LOW-ZOOM GATE: gate the costly cosmetic layers (glow, halos,
+    // badges, underlines, network stats, flight VFX) when they are
+    // sub-pixel on screen.
+    //
+    // Threshold lowered 0.20 → 0.08 (2026-05-16) to make room for the
+    // mappamondo tier (§22, §26, §1098): with the new SemanticMorphController
+    // thresholds (morph 0.30→0.18, god view 0.16→0.10), the range 0.20→0.10
+    // is the satellite view where monument pills + zone names + super-nodes
+    // are the *primary* legible artifact. The pill rendering self-scales
+    // via inverseScale so legibility holds down to the user clamp 0.10.
+    final bool _isLowZoom = canvasScale < 0.08;
 
     // 🧠 SEMANTIC MORPHING: When morph is active, overlay semantic nodes
     final morphT = semanticMorphProgress.clamp(0.0, 1.0);
     final hasMorph = morphT > 0.01 && semanticController != null;
 
     if (lod == 0) {
+      // FX4 — hub halo Tier 0: at scale ≥ 0.50 the user is in active
+      // drawing mode and no cluster is explicitly shown. A faint colored
+      // halo around hub clusters (≥3 connections) hints "there's a key
+      // concept here — try zooming out to see the map". Generation Effect
+      // §3: anticipate the cluster discovery instead of revealing it
+      // "by surprise" below scale 0.30. Hub-only, alpha kept low so it
+      // never competes with the ink. Cluster non-hub invariati.
+      _paintHubHalosTier0(canvas, fade);
       // LOD 0: Clean connections visible at zoomed-in level too.
       // No glow/particles, just underlines + connections + badges.
       _paintWordUnderlines(canvas, fade.clamp(0.3, 1.0));
@@ -247,8 +280,23 @@ class KnowledgeFlowPainter extends CustomPainter {
       return;
     }
 
-    // Render order: network glow → halos → cluster visuals → underlines → connections → badges → drag
+    // Render order: zone tints → network glow → halos → cluster visuals →
+    // underlines → connections → badges → drag
     final lod2Fade = _computeLod2Fade();
+
+    // 🗺️ ZONE TINTS: soft colored regions per super-node, emergent on
+    // the mappamondo (§22 "i quartieri del Palazzo", §1133). Renders
+    // FIRST so every later layer overlays the tinted regions.
+    //
+    // 2026-05-17 fix: was gated `lod == 2` (= scale ≤ 0.15), which
+    // hid zone tints in the 0.30→0.15 morph transition where the
+    // teoria-cognitiva mappamondo tier promised "20% → ink quasi
+    // sparito, zone tint emergente". Now gated only by `hasMorph`,
+    // letting the alpha modulation (morphT × fade) handle the fade-in.
+    if (hasMorph) {
+      _paintZoneTints(canvas, fade);
+    }
+
     // 📚 LOW-ZOOM SKIP: network glow is a sub-pixel ambient halo.
     if (lod2Fade > 0.01 && !_isLowZoom) {
       _paintNetworkGlow(canvas, fade * lod2Fade);
@@ -319,6 +367,25 @@ class KnowledgeFlowPainter extends CustomPainter {
         landmarkGate > 0.01 &&
         !_isLowZoom) {
       _paintZoneLabels(canvas, fade * landmarkGate);
+    }
+
+    // 🔮 EARLY TITLE PREVIEW: AI titles as floating labels above clusters
+    // BEFORE ink starts to fade. Tells the user "qualcosa sta per cambiare"
+    // so the mappamondo transition doesn't feel abrupt.
+    //
+    // 🌍 FASE 5 fix — window triplicata: was (0.305, 0.35] with smoothstep
+    // alpha 0 at endpoints → effective sweet-spot only 0.31-0.32, user
+    // never saw the preview pills during device test (screenshot a 0.35
+    // e 0.30: nessun pill flottante). Now (0.30, 0.40] — 3× larger band,
+    // with explicit strict `>` on morphStartScale so monument pills
+    // (which kick in at morphT > 0.01 = scale just below 0.30) never
+    // overlap with the preview pills geometrically.
+    if (!hasMorph &&
+        canvasScale <=
+            SemanticMorphController.aiPreloadScale + 0.05 && // 0.40
+        canvasScale > SemanticMorphController.morphStartScale && // > 0.30 strict
+        semanticController != null) {
+      _paintEarlyTitlePreview(canvas, fade);
     }
 
     // 🧠 SEMANTIC MORPHING: Paint semantic nodes on top with morph alpha
@@ -754,17 +821,9 @@ class KnowledgeFlowPainter extends CustomPainter {
         dist += dashCycle;
       }
 
-      // === Flowing spectral particle (a single bright dot traveling along) ===
-      final particleT = (animationTime * 0.4 + conn.id.hashCode * 0.3) % 1.0;
-      final particlePos = controller.pointOnQuadBezier(
-        srcPt, cp, tgtPt, particleT,
-      );
-      _p
-        ..style = PaintingStyle.fill
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4.0)
-        ..color = glowColor.withValues(alpha: breathAlpha * 1.5);
-      canvas.drawCircle(particlePos, 3.5 + pulse * 1.5, _p);
-      _p.maskFilter = null;
+      // 2026-05-17: ghost-connection "flowing spectral particle" rimosso —
+      // user-facing era visivamente confondibile come "stelline gialle che
+      // si muovono" senza significato chiaro.
 
       // === "AI" indicator pill at midpoint ===
       final midT = 0.5;
@@ -1003,8 +1062,14 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       // 🔗 TYPE BONUS: causality connections are thicker + brighter
       final typeBonus = conn.connectionType == ConnectionType.causality ? 1.5 : 0.0;
-      // 🌉 CROSS-ZONE BONUS: 3px minimum stroke for inter-zone bridges (P9-05)
-      final crossZoneBonus = conn.isCrossZone ? 1.0 : 0.0;
+      // 🌉 CROSS-ZONE BONUS: inter-zone bridges (P9-05) are the "autostrade"
+      // of the Memory Palace (§22 "frecce lunghe = autostrade", §1150).
+      // Base +1.0 always; an extra +2.0 ramps in with morphProgress so on the
+      // mappamondo (scale ≤ 0.18) they read as ~3× thicker than intra-zone
+      // links — the long-distance pattern is the signature of expertise.
+      final crossZoneBonus = conn.isCrossZone
+          ? 1.0 + 2.0 * semanticMorphProgress.clamp(0.0, 1.0)
+          : 0.0;
       final lineW = ((lod == 2 ? 3.5 : 2.5) + labelBonus + selectBonus + hubBonus + typeBonus + crossZoneBonus) * dissolveScale;
       final lineAlpha = ((lod == 2 ? 0.90 : 0.80) + (hasLabel ? 0.08 : 0.0) + birthFlash + traceFlash * 0.3 + ((isSelected || isMultiSelected) ? 0.15 : 0.0)).clamp(0.0, 1.0);
 
@@ -1302,30 +1367,17 @@ class KnowledgeFlowPainter extends CustomPainter {
       // =================================================================
       // 🌉 CROSS-ZONE BRIDGE ENHANCEMENTS (Passo 9, P9-05/12)
       // =================================================================
+      //
+      // 2026-05-17: golden shimmer particles removed. Pedagogically they
+      // were meant to signal "ponti cross-dominio = autostrade", but
+      // without context users read them as random "stelline che si
+      // muovono". A one-shot coachmark could have explained — but the
+      // simpler call is to drop the visual entirely. Cross-zone bridges
+      // are still distinguishable via stroke thickness (3× at dezoom,
+      // see crossZoneBonus in _paintConnections lineW), color (gold via
+      // KnowledgeConnection.crossZoneColor), and the discovery icon
+      // (💡 / 🤖) below.
       if (conn.isCrossZone && !conn.isGhost && !isBirthAnimating) {
-        final midPt = controller.pointOnQuadBezier(srcPt, cp, tgtPt, 0.5);
-
-        // --- Golden Shimmer Particles (P9-05: visible at all zoom levels) ---
-        // Extra golden particles flowing along the bridge, creating a
-        // "golden thread" effect that distinguishes cross-zone bridges
-        // from regular connections at every LOD level.
-        final goldenShimmerSize = lod == 2 ? 6.0 : 4.5;
-        for (int gs = 0; gs < 3; gs++) {
-          final gsT = ((animationTime * 0.18 + gs * 0.33 + connIndex * 0.2) % 1.0);
-          final gsPos = controller.pointOnQuadBezier(srcPt, cp, tgtPt, gsT);
-          // Golden core
-          final goldPulse = 0.7 + 0.3 * math.sin(animationTime * 2.5 + gs * 2.1);
-          _softGlowPaint.color = const Color(0xFFFFD700).withValues(
-            alpha: 0.50 * goldPulse * effectiveFade,
-          );
-          canvas.drawCircle(gsPos, goldenShimmerSize * 0.45, _softGlowPaint);
-          // White hot center
-          _softGlowPaint.color = Colors.white.withValues(
-            alpha: 0.30 * goldPulse * effectiveFade,
-          );
-          canvas.drawCircle(gsPos, goldenShimmerSize * 0.2, _softGlowPaint);
-        }
-
         // --- Discovery Icon: 💡 (student) or 🤖 (AI suggested) (P9-12) ---
         // Painted at t=0.35 along the curve (offset from midpoint label)
         final iconT = 0.35;
@@ -1478,90 +1530,17 @@ class KnowledgeFlowPainter extends CustomPainter {
         }
       }
 
-      // === Flowing particles with trail (LOD 2 only — satellite view) ===
-      if (lod == 2 && connIndex < 8) {
-        _paintParticlesWithTrail(
-          canvas, conn, srcPt, cp, tgtPt, gradStart, gradEnd, lod, fade,
-          skipGhosts: connCount > 5,
-        );
-      }
+      // 2026-05-17: LOD 2 "Flowing particles with trail" rimosso — user
+      // segnalava "stelline gialle che si muovono" come distrazione
+      // senza significato chiaro per l'utente. Connection sono ancora
+      // chiaramente visibili a LOD 2 via stroke, label pill, e icona.
       connIndex++;
     }
   }
 
-  void _paintParticlesWithTrail(
-    Canvas canvas,
-    KnowledgeConnection conn,
-    Offset srcPt,
-    Offset cpPt,
-    Offset tgtPt,
-    Color srcColor,
-    Color tgtColor,
-    int lod,
-    double fade, {
-    bool skipGhosts = false,
-  }) {
-    final coreSize = lod == 2 ? 5.0 : 3.0;
-    final glowSize = lod == 2 ? 14.0 : 8.0;
-    const trailSegments = 6; // More segments for comet-like trail
-    const trailStep = 0.025; // Tighter spacing for denser trail
-
-    // At LOD 2: add 1 ghost particle at fixed offset for busier network feel
-    // 🚀 SKIP GHOSTS when connection count is high (particle budget)
-    final positions = <double>[...conn.particlePositions];
-    if (lod == 2 && !skipGhosts && conn.particlePositions.isNotEmpty) {
-      for (final t in conn.particlePositions) {
-        positions.add((t + 0.5) % 1.0);
-      }
-    }
-
-    for (int pi = 0; pi < positions.length; pi++) {
-      final t = positions[pi];
-      final isGhost = pi >= conn.particlePositions.length;
-      final sizeScale = isGhost ? 0.6 : 1.0;
-      final alphaScale = isGhost ? 0.5 : 1.0;
-
-      // Interpolate color along the path
-      final particleColor = Color.lerp(srcColor, tgtColor, t)!;
-
-      // ---- Comet-style trailing fade (behind the particle) ----
-      if (!isGhost) { // Skip trails for ghost particles (performance)
-        for (int i = trailSegments; i >= 1; i--) {
-          final trailT = (t - trailStep * i).clamp(0.0, 1.0);
-          final trailPos = controller.pointOnQuadBezier(
-            srcPt, cpPt, tgtPt, trailT,
-          );
-          // Exponential falloff for comet-like tail
-          final falloff = math.pow(1.0 - i / (trailSegments + 1), 1.5);
-          final trailAlpha = falloff * 0.22 * fade;
-          // Shrink segments progressively with elongation effect
-          final trailSize = coreSize * (1.0 - i * 0.12) * sizeScale;
-
-          _p
-            ..style = PaintingStyle.fill
-            ..color = particleColor.withValues(alpha: trailAlpha);
-          canvas.drawCircle(trailPos, math.max(trailSize, 0.5), _p);
-        }
-      }
-
-      final pos = controller.pointOnQuadBezier(srcPt, cpPt, tgtPt, t);
-
-      // ---- Outer glow (pulsing) ----
-      final glowPulse = 1.0 + math.sin(animationTime * 3.0 + t * 6.28) * 0.15;
-      _glowPaint.color = particleColor.withValues(alpha: 0.22 * fade * alphaScale);
-      canvas.drawCircle(pos, glowSize * sizeScale * glowPulse, _glowPaint);
-
-      // ---- Core circle ----
-      _p
-        ..style = PaintingStyle.fill
-        ..color = particleColor.withValues(alpha: 0.8 * fade * alphaScale);
-      canvas.drawCircle(pos, coreSize * sizeScale, _p);
-
-      // ---- Bright center highlight ----
-      _p.color = Colors.white.withValues(alpha: 0.65 * fade * alphaScale);
-      canvas.drawCircle(pos, coreSize * 0.4 * sizeScale, _p);
-    }
-  }
+  // 2026-05-17: _paintParticlesWithTrail rimosso integralmente — i
+  // particle "comet-style" lungo le connection a LOD 2 venivano
+  // percepiti come "stelline gialle che si muovono" senza significato.
 
   // ===========================================================================
   // PHASE 4B: SUGGESTED CONNECTIONS — Animated ghost hint
@@ -2116,6 +2095,46 @@ class KnowledgeFlowPainter extends CustomPainter {
   // ===========================================================================
   // CLUSTER DOTS — Luminous pulsing dots (LOD 2 satellite view)
   // ===========================================================================
+
+  /// FX4 — sub-percettivo halo on hub clusters at Tier 0 (scale ≥ 0.45).
+  ///
+  /// Pedagogically anticipates the existence of the cluster system before
+  /// the user zooms out enough to trigger the morph. Hub = `connCount ≥ 3`
+  /// (same threshold MonumentResolver uses for star-burst eligibility).
+  /// Cluster non-hub: silenziati per evitare rumore visivo durante il
+  /// disegno attivo. Alpha intentionally low (0.18 × fade) — invito
+  /// soft, non distrazione. Hub-only e blur largo per non interferire
+  /// con i tratti sottostanti.
+  void _paintHubHalosTier0(Canvas canvas, double fade) {
+    if (clusters.isEmpty) return;
+    if (controller.connections.isEmpty) return;
+
+    // Count incidence per cluster (degree).
+    final connCounts = <String, int>{};
+    for (final conn in controller.connections) {
+      connCounts[conn.sourceClusterId] =
+          (connCounts[conn.sourceClusterId] ?? 0) + 1;
+      connCounts[conn.targetClusterId] =
+          (connCounts[conn.targetClusterId] ?? 0) + 1;
+    }
+
+    _softGlowPaint.maskFilter =
+        const MaskFilter.blur(BlurStyle.normal, 30.0);
+    for (final cluster in clusters) {
+      final cc = connCounts[cluster.id] ?? 0;
+      if (cc < 3) continue; // hub-only
+      final bounds = cluster.bounds;
+      if (bounds.isEmpty || !bounds.isFinite) continue;
+      final color = _clusterColor(cluster);
+      // Radius scales mildly with degree so super-hubs (5+) read slightly
+      // bigger but stay subtle.
+      final hubBoost = (1.0 + (cc - 3) * 0.10).clamp(1.0, 1.5);
+      final radius = bounds.longestSide * 0.55 * hubBoost;
+      _softGlowPaint.color = color.withValues(alpha: 0.18 * fade);
+      canvas.drawCircle(bounds.center, radius, _softGlowPaint);
+    }
+    _softGlowPaint.maskFilter = null;
+  }
 
   void _paintClusterDots(Canvas canvas, double fade) {
     if (clusters.isEmpty) return;
@@ -2761,9 +2780,10 @@ class KnowledgeFlowPainter extends CustomPainter {
   static String? _fcCachedKeywordsClusterId;
   static String? _fcCachedKeywordsText;
   static String? _fcCachedKeywords;
-  // 🚀 PERF: animationTime → ms offset for animation timing
-  static double _fcAnimBaseTime = 0.0;
-  static int _fcAnimBaseMs = 0;
+  // (Removed `_fcAnimBaseTime` / `_fcAnimBaseMs`: the calibration that
+  // derived flashcard `nowMs` from `animationTime` delta was wrong —
+  // `animationTime` wraps every 10 s, so `nowMs` would freeze in time.
+  // We now read DateTime.now().millisecondsSinceEpoch directly.)
 
   void _paintFlashcard(Canvas canvas, double fade) {
     if (semanticController == null) return;
@@ -2784,14 +2804,22 @@ class KnowledgeFlowPainter extends CustomPainter {
       return;
     }
 
-    // 🚀 PERF: Derive ms from animationTime (avoid DateTime.now syscall)
-    // Calibrate once, then use animationTime delta
-    if (_fcAnimBaseMs == 0) {
-      _fcAnimBaseMs = DateTime.now().millisecondsSinceEpoch;
-      _fcAnimBaseTime = animationTime;
-    }
-    final nowMs = _fcAnimBaseMs +
-        ((animationTime - _fcAnimBaseTime) * 1000).round();
+    // 🔧 2026-05-18 fix: use DateTime.now() directly. The previous
+    // calibration trick that derived `nowMs` from `animationTime`
+    // delta was BROKEN: `animationTime` is
+    // `DateTime.now().millisecondsSinceEpoch % 10000 / 1000.0`
+    // (see _ui_canvas_layer.dart), so it wraps every 10 seconds.
+    // After the first wrap, `nowMs` stopped advancing and clung to
+    // the calibration timestamp ±10 s. When a flashcard was shown
+    // long after app start (e.g. zoom-in → dezoom → tap again),
+    // `flashcardShowTime = DateTime.now()` was much larger than
+    // the stuck `nowMs`, giving a NEGATIVE `ageSec`, an entranceT
+    // clamped to 0, animEase=0 — i.e. the card painted at alpha 0
+    // and the user saw NOTHING.
+    //
+    // The DateTime.now() syscall is well under a microsecond on
+    // Android; the "perf" the old trick was buying never mattered.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
 
     // 🎬 Entrance / Exit animation
     double animEase;
@@ -2839,8 +2867,11 @@ class KnowledgeFlowPainter extends CustomPainter {
       contentH += 22; // stats row
     }
 
-    // Keywords (cached per cluster to avoid RegExp work every frame)
-    final text = clusterTexts[clusterId] ?? '';
+    // Keywords (cached per cluster to avoid RegExp work every frame).
+    // 🧹 2026-05-18: prefer cleanedOcr so keyword extraction sees
+    // normalised tokens ("Prima · Legge · Newton") instead of MyScript
+    // raw artefacts ("Prima · Lelle · Newtn").
+    final text = cleanedOcrTexts[clusterId] ?? clusterTexts[clusterId] ?? '';
     String? keywords;
     if (text.isNotEmpty) {
       if (_fcCachedKeywordsClusterId == clusterId && _fcCachedKeywordsText == text) {
@@ -2879,8 +2910,10 @@ class KnowledgeFlowPainter extends CustomPainter {
       contentH += 20; // gap chips row
     }
 
-    // 📝 OCR PREVIEW: first 2 lines of recognized text
-    final ocrText = clusterTexts[clusterId] ?? '';
+    // 📝 OCR PREVIEW: first 2 lines of recognized text.
+    // 🧹 2026-05-18: prefer cleanedOcr so the user sees "Prima legge
+    // di Newton" instead of the MyScript raw "Prima lelle o' newtn".
+    final ocrText = cleanedOcrTexts[clusterId] ?? clusterTexts[clusterId] ?? '';
     final hasOcrPreview = ocrText.trim().length > 5;
     if (hasOcrPreview) {
       contentH += 24; // preview lines
@@ -3284,6 +3317,400 @@ class KnowledgeFlowPainter extends CustomPainter {
         Offset(cardW - cardPad - hintTp.width, cardH - cardPad - hintTp.height));
 
     canvas.restore();
+
+    // 🃏 2026-05-18: publish the card's CANVAS-space bounds so the tap
+    // handler can detect "tap on card body" reliably. Width / height
+    // are `cardW / canvasScale` and `cardH / canvasScale` because the
+    // inner draws use `canvas.scale(1/canvasScale)` to keep the card
+    // ~200 px wide on screen regardless of zoom. Stored without the
+    // `animEase` factor so a half-entered card still has a usable
+    // hit-target (avoids "card is animating in, my tap missed"
+    // glitches at the very start of the show animation).
+    if (!isDismissing) {
+      semanticController!.flashcardCardCanvasRect = Rect.fromLTWH(
+        cardX,
+        cardY,
+        cardW / canvasScale,
+        cardH / canvasScale,
+      );
+    }
+  }
+
+
+  // ===========================================================================
+  // 🗺️ ZONE TINTS — Colored regions per super-node on the mappamondo
+  // ===========================================================================
+  //
+  // Pedagogical contract (§22 "i quartieri del Palazzo", §1133):
+  //   At extreme zoom-out the student must see *quartieri* — colored
+  //   regions that codify the spatial geography of their knowledge.
+  //   Color is consistent per super-node so neighbourhoods become
+  //   recognizable across sessions (Place Cells §22, Memoria di Luogo).
+  //
+  // Visual recipe:
+  //   - Color: deterministic HSL from hash(superNode.id) → consistent
+  //     across sessions. Low saturation (~0.30) to coexist with ink.
+  //   - Shape: rounded bounding box of all member cluster bounds,
+  //     inflated by 80 canvas-px. Cheap, no convex hull required.
+  //   - Alpha: 0.08 × morphProgress × (1 - 0.5 × godViewProgress).
+  //     Fades in at scale ≤ 0.30 (with morph), softens at god view.
+  //   - MaskFilter blur: 60-120 px depending on inverseScale.
+  //
+  // PERF: O(N) per super-node + per member cluster (single bbox union).
+  // Skipped when superNodes empty (controller pre-computes only when
+  // scale ≤ morphStartScale — see _lifecycle_helpers.dart).
+  //
+  // 🚀 IMAGE CACHE: the blurred RRects are baked into a [ui.Image] keyed by
+  // super-node-set + zone-label-set. Per-frame cost collapses from
+  // N × (drawRRect+MaskFilter.blur saveLayer) to a single drawImageRect call.
+  //
+  // 2026-05-18 (Impeller fix): the previous implementation cached a
+  // [ui.Picture] and replayed via `saveLayer(alpha) + drawPicture +
+  // restore`. On Vulkan-Impeller (Adreno 660) the picture contains
+  // MaskFilter.blur ops which declare `CanAcceptOpacity = false`, so
+  // the saveLayer trying to propagate the inherited opacity flooded the
+  // log with `ImpellerValidationBreak` during every morph fade
+  // (scale 0.30 → 0.10). Switching to `drawImageRect(image, …, paint
+  // ..color=Color.fromRGBO(255,255,255, alpha))` avoids the saveLayer
+  // entirely — image-sampling paints accept inherited opacity natively.
+  //
+  // The image is baked at a downsample factor (0.25) and capped at
+  // 2048×2048 pixels so memory stays bounded even on multi-thousand
+  // cluster canvases. Since the source content is intrinsically blurry
+  // (`MaskFilter.blur(sigma=50)`), the downsample is visually invisible
+  // at the scales (0.30–0.10) where this layer renders.
+
+  /// 🚀 Static Image cache for the zone-tint blob layer. Static so it
+  /// survives painter rebuilds (CustomPaint re-instantiates KFP every
+  /// frame). Replaced on cache-miss only; the previous image is
+  /// disposed at the same point to bound GPU memory.
+  static ui.Image? _zoneTintImage;
+
+  /// Canvas-space bounds of the baked image, used as `dst` of the
+  /// `drawImageRect` replay so the painted region matches the original
+  /// per-frame variant pixel-for-pixel modulo the downsample.
+  static Rect _zoneTintImageBounds = Rect.zero;
+
+  static String _zoneTintCacheKey = '';
+
+  /// Downsample factor used when baking the zone-tint image. 0.25 keeps
+  /// per-pixel density well above the perceptual threshold for the
+  /// blurred content while quartering memory vs. a 1:1 bake.
+  static const double _kZoneTintBakeDownsample = 0.25;
+
+  /// Hard ceiling on the baked image dimension (each side). Without
+  /// this a 50k×50k canvas-space union at downsample 0.25 would still
+  /// try to allocate a 12500² image (≈600 MB RGBA). Cap at 2048 keeps
+  /// the texture bounded; quality at scale 0.10 is unaffected (the
+  /// viewport-equivalent at full zoom-out is well under 2k pixels).
+  static const int _kZoneTintMaxBakeDim = 2048;
+
+  /// Sigma + inflation chosen so the baked Picture is visually close to
+  /// the per-frame version across the entire (0.30 → 0.10) zoom range.
+  ///
+  /// Fase 5 fix 2.1: sigma 80 → 50. The previous 80 spalmava il blob
+  /// così tanto che l'intensità per-pixel scendeva sotto la soglia di
+  /// percezione anche con alpha 0.15 e saturation 0.40. 50 keeps the
+  /// blur generous enough da non vedere bordi netti ma concentrata
+  /// abbastanza da preservare il colore visibile.
+  static const double _kZoneTintBakedSigma = 50.0;
+  static const double _kZoneTintBakedInflate = 100.0;
+
+  void _paintZoneTints(Canvas canvas, double fade) {
+    if (semanticController == null) return;
+    final superNodes = semanticController!.superNodes;
+    if (superNodes.isEmpty) return;
+    if (fade < 0.01) return;
+
+    final morphT = semanticController!.morphProgress.clamp(0.0, 1.0);
+    if (morphT < 0.05) return;
+    final godT = semanticController!.godViewProgress.clamp(0.0, 1.0);
+
+    // Reduce tint intensity as god view takes over (super-nodes themselves
+    // dominate the visual at scale ≤ 0.10 — keep tints subordinate).
+    // Fase 5 fix 2.1: alpha 0.15 → 0.22. Device retest a 0.20-0.10
+    // still showed white/grey background — even alpha 0.15 with
+    // saturation 0.40 + lightness 0.55 was sub-threshold of perception
+    // because blur sigma 80 spalmava il blob su un'area grande, cuocendo
+    // l'intensità per-pixel. Bumped to 0.22 → effective ~0.22 on white
+    // bg, percepito come "colored atmosphere" senza essere fluo.
+    // Plus blur sigma reduced to 50 (vedi `_kZoneTintBakedSigma`).
+    // At god view (godT=1) → 0.11, comunque sub-ordinazione ai super-nodi.
+    final tintAlphaBase = 0.22 * morphT * (1.0 - 0.5 * godT);
+    if (tintAlphaBase < 0.005) return;
+
+    // ── 1. Build cache key from cluster set + zone-label identities.
+    //    morphT and scale are EXCLUDED — they only modulate alpha,
+    //    which is applied at replay time via saveLayer.
+    final keyBuf = StringBuffer()..write(superNodes.length);
+    for (final sn in superNodes) {
+      keyBuf
+        ..write('|')
+        ..write(sn.id)
+        ..write(':')
+        ..write(sn.memberClusterIds.length);
+    }
+    for (final z in zoneLabels) {
+      keyBuf
+        ..write('z')
+        ..write(z.id)
+        ..write('=')
+        ..write(z.label.toLowerCase());
+    }
+    final cacheKey = keyBuf.toString();
+
+    // ── 2. Rebuild Image on cache miss only.
+    if (cacheKey != _zoneTintCacheKey || _zoneTintImage == null) {
+      final baked = _bakeZoneTintImage();
+      // Dispose the previous image to bound GPU memory across rebuilds.
+      _zoneTintImage?.dispose();
+      _zoneTintImage = baked?.image;
+      _zoneTintImageBounds = baked?.bounds ?? Rect.zero;
+      _zoneTintCacheKey = cacheKey;
+    }
+    final img = _zoneTintImage;
+    final bounds = _zoneTintImageBounds;
+    if (img == null || bounds.isEmpty) return;
+
+    // ── 3. Replay via drawImageRect — paint.color alpha is honoured by
+    //    the image-sampling pipeline natively (no saveLayer required).
+    //    This is what unlocks the Impeller fix; the inherited-opacity
+    //    assertion only fires when an external saveLayer wraps content
+    //    that declares `CanAcceptOpacity = false`.
+    final globalAlpha = (tintAlphaBase * fade).clamp(0.0, 1.0);
+    canvas.drawImageRect(
+      img,
+      Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+      bounds,
+      Paint()..color = Color.fromRGBO(255, 255, 255, globalAlpha),
+    );
+  }
+
+  /// 🎨 COLOR PERSISTENCE: hash on the zone *label text* (stable across
+  /// sessions and cluster-add/remove churn) rather than super-node id
+  /// (= root cluster from Union-Find, which can flip when a neighbour
+  /// joins or leaves the merge cluster). Without this anchor, the same
+  /// region of the Palazzo could change color between sessions and
+  /// break Place Cells encoding (§22, "il rosso era in alto a destra").
+  /// Fallback to super-node id only when no zone label is available yet
+  /// (early sessions where ZoneLabeler hasn't found a stable name).
+  String? _zoneLabelTextForCluster(String clusterId) {
+    final zoneId = zoneMembership[clusterId];
+    if (zoneId == null) return null;
+    for (final z in zoneLabels) {
+      if (z.id == zoneId) {
+        final l = z.label.trim().toLowerCase();
+        return l.isEmpty ? null : l;
+      }
+    }
+    return null;
+  }
+
+  /// Bake all super-node tint blobs into a single [ui.Picture] at full
+  /// opacity. Called only on cache miss (cluster/zone identity change).
+  /// 🔥 Bakes the zone-tint RRects into a ui.Image with bounded memory.
+  ///
+  /// Two-pass design:
+  ///   • Pass 1 — iterate super-nodes, compute each cluster-union RRect
+  ///     and color, accumulate the global union bounds (inflated by the
+  ///     blur sigma so feathered edges aren't clipped).
+  ///   • Pass 2 — compute image pixel size (downsample × bounds,
+  ///     capped at [_kZoneTintMaxBakeDim]), record into a PictureRecorder
+  ///     that translates origin to the bounds top-left and scales to
+  ///     image-pixel space, then convert via `Picture.toImageSync`.
+  ///
+  /// Returns `null` if no super-nodes contribute valid bounds.
+  ({ui.Image image, Rect bounds})? _bakeZoneTintImage() {
+    final superNodes = semanticController!.superNodes;
+    if (superNodes.isEmpty) return null;
+    final cMap = _buildClusterMap();
+
+    // ── Pass 1: collect items + accumulate union (with blur margin).
+    // MaskFilter.blur spreads each shape by ~3 × sigma. Inflate the
+    // recorded item bounds by that margin so the union covers the
+    // feathered halo too; otherwise drawImageRect would clip the
+    // outer fade.
+    final blurPad = _kZoneTintBakedSigma * 3.0;
+    final items = <({RRect rrect, Color color})>[];
+    Rect? unionAll;
+    for (final sn in superNodes) {
+      Rect? union;
+      final zoneLabelCount = <String, int>{};
+      for (final mid in sn.memberClusterIds) {
+        final c = cMap[mid];
+        if (c == null) continue;
+        final b = c.bounds;
+        if (b.isEmpty || !b.isFinite) continue;
+        union = (union == null) ? b : union.expandToInclude(b);
+        final zl = _zoneLabelTextForCluster(mid);
+        if (zl != null) {
+          zoneLabelCount[zl] = (zoneLabelCount[zl] ?? 0) + 1;
+        }
+      }
+      if (union == null) continue;
+
+      final padded = union.inflate(_kZoneTintBakedInflate);
+      final radius = Radius.circular(
+        math.min(padded.width, padded.height) * 0.20,
+      );
+      final rr = RRect.fromRectAndRadius(padded, radius);
+
+      String hashSeed;
+      if (zoneLabelCount.isNotEmpty) {
+        hashSeed = zoneLabelCount.entries
+            .reduce((a, b) => a.value >= b.value ? a : b)
+            .key;
+      } else {
+        hashSeed = sn.id;
+      }
+      final h = (hashSeed.hashCode & 0x7FFFFFFF) % 360;
+      // 2026-05-17: saturation 0.40 → 0.50. Quartieri colorati (§22)
+      // now read as "soft pastel zones" instead of "barely-tinted
+      // atmosphere". Lightness 0.45 stays — yields mid-tone colors,
+      // not fluo. Compounded with alpha 0.22 + drawImageRect paint
+      // alpha + blur sigma 50 the visual is "regione colorata"
+      // without overpowering the semantic nodes layered above.
+      final color = HSLColor.fromAHSL(1.0, h.toDouble(), 0.50, 0.45).toColor();
+      items.add((rrect: rr, color: color));
+
+      final withBlur = padded.inflate(blurPad);
+      unionAll =
+          (unionAll == null) ? withBlur : unionAll.expandToInclude(withBlur);
+    }
+    if (unionAll == null || items.isEmpty) return null;
+
+    // ── Pass 2: compute image dimensions with downsample + cap, then
+    // record at image-pixel scale and convert to ui.Image.
+    double pxW = unionAll.width * _kZoneTintBakeDownsample;
+    double pxH = unionAll.height * _kZoneTintBakeDownsample;
+    final maxDim = _kZoneTintMaxBakeDim.toDouble();
+    if (pxW > maxDim || pxH > maxDim) {
+      final fit = math.min(maxDim / pxW, maxDim / pxH);
+      pxW *= fit;
+      pxH *= fit;
+    }
+    final w = pxW.ceil().clamp(1, _kZoneTintMaxBakeDim);
+    final h = pxH.ceil().clamp(1, _kZoneTintMaxBakeDim);
+    final scaleX = w / unionAll.width;
+    final scaleY = h / unionAll.height;
+
+    final recorder = ui.PictureRecorder();
+    final recCanvas = Canvas(recorder)
+      ..scale(scaleX, scaleY)
+      ..translate(-unionAll.left, -unionAll.top);
+
+    final bakePaint = Paint()
+      ..style = PaintingStyle.fill
+      ..maskFilter = const MaskFilter.blur(
+        BlurStyle.normal,
+        _kZoneTintBakedSigma,
+      );
+    for (final item in items) {
+      bakePaint.color = item.color;
+      recCanvas.drawRRect(item.rrect, bakePaint);
+    }
+
+    final pic = recorder.endRecording();
+    try {
+      final img = pic.toImageSync(w, h);
+      return (image: img, bounds: unionAll);
+    } finally {
+      pic.dispose();
+    }
+  }
+
+
+  // ===========================================================================
+  // 🔮 EARLY TITLE PREVIEW — Floating titles in the pre-morph window
+  // ===========================================================================
+  //
+  // Activated when canvasScale ∈ (morphStartScale, aiPreloadScale] = (0.30, 0.35].
+  // Cluster ink is still fully visible (no morph yet), but AI titles are
+  // already cached (controller fetched them at aiPreloadScale). Painting
+  // them as small floating labels above each cluster gives the student a
+  // "mapping mode is coming" affordance — reduces the perceptual cliff
+  // at scale 0.30 where the semantic morph begins.
+  //
+  // Visual recipe: small text pill above the cluster centroid, alpha
+  // ramps 0 → 1 across (0.35 → 0.30) via smoothstep. No node box, no
+  // glow — kept minimal so it reads as overlay, not transformation.
+
+  void _paintEarlyTitlePreview(Canvas canvas, double fade) {
+    if (clusters.isEmpty || semanticController == null) return;
+    if (fade < 0.01) return;
+
+    // Smoothstep: alpha 0 at scale 0.35, 1 at scale 0.30.
+    // Fase 5 fix: extended start 0.35 → 0.40 to match the widened gate
+    // upstream (3× larger preview window) so the smoothstep saturates
+    // at scale 0.30 (max alpha just before morph kicks in).
+    const start = SemanticMorphController.aiPreloadScale + 0.05; // 0.40
+    const end = SemanticMorphController.morphStartScale; // 0.30
+    final t = ((start - canvasScale) / (start - end)).clamp(0.0, 1.0);
+    final previewAlpha = t * t * (3.0 - 2.0 * t);
+    if (previewAlpha < 0.05) return;
+
+    final inverseScale = (1.0 / canvasScale).clamp(2.0, 8.0);
+
+    for (final cluster in clusters) {
+      final raw = clusterTexts[cluster.id];
+      if (raw == null || raw.isEmpty) continue;
+      // Pick a short display string — same tokenizer used by zone/monument.
+      final display = TextLabelPicker.pickFromMany([raw], maxChars: 22);
+      if (display.isEmpty) continue;
+
+      canvas.save();
+      final center = cluster.centroid;
+      // Anchor label above the cluster bounds (use bounds.top so it
+      // doesn't collide with the still-fully-visible ink).
+      final anchor = Offset(
+        center.dx,
+        (cluster.bounds.isFinite ? cluster.bounds.top : center.dy) - 12,
+      );
+      canvas.translate(anchor.dx, anchor.dy);
+      canvas.scale(inverseScale * 0.55);
+      canvas.translate(-anchor.dx, -anchor.dy);
+
+      final cacheKey = 'pre_${display.hashCode}';
+      var tp = _cachedTitlePainters[cacheKey];
+      if (tp == null) {
+        tp = TextPainter(
+          text: TextSpan(
+            text: display,
+            style: const TextStyle(
+              color: Color(0xFFB0D4FF),
+              fontSize: 11.0,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        if (_cachedTitlePainters.length > 100) {
+          _cachedTitlePainters.remove(_cachedTitlePainters.keys.first);
+        }
+        _cachedTitlePainters[cacheKey] = tp;
+      }
+
+      final pillW = tp.width + 12;
+      final pillH = tp.height + 6;
+      final pillRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: anchor, width: pillW, height: pillH),
+        Radius.circular(pillH / 2),
+      );
+
+      _p
+        ..style = PaintingStyle.fill
+        ..shader = null
+        ..maskFilter = null
+        ..color = const Color(0xCC0A0E1A).withValues(alpha: 0.70 * previewAlpha * fade);
+      canvas.drawRRect(pillRect, _p);
+
+      tp.paint(
+        canvas,
+        Offset(anchor.dx - tp.width / 2, anchor.dy - tp.height / 2),
+      );
+      canvas.restore();
+    }
   }
 
 
@@ -3624,9 +4051,23 @@ class KnowledgeFlowPainter extends CustomPainter {
 
   void _paintGodView(Canvas canvas, double fade) {
     if (semanticController == null) return;
-    final superNodes = semanticController!.superNodes;
+    // 🌐 META TIER (Tier 5) — on dense canvases (≥12 super-nodes) deep
+    // god view (scale ≤ 0.13) renders meta-super-nodes ("continents")
+    // instead of individual super-nodes, so 30 dots collapse to 5-8.
+    // Sparse canvases keep the regular super-node rendering unchanged.
+    final superNodes = semanticController!.effectiveSuperNodes(canvasScale);
     if (superNodes.isEmpty) return;
     if (fade < 0.01) return;
+
+    // When the meta tier is active, two existing visual artifacts must
+    // change:
+    //  - The member-composition ring (one arc per memberClusterId) would
+    //    produce 30+ micro-arcs unreadable as a single line. Skipped.
+    //  - The gravity-lines block uses `memberToSuperNodeIndex` which is
+    //    keyed on the *original* superNodes — indexing into the meta
+    //    list with those indices would be wrong. Skipped at meta tier.
+    final isMetaTier =
+        !identical(superNodes, semanticController!.superNodes);
 
     final inverseScale = (1.0 / canvasScale).clamp(3.0, 32.0);
     final cMap = _buildClusterMap();
@@ -3658,6 +4099,27 @@ class KnowledgeFlowPainter extends CustomPainter {
             alpha: 1.0,
             red: r / colorCount, green: g / colorCount,
             blue: b / colorCount);
+      }
+
+      // 🌡️ FSRS STAGE PROPAGATION — worst-of stage across this super-node's
+      // (or meta-super-node's) member clusters. Worst = lowest SrsStage.index
+      // (fragile=0). When dominant stage is non-null, lerp the natural
+      // zone-color blend toward the stage color with a moderate weight so
+      // the area's identity is preserved but the urgency is communicated.
+      // Untouched/missing entries are skipped (no contribution).
+      if (clusterStages.isNotEmpty) {
+        SrsStage? dominantStage;
+        for (final mid in sn.memberClusterIds) {
+          final s = clusterStages[mid];
+          if (s == null) continue;
+          if (dominantStage == null || s.index < dominantStage.index) {
+            dominantStage = s;
+            if (dominantStage == SrsStage.fragile) break; // can't get worse
+          }
+        }
+        if (dominantStage != null) {
+          blendColor = Color.lerp(blendColor, dominantStage.color, 0.35)!;
+        }
       }
 
       // Breathing pulse
@@ -3693,8 +4155,12 @@ class KnowledgeFlowPainter extends CustomPainter {
       canvas.drawCircle(center, nodeRadius, _p);
 
       // ── 4. 🎨 MEMBER COMPOSITION RING ──
-      // Each segment colored by its member cluster type
-      if (sn.memberCount > 1) {
+      // Each segment colored by its member cluster type. Skipped at meta
+      // tier — meta-super-nodes can carry 30+ member ids that would
+      // produce a ring of micro-arcs visually indistinguishable from a
+      // continuous line. The continent visual reads on its own without
+      // the per-member segmentation.
+      if (sn.memberCount > 1 && !isMetaTier) {
         final memberPulse = math.sin(animationTime * 1.5) * 0.5 + 0.5;
         final ringRadius = nodeRadius + 8 + memberPulse * 3;
         final sweepPerMember = 2 * math.pi / sn.memberClusterIds.length;
@@ -3819,9 +4285,16 @@ class KnowledgeFlowPainter extends CustomPainter {
     }
 
     // ── 7. 🔗 GRAVITY LINES between super-nodes with shared connections ──
+    // Picks the right pre-computed membership map: super-node tier uses
+    // `memberToSuperNodeIndex`, meta tier uses `memberToMetaSuperNodeIndex`
+    // (populated in `_computeMetaSuperNodes`). Both maps are clusterId →
+    // index into the *currently rendered* node list (`superNodes` local),
+    // so the same downstream code works for both tiers.
     if (superNodes.length > 1) {
       // 🚀 PERF: Use pre-computed membership map from controller
-      final memberToSuperNode = semanticController!.memberToSuperNodeIndex;
+      final memberToSuperNode = isMetaTier
+          ? semanticController!.memberToMetaSuperNodeIndex
+          : semanticController!.memberToSuperNodeIndex;
 
       // Check existing connections for cross-super-node links
       final drawnPairs = <String>{};
@@ -3935,11 +4408,19 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       final importance = semanticController!.getSmoothedImportance(cluster.id);
       final isTopNode = importance >= importanceThreshold && multiCluster;
+      // 🏛️ MONUMENT BOOST: clusters classified by MonumentResolver get
+      // +20% padding and +20% glow so they read as visual capitals at
+      // mappamondo scale (§22 §504-507: "i grossi nodi rossi in alto").
+      // MonumentResolver eligibility (min degree 3 + threshold 0.45) is
+      // stricter than isTopNode (importance percentile), so this is a
+      // strict superset of star-badge nodes.
+      final isMonument = monumentIds.contains(cluster.id);
+      final monBoost = isMonument ? 1.20 : 1.0;
 
       // ── Node rect from actual cluster bounds ──
       final bounds = cluster.bounds;
       if (bounds.isEmpty || !bounds.isFinite) continue;
-      final nodePadding = (10.0 + importance * 6.0) * inverseScale;
+      final nodePadding = (10.0 + importance * 6.0) * inverseScale * monBoost;
       final shortSide = math.min(bounds.width + nodePadding * 2,
           bounds.height + nodePadding * 2);
       final cornerRadius = Radius.circular(
@@ -3968,9 +4449,9 @@ class KnowledgeFlowPainter extends CustomPainter {
       );
 
       // ── 1. Outer glow ──
-      final glowInflate = (4.0 + importance * 8.0) * inverseScale;
+      final glowInflate = (4.0 + importance * 8.0) * inverseScale * monBoost;
       _softGlowPaint.color = color.withValues(
-          alpha: (0.10 + importance * 0.15) * fade);
+          alpha: (0.10 + importance * 0.15 + (isMonument ? 0.08 : 0.0)) * fade);
       canvas.drawRRect(
         RRect.fromRectAndRadius(nodeRect.inflate(glowInflate), cornerRadius),
         _softGlowPaint,
@@ -4025,8 +4506,12 @@ class KnowledgeFlowPainter extends CustomPainter {
 
       // ── 5. Connection glow ring ──
       if (connCount >= 2) {
-        final glowPulse = math.sin(animationTime * 2.0 + connCount * 0.5)
-            * 0.5 + 0.5;
+        // Fix 6: per-cluster phase shift so two neighbouring clusters
+        // never pulse in sync. `% 628 / 100` → 0..6.28 rad ≈ 0..2π.
+        final clusterPhase = (cluster.id.hashCode % 628) / 100.0;
+        final glowPulse =
+            math.sin(animationTime * 2.0 + connCount * 0.5 + clusterPhase)
+                * 0.5 + 0.5;
         _softGlowPaint.color = color.withValues(
           alpha: (0.06 + glowPulse * 0.05) * fade,
         );
@@ -4103,7 +4588,14 @@ class KnowledgeFlowPainter extends CustomPainter {
           text: TextSpan(
             text: displayTitle,
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.92 * fade * titleOpacity),
+              // 🔧 2026-05-18 readability fix: alpha is `0.95 * titleOpacity`
+              // (no `fade` multiplier). Matches the bar-background change a
+              // few lines above — the whole `_paintSemanticNodes` pass is
+              // gated by `semanticFade > 0.01` upstream, so we don't need
+              // to smoothly fade individual atoms. Keeping alpha high
+              // ensures white-on-dark-navy contrast stays > 7:1 even during
+              // the god-view crossfade window.
+              color: Colors.white.withValues(alpha: 0.95 * titleOpacity),
               fontSize: 12.0,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.2,
@@ -4134,21 +4626,38 @@ class KnowledgeFlowPainter extends CustomPainter {
       );
       final barRRect = RRect.fromRectAndRadius(barRect, cornerRadius);
 
-      // Bar background — frosted dark
-      // 🚀 PERF: Color.lerp once, withValues once
+      // Bar background — solid dark, contrast-floor.
+      //
+      // 🔧 2026-05-18 readability fix: previous formula
+      //   `Color.lerp(color, #0D1117, 0.75).withValues(alpha: 0.85 * fade)`
+      // produced a low-contrast bar at dezoom: when `fade` drops to ~0.6
+      // during the god-view crossfade (scale 0.13→0.10), bar effective
+      // alpha falls to 0.51 → bar washes out to mid-gray when composed
+      // over the white paper, and white title text at 0.92*0.6=0.55
+      // alpha becomes nearly invisible (contrast ratio ~2:1).
+      //
+      // New formula:
+      //  • Solid dark navy independent of cluster colour (no lerp with a
+      //    pastel that washes out at low alpha).
+      //  • Alpha floored at 0.85 — independent of `fade`. The whole
+      //    `_paintSemanticNodes` pass is already gated by
+      //    `semanticFade > 0.01` at the caller (knowledge_flow_painter
+      //    line 388), so the entire card disappears wholesale below
+      //    that threshold; we don't need to fade the bar smoothly to
+      //    achieve the god-view transition.
       _p
         ..style = PaintingStyle.fill
         ..shader = null
         ..maskFilter = null
-        ..color = Color.lerp(color, const Color(0xFF0D1117), 0.75)!
-            .withValues(alpha: 0.85 * fade);
+        ..color = const Color(0xFF1A2230).withValues(alpha: 0.92);
       canvas.drawRRect(barRRect, _p);
 
-      // Bar border
+      // Bar border — kept tied to cluster colour for identity, but with
+      // a higher floor so the seam against the body stays visible.
       _p
         ..style = PaintingStyle.stroke
         ..strokeWidth = 0.6
-        ..color = color.withValues(alpha: 0.30 * fade);
+        ..color = color.withValues(alpha: 0.55);
       canvas.drawRRect(barRRect, _p);
 
       // ── Paint icon + title inside bar ──
@@ -4165,7 +4674,8 @@ class KnowledgeFlowPainter extends CustomPainter {
         iconTp = TextPainter(
           text: TextSpan(text: icon, style: TextStyle(
             fontSize: 10.0, height: 1.0,
-            color: Colors.white.withValues(alpha: 0.70 * fade),
+            // 🔧 2026-05-18: removed `* fade` (see title-text comment).
+            color: Colors.white.withValues(alpha: 0.80),
           )),
           textDirection: TextDirection.ltr,
         )..layout();
@@ -4195,8 +4705,10 @@ class KnowledgeFlowPainter extends CustomPainter {
             text: TextSpan(
               text: previousTitle,
               style: TextStyle(
+                // 🔧 2026-05-18: removed `* fade` for the same contrast
+                // reason as the current-title text above.
                 color: Colors.white.withValues(
-                    alpha: 0.85 * fade * (1.0 - titleOpacity)),
+                    alpha: 0.85 * (1.0 - titleOpacity)),
                 fontSize: 12.0,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.2,
@@ -4216,30 +4728,11 @@ class KnowledgeFlowPainter extends CustomPainter {
         ));
       }
 
-      // ⭐ Star badge for top-20%
-      if (isTopNode) {
-        _softGlowPaint.color = const Color(0xFFFFD700).withValues(
-            alpha: 0.20 * fade);
-        final starPos = Offset(barRect.right - 12, barCenter.dy);
-        canvas.drawCircle(starPos, 7.0, _softGlowPaint);
-
-        const starKey = '__star_badge__';
-        var starTp = _cachedTitlePainters[starKey];
-        if (starTp == null) {
-          starTp = TextPainter(
-            text: const TextSpan(
-              text: '⭐',
-              style: TextStyle(fontSize: 9.0),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-          _cachedTitlePainters[starKey] = starTp;
-        }
-        starTp.paint(canvas, Offset(
-          starPos.dx - starTp.width / 2,
-          starPos.dy - starTp.height / 2,
-        ));
-      }
+      // 2026-05-17: ⭐ star badge for top-20% importance rimosso. Stesso
+      // ragionamento delle golden shimmer particles: senza affordance
+      // esplicativa, l'utente vede "stelline gialle" e non capisce.
+      // L'importance dei cluster è già comunicata via node padding +
+      // glow boost (importance-modulated) — niente badge esplicito.
 
       canvas.restore();
 
@@ -4291,11 +4784,17 @@ class KnowledgeFlowPainter extends CustomPainter {
         .withValues(alpha: 0.80 * fade);
     final pillBorderColor = color.withValues(alpha: 0.35 * fade);
 
+    // 2026-05-17: i pill stat sono renderizzati con `canvas.scale(badgeScale)`
+    // attorno al loro centro (badgeScale ≈ 2.75× a scale 0.20), quindi le
+    // larghezze "visibili" sono pillW * badgeScale. L'avanzamento X deve
+    // usare la larghezza scalata, altrimenti pill adiacenti si sovrappongono.
     final badgeSpacing = 6.0 * inverseScale;
     // 🚀 PERF: Measure using cached TextPainters
     double totalW = 0;
-    final widths = <double>[];
-    final heights = <double>[];
+    final widths = <double>[]; // scaled (visible) widths
+    final heights = <double>[]; // scaled (visible) heights
+    final pillWsUnscaled = <double>[]; // raw pillW for RRect draw
+    final pillHsUnscaled = <double>[];
     final painters = <TextPainter>[];
 
     for (final badge in badges) {
@@ -4319,9 +4818,11 @@ class KnowledgeFlowPainter extends CustomPainter {
       final pillW = tp.width + 10;
       final pillH = tp.height + 6;
       painters.add(tp);
-      widths.add(pillW);
-      heights.add(pillH);
-      totalW += pillW;
+      pillWsUnscaled.add(pillW);
+      pillHsUnscaled.add(pillH);
+      widths.add(pillW * badgeScale);
+      heights.add(pillH * badgeScale);
+      totalW += pillW * badgeScale;
     }
     totalW += (painters.length - 1) * badgeSpacing;
 
@@ -4329,9 +4830,14 @@ class KnowledgeFlowPainter extends CustomPainter {
     final y = nodeRect.bottom + 6.0 * inverseScale;
 
     for (int i = 0; i < painters.length; i++) {
-      final pillW = widths[i];
-      final pillH = heights[i];
-      final badgeCenter = Offset(x + pillW / 2, y + pillH / 2);
+      final visibleW = widths[i]; // pillW * badgeScale
+      final visibleH = heights[i];
+      final pillW = pillWsUnscaled[i];
+      final pillH = pillHsUnscaled[i];
+      // Posiziona il pill nello spazio "visibile" (scalato), poi applica
+      // canvas.scale(badgeScale) attorno al suo centro per disegnare i
+      // contenuti raw a dimensione corretta.
+      final badgeCenter = Offset(x + visibleW / 2, y + visibleH / 2);
 
       canvas.save();
       canvas.translate(badgeCenter.dx, badgeCenter.dy);
@@ -4361,7 +4867,7 @@ class KnowledgeFlowPainter extends CustomPainter {
       ));
 
       canvas.restore();
-      x += pillW + badgeSpacing;
+      x += visibleW + badgeSpacing;
     }
   }
 
@@ -4723,6 +5229,9 @@ class KnowledgeFlowPainter extends CustomPainter {
         semanticMorphProgress != oldDelegate.semanticMorphProgress ||
         flightProgress != oldDelegate.flightProgress ||
         flightSourceClusterId != oldDelegate.flightSourceClusterId ||
-        landingPulseProgress != oldDelegate.landingPulseProgress;
+        landingPulseProgress != oldDelegate.landingPulseProgress ||
+        // FSRS stage propagation: identity check (cluster screen rebuilds
+        // the map only on signature change in `_fsrsClusterStageList`).
+        !identical(clusterStages, oldDelegate.clusterStages);
   }
 }
