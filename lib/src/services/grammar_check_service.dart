@@ -920,12 +920,33 @@ class _ItalianAvereEssereRule extends _GrammarRule {
 // █████████████████████████████████████████████████████████████████████████████
 
 /// Uses bigram data from the dictionary to flag unlikely word pairs.
+///
+/// Default OFF (Stage 3, 2026-05-19) — Brown+Reuters corpora are 1960s-80s
+/// news/literature and miss modern STEM/tech vocab ("machine learning",
+/// "neural network", ...), so the false-positive rate on a 2026 study app
+/// is unknown until device-tested. Flip [enableBigramRule] when the
+/// telemetry says the rule is more right than wrong.
 class _BigramContextRule extends _GrammarRule {
+  /// Master toggle — gates the entire bigram rule on/off without
+  /// touching the registration list.
+  static bool enableBigramRule = false;
+
+  /// Recalibrated thresholds (Stage 3): only fire when ALL hold —
+  ///   1. the top alternative is *strongly* attested (≥ kTopMinFreq)
+  ///   2. the user's pair is materially rarer (ratio ≥ kRatio)
+  ///   3. the user's pair is itself rare in absolute terms (< kPairMaxFreq)
+  /// These bounds suppress the "any rare-but-valid bigram fires" failure
+  /// mode the old `topFreq > 0 && actualFreq == 0` check produced.
+  static const int kTopMinFreq = 50;
+  static const int kPairMaxFreq = 10;
+  static const int kRatio = 20;
+
   @override String get id => 'bigram_context';
   @override Set<DictLanguage> get languages => const {};
 
   @override
   List<GrammarError> check(String text, DictLanguage lang) {
+    if (!enableBigramRule) return const [];
     final errors = <GrammarError>[];
     final dict = WordCompletionDictionary.instance;
     final words = text.split(RegExp(r'\s+'));
@@ -940,14 +961,15 @@ class _BigramContextRule extends _GrammarRule {
         continue;
       }
 
-      // Check if the bigram exists and get next-word suggestions
       final suggestions = dict.getContextSuggestions(w1, limit: 3);
       if (suggestions.isNotEmpty && dict.isValidWord(w2)) {
-        // Only flag if w2 is NOT in the top bigram continuations
-        // and a much better continuation exists (frequency ratio > 5x)
         final topFreq = dict.bigramFrequency(w1, suggestions.first);
         final actualFreq = dict.bigramFrequency(w1, w2);
-        if (topFreq > 0 && actualFreq == 0 && suggestions.first != w2.toLowerCase()) {
+        final fires = topFreq >= kTopMinFreq &&
+            actualFreq < kPairMaxFreq &&
+            topFreq >= actualFreq * kRatio &&
+            suggestions.first != w2.toLowerCase();
+        if (fires) {
           final startIdx = offset + words[i].length + 1;
           final endIdx = startIdx + words[i + 1].length;
           if (startIdx < text.length && endIdx <= text.length) {

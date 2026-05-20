@@ -35,6 +35,8 @@ import 'package:flutter/services.dart' show rootBundle;
 // ignore: unused_import — used by compute()
 import 'package:path_provider/path_provider.dart';
 
+import 'dict_entry.dart';
+import 'personal_dictionary_service.dart';
 import 'dictionaries/en.dart';
 import 'dictionaries/it.dart';
 import 'dictionaries/es.dart';
@@ -308,6 +310,26 @@ class WordCompletionDictionary {
   /// Languages that have been expanded from assets.
   final Set<DictLanguage> _assetLoaded = {};
 
+  /// 📖 Per-word metadata sidecar populated by the TSV asset path.
+  /// Key = lowercase word. Only languages whose asset is shipped as `.tsv`
+  /// (Stage 1: EN only) get entries here; queries fall back to a synthetic
+  /// `DictEntry` derived from the Trie when an entry is missing.
+  final Map<String, DictEntry> _metadata = {};
+
+  /// 📊 Bigram counts: `_bigramCounts[w1][w2] = count`. Loaded lazily from
+  /// `<lang>.bigrams.tsv` on the first call to [bigramFrequency] or
+  /// [getContextSuggestions]. Stage 3: EN only, ~100k pairs ≈ 3 MB RAM.
+  /// Empty map = "asset absent" → both bigram APIs degrade to the static
+  /// `_bigrams` seed table below.
+  final Map<String, Map<String, int>> _bigramCounts = {};
+  bool _bigramCountsLoadStarted = false;
+
+  /// 🔤 Multi-word expressions: `_phrases[phrase] = domains`. Loaded lazily
+  /// from `<lang>.phrases.tsv` on the first call to [isKnownPhrase] or
+  /// [phraseDomains]. Stage 6: EN only, ~15k phrases. Empty = asset absent.
+  final Map<String, List<String>> _phrases = {};
+  bool _phrasesLoadStarted = false;
+
   /// Last access time per language (for lazy unload).
   final Map<DictLanguage, int> _lastAccess = {};
 
@@ -461,6 +483,64 @@ class WordCompletionDictionary {
     if (_language != prev) _invalidateCache();
   }
 
+  // ── 🧪 Test seam ──────────────────────────────────────────────────────
+
+  /// Replace the active language's trie + metadata with an arbitrary word
+  /// set. For unit tests that need a hermetic dictionary without hitting
+  /// `rootBundle` (Flutter test env can't ship asset bundles synchronously).
+  ///
+  /// Bypasses asset loading entirely: the trie returned by [_trie] for
+  /// [langCode] will contain exactly [words] until the test resets state.
+  /// Callers should pair this with [resetForTesting] in `setUp`.
+  @visibleForTesting
+  void seedForTesting({String langCode = 'en', required Set<String> words}) {
+    setLanguageFromCode(langCode);
+    final trie = _Trie();
+    for (final w in words) {
+      trie.insert(w.toLowerCase());
+    }
+    _trieCache[_language] = trie;
+    _assetLoaded.add(_language); // suppress the background asset load
+    _invalidateCache();
+  }
+
+  /// Clear all test-seeded state so the next test starts hermetic.
+  @visibleForTesting
+  void resetForTesting() {
+    _trieCache.clear();
+    _assetLoaded.clear();
+    _metadata.clear();
+    _bigramCounts.clear();
+    _bigramCountsLoadStarted = false;
+    _phrases.clear();
+    _phrasesLoadStarted = false;
+    _learned.clear();
+    _canvasContext.clear();
+    _lastAccess.clear();
+    _prevWord1 = null;
+    _prevWord2 = null;
+    _language = DictLanguage.en;
+    _invalidateCache();
+  }
+
+  /// Test seam: inject bigram counts without hitting the asset bundle.
+  @visibleForTesting
+  void seedBigramsForTesting(Map<String, Map<String, int>> counts) {
+    _bigramCounts
+      ..clear()
+      ..addAll(counts);
+    _bigramCountsLoadStarted = true; // suppress lazy load
+  }
+
+  /// Test seam: inject multi-word expressions without hitting the bundle.
+  @visibleForTesting
+  void seedPhrasesForTesting(Map<String, List<String>> phrases) {
+    _phrases
+      ..clear()
+      ..addAll(phrases);
+    _phrasesLoadStarted = true; // suppress lazy load
+  }
+
   // ── Trie access (lazy build + lazy unload) ────────────────────────────
 
   _Trie get _trie {
@@ -543,20 +623,85 @@ class WordCompletionDictionary {
   };
 
   /// 🧵 Load expanded word list from bundled asset on an isolate.
+  ///
+  /// Tries the rich 9-column TSV first (built by `tool/dict/`); falls back
+  /// to the legacy flat `.txt` when the TSV is absent (Stage 1 ships EN only).
   void _loadAssetDict(DictLanguage lang, _Trie trie) {
     final code = _langCodes[lang] ?? 'en';
-    rootBundle.loadString('packages/fluera_engine/assets/dictionaries/$code.txt').then((data) {
-      // Parse on isolate to avoid main thread jank with 25k words
-      compute(_parseWordList, data).then((words) {
-        for (final word in words) {
-          trie.insert(word);
+    final tsvPath = 'packages/fluera_engine/assets/dictionaries/$code.tsv';
+    final txtPath = 'packages/fluera_engine/assets/dictionaries/$code.txt';
+
+    rootBundle.loadString(tsvPath).then((data) {
+      compute(parseDictTsv, data).then((rows) {
+        for (final r in rows) {
+          // Higher freq_rank means a LESS common word — invert so the Trie's
+          // priority DFS surfaces high-frequency completions first.
+          final priority = math.max(1, 1000000 - r.freqRank);
+          trie.insert(r.word, frequency: priority);
+          _metadata[r.word] = DictEntry(
+            word: r.word,
+            freqRank: r.freqRank,
+            pos: r.pos,
+            domains: List<String>.unmodifiable(r.domains),
+            root: r.root,
+            cefr: cefrFromString(r.cefrRaw),
+            concreteness: r.concrete,
+            aoa: r.aoa,
+            flags: Set<String>.unmodifiable(r.flags),
+          );
         }
         _assetLoaded.add(lang);
         _invalidateCache();
-        debugPrint('[Dictionary] 📦 Loaded ${words.length} asset words for $code (isolate)');
+        debugPrint('[Dictionary] 📖 Loaded ${rows.length} TSV entries for $code (isolate)');
       });
-    }).catchError((e) {
-      _assetLoaded.add(lang);
+    }).catchError((_) {
+      // Fallback: legacy flat .txt (one word per line).
+      rootBundle.loadString(txtPath).then((data) {
+        compute(_parseWordList, data).then((words) {
+          for (final word in words) {
+            trie.insert(word);
+          }
+          _assetLoaded.add(lang);
+          _invalidateCache();
+          debugPrint('[Dictionary] 📦 Loaded ${words.length} asset words for $code (isolate, legacy)');
+        });
+      }).catchError((e) {
+        _assetLoaded.add(lang);
+      });
+    });
+  }
+
+  /// Lazy-load the bigrams asset for the active language. Idempotent —
+  /// only the first call kicks off the rootBundle read.
+  void _ensureBigramsLoaded() {
+    if (_bigramCountsLoadStarted) return;
+    _bigramCountsLoadStarted = true;
+    final code = _langCodes[_language] ?? 'en';
+    final path = 'packages/fluera_engine/assets/dictionaries/$code.bigrams.tsv';
+    rootBundle.loadString(path).then((data) {
+      compute(_parseBigramsTsv, data).then((parsed) {
+        _bigramCounts.addAll(parsed);
+        debugPrint('[Dictionary] 📊 Loaded ${parsed.length} bigram heads for $code');
+      });
+    }).catchError((_) {
+      // Asset absent for this language → stay degraded on the seed map.
+    });
+  }
+
+  /// Lazy-load the multi-word expressions asset for the active language.
+  /// Idempotent — only the first call triggers the rootBundle read.
+  void _ensurePhrasesLoaded() {
+    if (_phrasesLoadStarted) return;
+    _phrasesLoadStarted = true;
+    final code = _langCodes[_language] ?? 'en';
+    final path = 'packages/fluera_engine/assets/dictionaries/$code.phrases.tsv';
+    rootBundle.loadString(path).then((data) {
+      compute(parsePhrasesTsv, data).then((parsed) {
+        _phrases.addAll(parsed);
+        debugPrint('[Dictionary] 🔤 Loaded ${parsed.length} phrases for $code');
+      });
+    }).catchError((_) {
+      // Asset absent for this language → phrase APIs stay empty.
     });
   }
 
@@ -570,6 +715,27 @@ class WordCompletionDictionary {
       }
     }
     return words;
+  }
+
+  /// Isolate-safe bigram TSV parser. Skips `#` comments + header row;
+  /// returns `{w1: {w2: count}}` keyed by first word.
+  static Map<String, Map<String, int>> _parseBigramsTsv(String data) {
+    final out = <String, Map<String, int>>{};
+    bool headerSeen = false;
+    for (final raw in data.split('\n')) {
+      if (raw.isEmpty) continue;
+      if (raw.startsWith('#')) continue;
+      if (!headerSeen) {
+        headerSeen = true;
+        continue;
+      }
+      final cells = raw.split('\t');
+      if (cells.length != 3) continue;
+      final count = int.tryParse(cells[2]);
+      if (count == null || count < 1) continue;
+      out.putIfAbsent(cells[0], () => <String, int>{})[cells[1]] = count;
+    }
+    return out;
   }
 
   List<String> get _rawWords {
@@ -691,31 +857,50 @@ class WordCompletionDictionary {
     _prevWord1 = word?.toLowerCase();
   }
 
-  /// Get context-based word suggestions using bigram data.
-  /// Returns the most likely next words after [previousWord].
-  /// Returns empty list if no bigram data is available.
+  /// Get context-based word suggestions using bigram data. Returns the
+  /// most likely next words after [previousWord], top successors first.
+  ///
+  /// Resolution order:
+  ///   1. Asset-derived bigrams (`_bigramCounts`, top-100k from Brown +
+  ///      Reuters) — sorted by descending count.
+  ///   2. Static seed table (`_bigrams`) for high-confidence multilingual
+  ///      idioms — used as backfill when the asset is absent or returns
+  ///      fewer than [limit] suggestions.
   List<String> getContextSuggestions(String previousWord, {int limit = 3}) {
-    // Bigram data will be populated from frequency analysis.
-    // For now, use learned word pairs from history.
+    _ensureBigramsLoaded();
     final lower = previousWord.toLowerCase();
     final results = <String>[];
 
-    // Use _prevWord tracking: if the previous word matches,
-    // suggest words that commonly follow it in the learned data.
-    for (final word in _learned.keys) {
-      if (results.length >= limit) break;
-      if (word != lower) results.add(word);
+    final successors = _bigramCounts[lower];
+    if (successors != null && successors.isNotEmpty) {
+      final sorted = successors.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      for (final e in sorted) {
+        if (results.length >= limit) break;
+        results.add(e.key);
+      }
+    }
+
+    // Backfill with the static seed table when the asset path didn't
+    // cover the prompt (e.g., language other than EN, or a head term
+    // below the top-100k Brown+Reuters cut).
+    if (results.length < limit) {
+      final seed = _bigrams[lower];
+      if (seed != null) {
+        for (final w in seed) {
+          if (results.length >= limit) break;
+          if (!results.contains(w)) results.add(w);
+        }
+      }
     }
     return results;
   }
 
-  /// Get the frequency of a word pair (bigram).
-  /// Returns 0 if no bigram data is available.
+  /// Get the frequency of a word pair. Returns 0 when no bigram data is
+  /// loaded for this pair (asset missing, head term below cutoff, etc.).
   int bigramFrequency(String word1, String word2) {
-    // Bigram frequency data can be populated from corpus analysis.
-    // For now, return 0 (no data) which makes the bigram rule
-    // effectively a no-op until bigram data is loaded.
-    return 0;
+    _ensureBigramsLoaded();
+    return _bigramCounts[word1.toLowerCase()]?[word2.toLowerCase()] ?? 0;
   }
 
   /// Get effective frequency with temporal decay.
@@ -1573,6 +1758,70 @@ class WordCompletionDictionary {
     }
     return false;
   }
+
+  // ── 📖 Metadata API (Stage 1: EN only) ───────────────────────────────
+  //
+  // Backed by the per-word sidecar populated when an `<lang>.tsv` asset is
+  // present. For languages still on the legacy `.txt` path the map is
+  // empty and every accessor returns `null`/empty — consumers should treat
+  // metadata as a best-effort hint, never as a hard precondition.
+
+  /// Full per-word record from the bundled dictionary asset; falls back
+  /// to a synthetic entry from [PersonalDictionaryService] when the word
+  /// is user-added but not shipped. Returns `null` only when the word is
+  /// in neither the bundled TSV nor the personal dictionary.
+  DictEntry? lookUp(String word) {
+    final lower = word.toLowerCase().trim();
+    final fromAsset = _metadata[lower];
+    if (fromAsset != null) return fromAsset;
+    return PersonalDictionaryService.instance.lookUp(lower);
+  }
+
+  /// Domains the word belongs to (`med`, `law`, `stem`, ...). Empty when
+  /// untagged or unknown.
+  Set<String> domains(String word) {
+    final e = lookUp(word);
+    return e == null ? const {} : Set<String>.unmodifiable(e.domains);
+  }
+
+  /// Inflectional root of the word, or `null` when the word is itself the
+  /// root (or unknown).
+  String? root(String word) => lookUp(word)?.root;
+
+  /// CEFR scaffolding level, or `null` when unknown.
+  CefrLevel? cefr(String word) => lookUp(word)?.cefr;
+
+  /// Concreteness rating 1.0–5.0 (Brysbaert 2014), or `null` when unknown.
+  double? concreteness(String word) => lookUp(word)?.concreteness;
+
+  /// Average age of acquisition in years (Kuperman 2012), or `null`.
+  double? aoa(String word) => lookUp(word)?.aoa;
+
+  /// True when the word carries a flag UI may want to hide from
+  /// autocomplete suggestions (`prof`, `slur`, `sexual`). Returns false
+  /// when the word is unknown or untagged.
+  bool isProfane(String word) => lookUp(word)?.isProfane ?? false;
+
+  // ── 🔤 Multi-word expression API (Stage 6: EN only) ───────────────────
+
+  /// True when [phrase] is a known multi-word expression ("machine
+  /// learning", "in vivo", "burden of proof"). Whitespace-insensitive at
+  /// the edges, case-insensitive. Loaded lazily from `<lang>.phrases.tsv`.
+  bool isKnownPhrase(String phrase) {
+    _ensurePhrasesLoaded();
+    return _phrases.containsKey(_normalizePhrase(phrase));
+  }
+
+  /// Vocabulary domains a known phrase belongs to (`med`, `law`, ...).
+  /// Empty when the phrase is untagged or unknown.
+  Set<String> phraseDomains(String phrase) {
+    _ensurePhrasesLoaded();
+    final d = _phrases[_normalizePhrase(phrase)];
+    return d == null ? const {} : Set<String>.unmodifiable(d);
+  }
+
+  static String _normalizePhrase(String phrase) =>
+      phrase.toLowerCase().trim().replaceAll(RegExp(r'\s+'), ' ');
 
   // ── 🔍 Spellcheck API ────────────────────────────────────────────────
 

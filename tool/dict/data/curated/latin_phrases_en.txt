@@ -1,0 +1,73 @@
+# Latin / academic multi-word expressions for en.phrases.tsv (kind=latin).
+# Factual list authored for Fluera; no third-party dataset.
+# One phrase per line, lowercase. '#' comments and blank lines ignored.
+
+in vivo
+in vitro
+in situ
+in silico
+in absentia
+in extremis
+in memoriam
+in toto
+ex post
+ex ante
+ex post facto
+ex officio
+ex gratia
+a priori
+a posteriori
+ad hoc
+ad hominem
+ad infinitum
+ad nauseam
+ad interim
+et al
+et cetera
+et alia
+de facto
+de jure
+de novo
+per se
+per capita
+per annum
+per diem
+per cent
+status quo
+quid pro quo
+vice versa
+prima facie
+bona fide
+mala fide
+mea culpa
+ipso facto
+modus operandi
+modus vivendi
+non sequitur
+sine qua non
+sine die
+terra firma
+alma mater
+curriculum vitae
+habeas corpus
+corpus delicti
+corpus callosum
+mens rea
+actus reus
+pro bono
+pro rata
+pro tempore
+pro forma
+sui generis
+caveat emptor
+ceteris paribus
+post mortem
+ante meridiem
+post meridiem
+carpe diem
+cogito ergo sum
+tabula rasa
+verbatim et literatim
+nota bene
+circa
+versus

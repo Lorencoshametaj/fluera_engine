@@ -1,0 +1,8 @@
+# Force-include list — words that MUST be present in en.tsv even if absent
+# from (or low-frequency in) SUBTLEX-US.
+#
+# Stage 1: closes the single-letter function-word gap that breaks spellcheck
+# and language detection ("I am a student" produces 2 false positives today).
+
+a
+i

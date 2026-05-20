@@ -1,0 +1,18 @@
+# Force-exclude list — words that must NEVER appear in en.tsv.
+#
+# Stage 1: the 11 homoglyph entries discovered in legacy en.txt (Greek
+# omicron U+03BF / eta U+03B7 disguised as Latin o/h). The normalize step
+# already maps them to their Latin form; this list is a defense-in-depth
+# guard in case the upstream source ever ships them again unmapped.
+
+οf
+οn
+nο
+nοt
+tο
+yοu
+fοr
+knοw
+dο
+dοn
+ηe

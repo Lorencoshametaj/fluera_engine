@@ -1,0 +1,12 @@
+# Slur override list — words from `data/raw/ldnoobw_en.txt` that should be
+# tagged `flags=slur` rather than the default `flags=prof`. UI surface
+# layers (autocomplete, suggestion sheets) hide `slur` by default; the
+# spellcheck still validates them (so an EDU/sensitive-context author who
+# *intentionally* writes a slur — e.g. in a history note — doesn't get a
+# false "misspelled" flag).
+#
+# Stage 2 ships this empty by design — slur subdivision is editorial
+# content that needs single-pass human curation, not a default Anthropic
+# could safely pre-fill. Lorenco populates this file as a follow-up.
+#
+# Format: one lowercase slur per line. '#' comments allowed.

@@ -1,0 +1,55 @@
+{
+  "assets": {
+    "en.bigrams.tsv": {
+      "rows": 100000,
+      "sha256": "9355cac7c9a1058e94a229d9cc0f40e0b42efee9c733363973257078c46f0b32"
+    },
+    "en.phrases.tsv": {
+      "rows": 15501,
+      "sha256": "fbbf5185bf722d7d63a39380eefa36f18f85fc8cd2fa8be74a72cc4610c38621"
+    },
+    "en.tsv": {
+      "rows": 54988,
+      "sha256": "dc1385f804beac7d7c769a7f55e6a6a6eefaa6548d7dd06b8c32830e043ab35f"
+    }
+  },
+  "built": "2026-05-20",
+  "column_provenance": {
+    "aoa": "model-estimated (Claude) \u2014 top-15k words only",
+    "cefr": "cefrpy, lemma-lookup + frequency-capped",
+    "concrete": "model-estimated (Claude) \u2014 top-15k words only",
+    "domains": "MeSH 2025 (med), US Courts glossary (law), curated term lists (stem/cs/fin)",
+    "flags": "mostly derived (proper from pos, inflected from root, contraction from apostrophe); prof/slur/sexual from LDNOOBW",
+    "freq_rank": "wordfreq",
+    "pos": "WordNet 3.0, with spaCy fallback + curated function-word table",
+    "root": "LemmInflect (WordNet-validated)",
+    "word": "wordfreq"
+  },
+  "columns": [
+    "word",
+    "freq_rank",
+    "pos",
+    "domains",
+    "root",
+    "cefr",
+    "concrete",
+    "aoa",
+    "flags"
+  ],
+  "empty_sentinel": "-",
+  "language": "en",
+  "schema_version": 2,
+  "sources": {
+    "LDNOOBW": "Shutterstock, CC BY 4.0 \u2014 source for the prof/slur/sexual flags only (a small minority of the flags column)",
+    "LemmInflect": "MIT",
+    "MeSH 2025": "US National Library of Medicine, public domain (US Government work)",
+    "US Courts glossary": "Administrative Office of the US Courts, public domain (US Government work)",
+    "WikiText-103": "Salesforce / Wikipedia contributors, CC BY-SA (bigrams source)",
+    "WordNet 3.0": "Princeton \u2014 'any purpose' licence, attribution required",
+    "cefrpy": "Bielikov 2024, MIT",
+    "concrete/aoa ratings": "model-estimated (Claude), original generated data \u2014 NOT the Brysbaert/Kuperman empirical datasets",
+    "curated term lists": "STEM/CS/Finance + Latin phrases \u2014 factual word lists authored for Fluera, no third-party licence",
+    "spaCy en_core_web_sm": "Explosion AI, MIT (build-time POS fallback)",
+    "wordfreq": "Robyn Speer 2022, Apache-2.0 code + CC BY-SA 4.0 data (bundles SUBTLEX-US with explicit commercial permission from Marc Brysbaert via wordfreq NOTICE.md)"
+  }
+}

@@ -1,0 +1,40 @@
+[project]
+name = "fluera-dict"
+version = "0.2.0"
+description = "Build pipeline for the Fluera English dictionary assets (en.tsv / en.phrases.tsv / en.bigrams.tsv)"
+requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31",
+  # WordNet POS + Gutenberg PD bigram corpus. Apache 2.0 code; data
+  # corpora downloaded on first use via `nltk.download(...)`.
+  "nltk>=3.8",
+  # Inflectional root extraction. MIT.
+  "lemminflect>=0.2.3",
+  # CEFR level lookup. MIT, bundles its own English level data.
+  "cefrpy>=1.0",
+  # English word frequencies. Apache-2.0 code, CC BY-SA 4.0 data with
+  # explicit commercial permission for the bundled SUBTLEX wordlists
+  # (see wordfreq NOTICE.md).
+  "wordfreq>=3.0",
+  # spaCy POS fallback for words WordNet doesn't cover. The model
+  # `en_core_web_sm` is installed separately via
+  # `python -m spacy download en_core_web_sm`. spaCy: MIT.
+  "spacy>=3.7",
+]
+
+[project.optional-dependencies]
+# Test suite: `pip install -e '.[dev]'` then `python -m pytest tests/`.
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+fluera-dict = "fluera_dict.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fluera_dict*"]

@@ -107,8 +107,10 @@ class SpellcheckService {
 
       // Validate against dictionary
       if (!WordCompletionDictionary.instance.isValidWord(word)) {
-        final suggestions = WordCompletionDictionary.instance
-            .suggestCorrections(word, maxResults: 3);
+        final suggestions = _safeSuggestions(
+          WordCompletionDictionary.instance.suggestCorrections(word, maxResults: 6),
+          max: 3,
+        );
         errors.add(SpellcheckError(
           word: word,
           startIndex: match.start,
@@ -174,7 +176,10 @@ class SpellcheckService {
           // Check loanwords
           if (_isCommonLoanword(word)) continue;
 
-          final suggestions = dict.suggestCorrections(word, maxResults: 3);
+          final suggestions = _safeSuggestions(
+            dict.suggestCorrections(word, maxResults: 6),
+            max: 3,
+          );
           errors.add(SpellcheckError(
             word: word,
             startIndex: absStart,
@@ -186,6 +191,31 @@ class SpellcheckService {
     }
 
     return SpellcheckResult(text: text, errors: errors);
+  }
+
+  /// Strip suggestions tagged `slur` / `sexual` from a candidate list and
+  /// truncate to [max]. Words flagged `prof` (general profanity) remain —
+  /// hiding them by default would suppress reasonable corrections like
+  /// "ass" → "as" in dictated text. `slur` and `sexual` are filtered out
+  /// unconditionally on the suggestion surface (the dict still validates
+  /// them so an intentional usage doesn't get flagged as misspelled).
+  ///
+  /// The dict is a singleton; the active language is whatever the caller
+  /// has set, so this filter follows it implicitly.
+  List<String> _safeSuggestions(List<String> raw, {required int max}) {
+    final dict = WordCompletionDictionary.instance;
+    final out = <String>[];
+    for (final s in raw) {
+      final entry = dict.lookUp(s);
+      if (entry != null) {
+        if (entry.flags.contains('slur') || entry.flags.contains('sexual')) {
+          continue;
+        }
+      }
+      out.add(s);
+      if (out.length >= max) break;
+    }
+    return out;
   }
 
   /// Check if a word is a common loanword (used across many languages).

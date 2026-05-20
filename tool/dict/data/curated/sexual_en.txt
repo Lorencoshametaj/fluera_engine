@@ -1,0 +1,9 @@
+# Sexual-content override list — words from `data/raw/ldnoobw_en.txt`
+# that should be tagged `flags=sexual` rather than `flags=prof`. UI
+# surface layers hide `sexual` by default in EDU/study contexts.
+#
+# Stage 2 ships this empty by design — same rationale as slurs_en.txt:
+# subdivision is editorial work that needs a human pass before defaults
+# get baked in.
+#
+# Format: one lowercase word per line. '#' comments allowed.
