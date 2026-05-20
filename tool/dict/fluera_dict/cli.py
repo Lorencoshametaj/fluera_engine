@@ -41,6 +41,15 @@ def main(argv: list[str] | None = None) -> int:
     ph.add_argument("lang", choices=["en"], help="language code")
     ph.add_argument("--out", type=Path, default=None, help="output path")
 
+    lc = sub.add_parser("llm-chunks",
+                        help="split top-N words into chunk files for LLM rating")
+    lc.add_argument("lang", choices=["en"], help="language code")
+    lc.add_argument("--top-n", type=int, default=15000, help="words to rate")
+
+    la = sub.add_parser("llm-assemble",
+                        help="merge rated chunks → data/curated/llm_ratings_en.tsv")
+    la.add_argument("lang", choices=["en"], help="language code")
+
     args = p.parse_args(argv)
 
     if args.cmd == "build":
@@ -66,6 +75,15 @@ def main(argv: list[str] | None = None) -> int:
         rows = ph_mod.build_phrases()
         ph_mod.emit_phrases_tsv(rows, out_path=out, lang=args.lang,
                                 built_iso=build_mod_inner.BUILT_ISO)
+        return 0
+    if args.cmd == "llm-chunks":
+        from . import llm_ratings as lr_mod
+        en_tsv = _default_out_path(args.lang)
+        lr_mod.write_chunks(en_tsv, top_n=args.top_n)
+        return 0
+    if args.cmd == "llm-assemble":
+        from . import llm_ratings as lr_mod
+        lr_mod.assemble_ratings()
         return 0
     return 1
 

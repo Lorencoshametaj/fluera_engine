@@ -2,5 +2,8 @@
 __pycache__/
 *.egg-info/
 *.pyc
+.pytest_cache/
+# Downloaded source data + intermediate LLM-rating chunks — regenerable,
+# not committed. The frozen output (data/curated/llm_ratings_en.tsv) IS.
 data/raw/
-!data/raw/.gitkeep
+data/llm_chunks/

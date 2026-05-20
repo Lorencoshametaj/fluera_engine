@@ -5,6 +5,9 @@ Build pipeline for the Fluera dictionary assets at
 so the generator is version-controlled in the same repository as the
 assets it produces.
 
+**Full reproduction guide — including the source URLs, build order, and
+the model-estimated `concrete`/`aoa` process — is in [`BUILD.md`](BUILD.md).**
+
 ## Quickstart
 
 ```bash
